@@ -1,0 +1,33 @@
+# Runtime artifacts — jangan commit
+__pycache__/
+*.pyc
+log_screenshots/
+audit_log.csv
+.proses_*.lock
+nul
+
+# Virtual environment (kalau dipakai)
+.venv/
+venv/
+
+# Data sumber/backlog sensus — JANGAN PERNAH commit (data pribadi responden: nama, NIK, dll)
+*.csv
+
+# Sumber sheet gabungan & hasil pemeriksaannya (data pribadi responden)
+*.xlsx
+audit_log_gabungan.csv
+cek_gabungan.csv
+
+# ubah_moda.py: profil login fasih-sm (berisi sesi!), rekaman API & audit
+.profil_fasih_sm/
+log_fasih_sm/
+audit_ubah_moda.csv
+target_ubah_moda.csv
+ubah_moda_console.siap.js
+
+# reset_mitra: file siap-tempel (berisi email mitra), target & audit
+reset_mitra_console.siap.js
+target_reset_mitra.csv
+audit_reset_mitra*.csv
+dump_akun_mitra*.json
+export/
