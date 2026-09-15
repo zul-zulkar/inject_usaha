@@ -30,9 +30,20 @@ reset_mitra_console.siap.js
 target_reset_mitra.csv
 audit_reset_mitra*.csv
 dump_akun_mitra*.json
+<<<<<<< HEAD
 export/
 
 # buka_wilayah: file siap-tempel, daftar target & audit
 buka_wilayah_console.siap.js
 daftar_buka_wilayah*.txt
 audit_buka_wilayah*.csv
+=======
+export/# sinkron_list: daftar dokumen server (nama usaha, akun petugas)
+list_api_*.json
+
+# approve_pml: profil login fasih-web (berisi sesi!) & rekaman halaman
+.profil_fasih_web_*/
+.sesi_fasih_web_*.json
+log_approve/
+export/
+>>>>>>> 72632307fab0e5faeb0aa10e396e9a1fb10fef42

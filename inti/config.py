@@ -198,6 +198,11 @@ GABUNGAN_AKUN_TUNGGAL = ""
 # Satu login ±12 jam berisiko sesi SSO kedaluwarsa -> login ulang tiap N baris.
 GABUNGAN_BARIS_PER_SESI = 40
 
+# Peta batas SUBSLS Buleleng (GeoJSON, properti `idsubsls`/`nmkec`/`nmdesa`/`nmsls`,
+# periode 2025_1) — dipakai input_gabungan/rencana_ubah_wilayah.py utk memeriksa
+# apakah titik koordinat baris jatuh di subsls tujuan. Di luar repo (±15 MB).
+PETA_SLS_PATH = r"D:\innovations\raw_utp\master\final_sls_5108_2025-1.json"
+
 # 13f "Apa produk utama yang dihasilkan?" WAJIB di form, tapi TIDAK ADA
 # kolomnya di sheet gabungan (maupun sheet asalnya). True = salin teks 13a
 # apa adanya — preseden record manual 3 (KBLI 47772, sukses terkirim) yang
@@ -468,9 +473,12 @@ DK = {
     "no_hp_wa": "hp",
     "homepage": "website",
     "jenis_kawasan": "jenis_kawasan",
-    "nib": "punya_nib",                       # 10a
-    # 10b — bersyarat (10a = Ya). dataKey aslinya "nib", tapi key "nib" di
-    # dict ini sudah dipakai utk 10a — jadi dialamatkan lewat key ini.
+    "punya_nib": "punya_nib",                 # 10a
+    # 10b — bersyarat (10a = Ya). dataKey aslinya "nib". Dulu key "nib" di dict ini
+    # milik 10a -> komponen()/_komponen_wajib() me-resolve DUA KALI ("nib_nomor" ->
+    # "nib" -> "punya_nib") & 10b diketik ke radio 10a (run 2026-09-15, Agenda baris 40,
+    # "Input of type radio cannot be filled"). JANGAN buat key DK yang sama dgn nilai
+    # key lain — dikunci tests/test_fill_gabungan.py.
     "nib_nomor": "nib",
     "alasan_tanpa_nib": "tidak_nib",          # 10c — bersyarat (10a = Tidak)
     "tempat_usaha": "lokasi_usaha",           # 13c — bersyarat (muncul stlh 13b3)

@@ -142,6 +142,12 @@ check("29 dari sheet", [sess.nilai(k)[0] for k in ("pribadi", "pemerintah")], ["
 check("KBLI dari sheet", sess.nilai("kbli"), ["47772"])
 check("asumsi hanya 13f", asumsi, ["13f disalin dari 13a"])
 
+# FasihWebSession me-resolve DK lebih dari sekali (komponen/_komponen_wajib), jadi nilai
+# DK yang juga key DK lain diketik ke komponen yang SALAH (run 2026-09-15: 10b -> radio 10a).
+from inti.config import DK as _DK
+check("tidak ada rantai DK (nilai = key lain)",
+      {k: v for k, v in _DK.items() if v in _DK and _DK[v] != v}, {})
+
 # 10a = Ya -> 10b diisi lewat DK "nib_nomor" (dataKey asli "nib", BUKAN punya_nib)
 sess, _ = jalankan({"punya_nib": "1. Ya", "nib_nomor": "9999", "tidak_nib": ""}, DIRENDER_LPG | {"nib"})
 check("10b diisi ke dataKey 'nib'", (sess.nilai("nib"), sess.nilai("punya_nib")), (["9999"], ["1. Ya"]))

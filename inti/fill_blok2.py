@@ -109,7 +109,7 @@ def fill_blok2(sess: FasihWebSession, row: BacklogRow, src: SourceBlok2, kbli_na
     # di alur "Bangunan Lainnya" yg dipakai skrip ini (terverifikasi di 3
     # record manual) — sengaja tidak diisi.
 
-    sess.select_radio_by_datakey("nib", "2. Tidak")
+    sess.select_radio_by_datakey("punya_nib", "2. Tidak")
     # 10c "alasan tidak punya NIB" — bersyarat & dataKey-nya belum terpetakan.
     # Dilewati kalau tidak dirender; kalau memang wajib, akan ketahuan sbg
     # GALAT di ringkasan pra-Kirim (bukan diam-diam salah isi).
