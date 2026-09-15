@@ -67,5 +67,18 @@ check("limit & idsubsls",
   ids(m.saringTarget(T, {}, { mode: "eksekusi", lewatiSelesai: true, idsubsls: ["5108010001000303", "5108010001000302"], limit: 1 })),
   ["5108010001000302"]);
 
+// --- pindai massal: hanya bukti positif "sudah terbuka" yang dilewati ---
+const peta = {
+  "5108010001000203": { doneListing: false, doneTarikSample: false },  // Proses Listing
+  "5108010001000302": { doneListing: true, doneTarikSample: false },   // Listing Selesai
+  "5108010001000303": { doneListing: null },                            // nilai aneh
+};
+const T4 = [...T, { idsubsls: "5108090010000503" }];                    // tidak terbaca di pindai
+const bagi = m.bagiDariPindai(T4, peta);
+check("pindai: yang terbuka dilewati", ids(bagi.lewati), ["5108010001000203"]);
+check("pindai: selesai/aneh/tidak terbaca tetap diproses satu per satu",
+  ids(bagi.proses), ["5108010001000302", "5108010001000303", "5108090010000503"]);
+check("pindai gagal (peta kosong) -> semua diproses", m.bagiDariPindai(T, null).proses.length, 3);
+
 console.log(okAll ? "\nSEMUA PASS" : "\nADA YANG FAIL");
 process.exit(okAll ? 0 : 1);

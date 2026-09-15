@@ -4,8 +4,19 @@
  * fasih-sm dilindungi anti-bot (F5/TSPD), jadi di sini yang bekerja hanya tab
  * Chrome milikmu sendiri yang login normal, dgn jeda acak antar langkah.
  *
- * FILE INI TEMPLATE. Jangan ditempel langsung — buat versi berisi target:
- *     python ubah_moda.py --sumber Agenda.xlsx --console
+ * FILE INI TEMPLATE. Target dimuat dgn salah satu cara:
+ *   a) LIST KODE IDENTITAS milikmu ("5108060003000402 - UMK - 4", satu per baris):
+ *        python ganti_moda/ubah_moda.py --daftar list.xlsx --console
+ *      atau tanpa Python: tempel template ini, lalu
+ *        ubahModa.muatDaftarKode(`<tempel kolom kode identitas di sini>`)
+ *      Tiap kode diproses sendiri: KODE itu diketik di kotak "Cari...", baris
+ *      yang kodenya PERSIS sama dicentang ("…- UMK - 4" bukan "…- UMK - 41"),
+ *      "Ganti Mode (Ke PAPI) (1)", lalu kode itu dicari ulang utk verifikasi.
+ *      Opsi cakupan diabaikan. Kode yang sudah PAPI dilewati (KODE_SUDAH_PAPI),
+ *      kode yang tidak ada dilaporkan (KODE_TIDAK_ADA). Kalau hasil pencarian
+ *      kode malah berisi subsls lain -> PENCARIAN_TIDAK_MENYARING (berhenti).
+ *   b) Sheet Agenda (skrip memilih sendiri 1 CAPI per subsls):
+ *        python ganti_moda/ubah_moda.py --sumber Agenda.xlsx --console
  * -> ubah_moda_console.siap.js (berisi email PPL, sudah di .gitignore).
  *
  * CARA PAKAI
@@ -17,15 +28,16 @@
  *    https://fasih-sm.bps.go.id/app/surveys/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/data?page=1&perPage=100
  * 2. F12 -> Console -> tempel SELURUH isi ubah_moda_console.siap.js -> Enter.
  *    (Pertama kali, Chrome minta ketik: allow pasting)
- * 3. Jalankan BERTAHAP, satu perintah per langkah:
- *      await ubahModa.jalankan({mode: "petakan"})           // 1 subsls: cari & baca tabel, TANPA centang
- *      await ubahModa.jalankan({mode: "dryrun", limit: 5})  // centang, cocokkan angka menu, lepas centang
- *      await ubahModa.jalankan({mode: "manual", limit: 1})  // KAMU yang klik "Ganti Mode" + konfirmasi
- *      await ubahModa.jalankan({mode: "manual"})            // sisanya, tetap klik sendiri per subsls
- *      await ubahModa.jalankan({mode: "otomatis", sayaSudahMelihatDialog: true})  // opsional
+ * 3. Jalankan:
+ *      await ubahModa.jalankan({mode: "petakan"})             // 1 target: cari & baca tabel, TANPA centang
+ *      await ubahModa.jalankan({mode: "otomatis", limit: 3})  // skrip klik Ganti Mode + konfirmasi (ketik YA)
+ *      await ubahModa.jalankan({mode: "otomatis"})            // sisanya
+ *    Opsional: mode "dryrun" (centang, cocokkan angka menu, lepas centang — tanpa klik)
+ *    dan "manual" (KAMU yang klik Ganti Mode). Otomatis tidak mensyaratkan manual dulu.
  *    ubahModa.berhenti()      hentikan di langkah berikutnya
  *    ubahModa.ringkasan()     hitungan status
  *    ubahModa.unduh()         unduh hasil CSV (simpan sbg audit)
+ *    ubahModa.dialogTerakhir() teks & tombol dialog konfirmasi terakhir yang terlihat
  *    ubahModa.petakanFilter() READ-ONLY: rekam struktur filter Mode (lihat bawah)
  *    Opsi lain: cakupan: "satu"|"semua", idsubsls: [...],
  *    lewatiSelesai (default true), jedaMin/jedaMaks (ms).
@@ -51,8 +63,8 @@
  * - Mode "petakan" & "dryrun" TIDAK PERNAH mengklik item "Ganti Mode".
  * - Mode "manual": skrip mencari, mencentang, membuka menu & menyorot item —
  *   klik yang IRREVERSIBLE dilakukan manusia. Skrip lalu memverifikasi Mode = PAPI.
- * - Mode "otomatis" hanya bisa jalan kalau sudah ada >=1 hasil manual yang
- *   terverifikasi di browser ini DAN opsi sayaSudahMelihatDialog: true.
+ * - Mode "otomatis" (2026-09-15, tanpa syarat manual): ketik YA per batch; dialog
+ *   yang tidak menyebut PAPI/mode atau tombol konfirmasi yang ambigu -> berhenti.
  * - Batch BERHENTI SEKETIKA kalau: subsls tidak tampil di halaman hasil
  *   pencarian, kolom Mode/Petugas tidak tampil, baris yang tercentang di
  *   halaman != yang direncanakan, angka "(N)" di menu != jumlah dicentang,
@@ -80,18 +92,21 @@
   const POLA_TOMBOL_KONFIRMASI = /^\s*(ya|konfirmasi|ganti|ubah|lanjut|lanjutkan|simpan|ok|oke|proses)\b/i;
   const POLA_TOMBOL_BATAL = /batal|tutup|cancel|kembali|^\s*tidak\b/i;
 
-  const STATUS_TUNTAS_LIVE = new Set(["DIUBAH_TERVERIFIKASI", "SUDAH_ADA_PAPI", "TIDAK_ADA_CAPI"]);
+  const STATUS_TUNTAS_LIVE = new Set(["DIUBAH_TERVERIFIKASI", "SUDAH_ADA_PAPI", "TIDAK_ADA_CAPI", "KODE_SUDAH_PAPI"]);
   const STATUS_TUNTAS_DRY = new Set([...STATUS_TUNTAS_LIVE, "DRY_RUN_AKAN_DIUBAH"]);
   const STATUS_BERHENTI_SEGERA = new Set([
     "SUBSLS_TIDAK_TAMPIL", "PERLU_HALAMAN_LAIN", "KOLOM_TIDAK_ADA", "PER_PAGE_KECIL",
     "JUMLAH_TERCENTANG_BEDA", "CENTANG_TIDAK_SESUAI", "MENU_TIDAK_TERTUTUP",
     "TABEL_BERUBAH", "DIALOG_TIDAK_DIKENAL", "TOMBOL_KONFIRMASI_AMBIGU", "DIUBAH_BELUM_TERVERIFIKASI",
     "BELUM_BERUBAH", "CENTANG_GAGAL", "ITEM_MENU_TIDAK_ADA", "DIHENTIKAN_PENGGUNA",
+    "PENCARIAN_TIDAK_MENYARING", "KODE_GANDA",
   ]);
   // Tidak menghentikan batch sekali muncul (permintaan user 2026-09-14: "tetap jalankan"),
   // tapi 3x berturut-turut = masalah sistematis (akun/tampilan) -> berhenti.
   // Aman: status ini muncul SEBELUM item "Ganti Mode" bisa diklik, dan centangnya dilepas.
   const STATUS_LANJUT_TAPI_HITUNG = new Set(["TIDAK_ADA_AKSES"]);
+  // Status yang berarti item "Ganti Mode" sudah diklik (jeda panjang sesudahnya).
+  const STATUS_SETELAH_KLIK = new Set(["DIUBAH_TERVERIFIKASI", "DIUBAH_BELUM_TERVERIFIKASI", "BELUM_BERUBAH"]);
 
   class Berhenti extends Error {
     constructor(kode, pesan) {
@@ -106,6 +121,64 @@
     const m = /^\s*(\d{16})/.exec(kode || "");
     return m ? m[1] : "";
   }
+
+  // Kode identitas = teks kolom "Kode Identitas" APA ADANYA: 16 digit idsubsls, "-",
+  // lalu apa pun ("5108060029000101 - I KADEK WIRIANA / NI KADEK SUTAMI - 19 / - 0 - 2. Tidak").
+  // Terbukti 2026-09-15: kolom code_identity list user = teks sel tabel fasih-sm
+  // (10/10 cocok). Jadi TIDAK diurai/dipotong — dicari & dicocokkan utuh
+  // (spasi dirapikan, huruf besar/kecil diabaikan).
+  const POLA_KODE_IDENTITAS = /^\d{16}\s*-\s*\S/;
+
+  /** Teks kode identitas yang dirapikan spasinya; "" kalau bukan kode. */
+  function normalisasiKode(teks) {
+    const s = bersih(teks);
+    return POLA_KODE_IDENTITAS.test(s) ? s : "";
+  }
+
+  /** Pembanding kode: spasi dirapikan, huruf besar/kecil diabaikan. */
+  const samaKode = (a, b) => bersih(a).toUpperCase() === bersih(b).toUpperCase();
+
+  /** Daftar kode identitas milik user (satu teks = satu baris file, sel dipisah TAB)
+   *  -> {targets, tidakDikenali, ganda}. SATU TARGET PER KODE: teks kode utuh yang
+   *  diketik di kotak "Cari...". Sel lain (judul kolom, nama, nomor) diabaikan;
+   *  baris tanpa kode yang berisi angka+"-" atau angka 16 digit dilaporkan. */
+  function targetDariDaftarKode(barisTeks) {
+    const targets = [];
+    const sudah = new Set();
+    const tidakDikenali = [];
+    const ganda = [];
+    barisTeks.forEach((teks, i) => {
+      const no = i + 1;
+      const sel = String(teks == null ? "" : teks).split("\t").map(bersih).filter(Boolean);
+      const kode = sel.map(normalisasiKode).filter(Boolean);
+      if (!kode.length) {
+        const curiga = sel.find((s) => /^\d+\s*-/.test(s) || /^\d{16}$/.test(s));
+        if (curiga) tidakDikenali.push([no, curiga.slice(0, 80)]);
+        return;
+      }
+      for (const k of kode) {
+        if (sudah.has(k.toUpperCase())) {
+          ganda.push([no, k]);
+          continue;
+        }
+        sudah.add(k.toUpperCase());
+        targets.push({ kode: k, idsubsls: k.slice(0, 16), baris: [no], ppl: [] });
+      }
+    });
+    return { targets, tidakDikenali, ganda };
+  }
+
+  /** Kunci hasil tersimpan: kode identitas (target list) atau idsubsls (target sheet). */
+  const kunciTarget = (t) => t.kode || t.idsubsls;
+
+  /** Teks yang diketik di kotak "Cari...". */
+  const istilahCari = (t) => t.kode || t.idsubsls;
+
+  /** Baris tabel yang dicari target ini: kode UTUH sama ("…- UMK - 4" bukan "…- UMK - 41"),
+   *  atau semua baris subsls-nya utk target sheet. */
+  const cocokTarget = (t) => (t.kode
+    ? (b) => samaKode(b.kode, t.kode)
+    : (b) => b.idsubsls === t.idsubsls);
 
   /** "Page 3 of 33" -> [3, 33]; null kalau tidak ada paginasi. */
   function bacaHalaman(teks) {
@@ -147,6 +220,7 @@
    *  adaHalamanLain = hasil pencarian > 1 halaman; halaman lain SENGAJA tidak
    *  dibaca (paginasi tidak dipindah), jadi PAPI di sana tidak terlihat. */
   function rencanakan(target, baris, cakupan = "satu", adaHalamanLain = false) {
+    if (target.kode) return rencanakanKode(target, baris, adaHalamanLain);
     const milik = baris.filter((b) => b.idsubsls === target.idsubsls);
     const nAsing = baris.length - milik.length;
     const catatan = (nAsing ? ` | ${nAsing} baris subsls lain diabaikan` : "")
@@ -184,6 +258,38 @@
       pesan: `1 dari ${capi.length} assignment CAPI (petugas ${pilih.petugas}${punyaPpl ? " = PPL sheet" : ""})${catatan}` };
   }
 
+  /** Target kode identitas (hasil pencarian KODE itu) -> HANYA baris kode itu yang
+   *  diubah (cakupan diabaikan). Baris lain yang ikut tampil (mis. "…- UMK - 41"
+   *  saat mencari "…- UMK - 4") diabaikan. */
+  function rencanakanKode(target, baris, adaHalamanLain = false) {
+    const cocok = baris.filter(cocokTarget(target));
+    const nLain = baris.length - cocok.length;
+    const catatan = nLain ? ` | ${nLain} baris kode lain ikut tampil, diabaikan` : "";
+    if (cocok.length > 1) {
+      return { status: "KODE_GANDA", pilih: [],
+        pesan: `kode ${target.kode} tampil ${cocok.length}x di hasil pencarian — tidak dipilih${catatan}` };
+    }
+    if (!cocok.length) {
+      const subslsLain = baris.filter((b) => b.idsubsls !== target.idsubsls).length;
+      if (subslsLain) {
+        return { status: "PENCARIAN_TIDAK_MENYARING", pilih: [],
+          pesan: `hasil pencarian ${target.kode} memuat ${subslsLain} baris subsls lain & kode itu tidak ada — `
+            + `kotak Cari tidak menyaring per kode identitas?${catatan}` };
+      }
+      if (adaHalamanLain) {
+        return { status: "KODE_TIDAK_TAMPIL", pilih: [],
+          pesan: `kode tidak ada di halaman tampil, hasil pencarian >1 halaman${catatan}` };
+      }
+      return { status: "KODE_TIDAK_ADA", pilih: [],
+        pesan: `kode tidak ditemukan di fasih-sm — cek penulisan kode / periode survei${catatan}` };
+    }
+    const b = cocok[0];
+    const mode = b.mode.toUpperCase();
+    if (mode === "PAPI") return { status: "KODE_SUDAH_PAPI", pilih: [], pesan: `sudah PAPI (petugas ${b.petugas})${catatan}` };
+    if (mode !== "CAPI") return { status: "MODE_TIDAK_DIKENAL", pilih: [], pesan: `nilai kolom Mode: ${b.mode}${catatan}` };
+    return { status: "PERLU_DIUBAH", pilih: [b], pesan: `CAPI (petugas ${b.petugas})${catatan}` };
+  }
+
   function angkaItemMenu(teks) {
     const m = /\(\s*(\d+)\s*\)\s*$/.exec(bersih(teks));
     return m ? Number(m[1]) : null;
@@ -200,7 +306,8 @@
   if (typeof module !== "undefined" && module.exports) {
     module.exports = {
       TARGET, Berhenti, barisDariTabel, rencanakan, angkaItemMenu, pilihTombolKonfirmasi,
-      idsubslsDariKode, bacaHalaman,
+      idsubslsDariKode, bacaHalaman, normalisasiKode, targetDariDaftarKode, kunciTarget, istilahCari, cocokTarget,
+      STATUS_TUNTAS_LIVE, STATUS_BERHENTI_SEGERA,
     };
     return;
   }
@@ -309,65 +416,88 @@
     return [...document.querySelectorAll('input[placeholder="Cari..."]')].filter(tampak).find((i) => !i.closest('[role="dialog"]')) || null;
   }
 
-  function isiInputReact(el, nilai) {
+  /** Enter dikirim SETELAH jeda: kalau langsung, handler React bisa masih memegang
+   *  isian lama (render belum jalan) -> pencarian terkirim dgn nilai lama & responsnya
+   *  bisa tiba belakangan menimpa hasil (dugaan penyebab "belum tampak baris" 2026-09-15). */
+  async function isiInputReact(el, nilai) {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
     el.focus();
     setter.call(el, nilai);
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(400);
     const o = { key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true };
     el.dispatchEvent(new KeyboardEvent("keydown", o));
     el.dispatchEvent(new KeyboardEvent("keyup", o));
   }
 
-  /** Tunggu sampai tabel memuat hasil pencarian INI: berubah dari `sebelum`, ada
-   *  baris subsls target, dan masih begitu setelah tabel diam. -> false kalau
-   *  tidak tercapai (mis. subsls memang tanpa assignment). */
-  async function tungguHasilCari(sebelum, idsubsls, batasMs = 25000) {
-    const target = (b) => b.idsubsls === idsubsls;
+  /** Tunggu sampai tabel memuat hasil pencarian INI (berubah dari `sebelum`, lalu diam):
+   *  "KETEMU"   = baris yang dicari tampil;
+   *  "TERSARING" = semua baris milik subsls target tapi baris yang dicari tidak ada;
+   *  "KOSONG"   = tabel tanpa baris (kode/subsls tidak ada);
+   *  null       = batas waktu habis, tabel masih berisi subsls lain / belum berubah. */
+  async function tungguHasilCari(sebelum, t, batasMs = 20000) {
+    const target = cocokTarget(t);
+    const milikSubsls = (b) => b.idsubsls === t.idsubsls;
+    const baca = () => {
+      const baris = barisTerbaca();
+      if (baris.some(target)) return "KETEMU";
+      if (baris.length && baris.every(milikSubsls)) return "TERSARING";
+      if (!baris.length && tabel()) return "KOSONG";
+      return null;
+    };
     const akhir = Date.now() + batasMs;
     let berubah = false;
     while (Date.now() < akhir) {
       berubah = berubah || tandaTabel() !== sebelum;
-      if (berubah && barisTerbaca().some(target)) {
-        await tungguStabil();
-        if (barisTerbaca().some(target)) return true;
+      const v = berubah && baca();
+      if (v) {
+        // Tabel kosong bisa juga berarti "sedang memuat" -> tunggu diam lebih lama.
+        await tungguStabil(v === "KOSONG" ? 3000 : 1500);
+        if (baca() === v) return v;
       }
       await sleep(300);
       cekHenti();
     }
-    await tungguStabil();
-    return false;
+    return null;
   }
 
   /** Saring lewat "Cari..." lalu baca HANYA halaman yang tampil. Paginasi TIDAK
    *  PERNAH dipindah: halaman yang dipindah tidak memuat datanya dgn benar
-   *  (temuan user 2026-09-14). Baris subsls lain tidak dibuang di sini —
-   *  rencanakan() yang mengabaikannya. -> {baris, halaman: [ke, dari]} */
-  async function cari(idsubsls) {
+   *  (temuan user 2026-09-14). Baris lain tidak dibuang di sini — rencanakan()
+   *  yang mengabaikannya. Target list kode dicari dgn KODE-nya, target sheet dgn
+   *  idsubsls. -> {baris, halaman: [ke, dari]} */
+  async function cari(t) {
+    const istilah = istilahCari(t);
+    const target = cocokTarget(t);
     await tutupMenu();
     const kotak = kotakCari();
     if (!kotak) throw new Berhenti("KOLOM_TIDAK_ADA", "kotak 'Cari...' tidak ditemukan");
-    // Kotak berisi subsls yg SAMA (verifikasi): kosongkan dulu supaya data dimuat
+    // Kotak berisi istilah yg SAMA (verifikasi): kosongkan dulu supaya data dimuat
     // ulang, dan TUNGGU daftar tanpa-saring benar-benar tampil sebelum mengisi lagi
     // — kalau tidak, respons isian "" bisa tiba belakangan & menimpa hasil.
-    // Kalau isinya subsls lain, langsung ditimpa.
-    if (kotak.value === idsubsls) {
+    // Kalau isinya istilah lain, langsung ditimpa.
+    if (kotak.value === istilah) {
       const sebelum = tandaTabel();
-      isiInputReact(kotak, "");
-      await tunggu(() => tandaTabel() !== sebelum && barisTerbaca().some((b) => b.idsubsls !== idsubsls), 20000);
+      await isiInputReact(kotak, "");
+      await tunggu(() => tandaTabel() !== sebelum && barisTerbaca().some((b) => !target(b)), 20000);
       await tungguStabil();
     }
-    const sebelum = tandaTabel();
-    isiInputReact(kotak, idsubsls);
-    if (!(await tungguHasilCari(sebelum, idsubsls))) {
-      log(`⚠️ belum tampak baris ${idsubsls} setelah pencarian — tabel dibaca apa adanya.`);
+    // Maks 2x: kalau tabel belum tersaring (respons tertukar / pencarian tidak
+    // terpicu), istilah diketik ulang sekali lagi sebelum tabel dibaca apa adanya.
+    let hasilCari = null;
+    for (let ke = 1; ke <= 2 && !hasilCari; ke++) {
+      const sebelum = tandaTabel();
+      await isiInputReact(kotakCari() || kotak, istilah);
+      hasilCari = await tungguHasilCari(sebelum, t);
+      if (!hasilCari && ke === 1) log(`⚠️ tabel belum tersaring utk "${istilah}" — pencarian diulang.`);
     }
+    if (!hasilCari) log(`⚠️ tabel tetap belum tersaring utk "${istilah}" — dibaca apa adanya.`);
     const d = bacaTabelWajib();
     const baris = barisDariTabel(d).map((b) => ({ ...b, halaman: d.halaman[0] }));
-    const nTarget = baris.filter((b) => b.idsubsls === idsubsls).length;
-    log(`Pencarian ${idsubsls}: halaman ${d.halaman[0]} dari ${d.halaman[1]}, ${baris.length} baris tampil `
-      + `(${nTarget} milik subsls ini). Halaman lain tidak dibaca.`);
+    const nTarget = baris.filter(target).length;
+    log(`Pencarian "${istilah}": halaman ${d.halaman[0]} dari ${d.halaman[1]}, ${baris.length} baris tampil `
+      + `(${nTarget} ${t.kode ? "kode persis" : "milik subsls ini"}). Halaman lain tidak dibaca.`);
     if (d.halaman[1] > 1 && baris.length < 50) {
       throw new Berhenti("PER_PAGE_KECIL",
         `hanya ${baris.length} baris/halaman utk ${d.halaman[1]} halaman — buka list dgn perPage=100`);
@@ -423,13 +553,13 @@
    *  lewat KODE — indeks lama tidak lagi bisa dipercaya. Kode yang tidak tampil
    *  lagi tidak bisa dilepas; sisa centang tertangkap di subsls berikutnya
    *  lewat CENTANG_TIDAK_SESUAI / JUMLAH_TERCENTANG_BEDA. */
-  async function lepasCentang(idsubsls, pilih) {
+  async function lepasCentang(t, pilih) {
     try {
       await aturCentang(pilih, false);
     } catch (e) {
       if (!(e instanceof Berhenti) || e.kode !== "TABEL_BERUBAH") throw e;
       const kode = pilih.map((b) => b.kode);
-      const { baris } = await cari(idsubsls);
+      const { baris } = await cari(t);
       await aturCentang(baris.filter((b) => kode.includes(b.kode)), false);
     }
   }
@@ -530,11 +660,11 @@
 
   /** Cari ulang & cek kode yang diubah sudah PAPI. Kode yang pindah ke halaman
    *  lain terbaca "(hilang)" -> tidak terverifikasi (gagal tertutup). */
-  async function verifikasiPapi(idsubsls, kode, percobaan = 3) {
+  async function verifikasiPapi(t, kode, percobaan = 3) {
     let baris = [];
     for (let ke = 1; ke <= percobaan; ke++) {
-      await sleep(3000 * ke);
-      ({ baris } = await cari(idsubsls));
+      await sleep(1500 * ke);
+      ({ baris } = await cari(t));
       const mode = Object.fromEntries(kode.map((k) => [k, (baris.find((b) => b.kode === k) || { mode: "(hilang)" }).mode]));
       log(`Verifikasi ke-${ke}:`, mode);
       if (Object.values(mode).every((m) => m.toUpperCase() === "PAPI")) return { ok: true, baris };
@@ -625,7 +755,7 @@
   }
   function simpanHasil(entri) {
     const semua = muatHasil();
-    semua[entri.idsubsls] = entri;
+    semua[entri.kunci || entri.idsubsls] = entri;
     try {
       localStorage.setItem(KUNCI_HASIL, JSON.stringify(semua));
     } catch (e) {
@@ -640,13 +770,14 @@
     const hasil = {
       waktu: new Date().toISOString(), jalan: o.mode, idsubsls: t.idsubsls, akun_ppl: (t.ppl || []).join(","),
       baris_sheet: (t.baris || []).join(","), status: "", jumlah_assignment: "", capi: "", papi: "",
-      dipilih: "", petugas_dipilih: "", pesan: "",
+      dipilih: "", petugas_dipilih: "", pesan: "", kode_target: t.kode || "", kunci: kunciTarget(t),
     };
     let dicentang = [];
     try {
-      const { baris, halaman } = await cari(t.idsubsls);
+      const { baris, halaman } = await cari(t);
       const rencana = rencanakan(t, baris, o.cakupan, halaman[1] > 1);
-      const milik = baris.filter((b) => b.idsubsls === t.idsubsls);
+      // Target kode: baris kode persis itu saja; target sheet: semua baris subsls-nya.
+      const milik = baris.filter(cocokTarget(t));
       const pilih = rencana.pilih;
       Object.assign(hasil, {
         jumlah_assignment: milik.length,
@@ -656,8 +787,9 @@
         petugas_dipilih: pilih.map((b) => b.petugas).join(" | "),
         pesan: rencana.pesan,
       });
-      log(`${milik.length} assignment subsls ini tampil (CAPI ${hasil.capi}, PAPI ${hasil.papi}; `
-        + `${baris.length - milik.length} baris subsls lain diabaikan) -> ${rencana.status}. 25 baris pertama:`);
+      log(`${milik.length} ${t.kode ? "baris kode persis" : "assignment subsls ini"} tampil `
+        + `(CAPI ${hasil.capi}, PAPI ${hasil.papi}; ${baris.length - milik.length} baris lain diabaikan) `
+        + `-> ${rencana.status}. 25 baris pertama:`);
       console.table(ringkasBaris(milik));
       if (pilih.length) console.table(ringkasBaris(pilih));
 
@@ -686,7 +818,7 @@
       }
       if (o.mode === "dryrun") {
         await tutupMenu();
-        await lepasCentang(t.idsubsls, pilih);
+        await lepasCentang(t, pilih);
         dicentang = [];
         hasil.status = "DRY_RUN_AKAN_DIUBAH";
         return hasil;
@@ -695,7 +827,7 @@
       let cara = "MANUAL";
       if (o.mode === "manual") await tungguKlikManusia(item, n);
       else cara = await klikOtomatis(item);
-      const verif = await verifikasiPapi(t.idsubsls, harap);
+      const verif = await verifikasiPapi(t, harap);
       hasil.status = verif.ok ? "DIUBAH_TERVERIFIKASI" : (o.mode === "manual" ? "BELUM_BERUBAH" : "DIUBAH_BELUM_TERVERIFIKASI");
       hasil.pesan += ` | ${cara}`;
       // Pilihan tabel bisa bertahan lintas pencarian — centang yang tertinggal
@@ -714,7 +846,7 @@
       try {
         hentikan = false; // pembersihan tetap jalan walau pengguna menekan berhenti()
         await tutupMenu();
-        await lepasCentang(t.idsubsls, dicentang);
+        await lepasCentang(t, dicentang);
       } catch (e) {
         hasil.pesan += ` | status asli ${hasil.status}; ⚠️ gagal melepas centang: ${e.message}`;
         hasil.status = "CENTANG_GAGAL";
@@ -728,7 +860,9 @@
   async function jalankan(opsi = {}) {
     const o = {
       mode: "dryrun", cakupan: "satu", limit: null, idsubsls: null,
-      lewatiSelesai: true, jedaMin: 3000, jedaMaks: 7000, sayaSudahMelihatDialog: false, ...opsi,
+      // Jeda acak jedaMin–jedaMaks hanya setelah benar-benar mengklik Ganti Mode;
+      // kode yang cuma dibaca (sudah PAPI / tidak ada) memakai jeda pendek.
+      lewatiSelesai: true, jedaMin: 1500, jedaMaks: 3000, ...opsi,
     };
     if (!["petakan", "dryrun", "manual", "otomatis"].includes(o.mode)) {
       log(`mode '${o.mode}' tidak dikenal (petakan | dryrun | manual | otomatis)`);
@@ -739,7 +873,8 @@
       return;
     }
     if (!TARGET.length) {
-      log("TARGET kosong — tempel ubah_moda_console.siap.js (hasil `python ubah_moda.py --console`), bukan template.");
+      log("TARGET kosong — tempel ubah_moda_console.siap.js (hasil `python ubah_moda.py --console`), "
+        + "atau muat list kode: ubahModa.muatDaftarKode(`...`).");
       return;
     }
     const perPage = Number(new URLSearchParams(location.search).get("perPage") || 0);
@@ -756,14 +891,10 @@
 
     const sebelumnya = muatHasil();
     const live = o.mode === "manual" || o.mode === "otomatis";
-    if (o.mode === "otomatis") {
-      const adaManual = Object.values(sebelumnya).some((h) => h.jalan === "manual" && h.status === "DIUBAH_TERVERIFIKASI");
-      if (!adaManual || o.sayaSudahMelihatDialog !== true) {
-        log("Mode otomatis butuh: (1) minimal satu hasil mode manual DIUBAH_TERVERIFIKASI di browser ini, "
-          + "dan (2) opsi sayaSudahMelihatDialog: true. Jalankan mode manual dulu.");
-        return;
-      }
-    }
+    // Otomatis TIDAK lagi mensyaratkan run manual dulu (permintaan user 2026-09-15:
+    // "langsung otomatis saja"). Penjaganya: ketik YA per batch, dialog yang tidak
+    // menyebut PAPI/mode atau tombol ambigu -> berhenti, angka menu harus = jumlah
+    // dicentang, dan setiap kode diverifikasi PAPI (gagal -> batch berhenti).
 
     let daftar = TARGET;
     if (o.idsubsls) {
@@ -773,23 +904,25 @@
     if (o.lewatiSelesai && o.mode !== "petakan") {
       const tuntas = live ? STATUS_TUNTAS_LIVE : STATUS_TUNTAS_DRY;
       daftar = daftar.filter((t) => {
-        const h = sebelumnya[t.idsubsls];
+        const h = sebelumnya[kunciTarget(t)];
         if (!h || !tuntas.has(h.status)) return true;
         return live && !["manual", "otomatis"].includes(h.jalan); // hasil dry-run tidak menuntaskan run live
       });
     }
     if (o.mode === "petakan") daftar = daftar.slice(0, 1);
     else if (o.limit) daftar = daftar.slice(0, o.limit);
+    const satuan = daftar.some((t) => t.kode) ? "kode identitas" : "subsls";
     if (!daftar.length) {
-      log("Tidak ada subsls yang perlu diproses.");
+      log("Tidak ada target yang perlu diproses.");
       return;
     }
 
     if (live) {
-      const pesan = `MENGUBAH MODE assignment SUNGGUHAN di ${daftar.length} subsls (mode ${o.mode}, cakupan ${o.cakupan}).`;
+      const pesan = `MENGUBAH MODE assignment SUNGGUHAN utk ${daftar.length} ${satuan} `
+        + `(mode ${o.mode}${satuan === "subsls" ? `, cakupan ${o.cakupan}` : ""}).`;
       if (o.mode === "otomatis") {
         if (prompt(`${pesan}\nKetik YA untuk lanjut:`) !== "YA") return log("Dibatalkan.");
-      } else if (!confirm(`${pesan}\nKlik "Ganti Mode" & konfirmasi tetap KAMU yang lakukan per subsls. Lanjut?`)) {
+      } else if (!confirm(`${pesan}\nKlik "Ganti Mode" & konfirmasi tetap KAMU yang lakukan per ${satuan}. Lanjut?`)) {
         return log("Dibatalkan.");
       }
     }
@@ -801,10 +934,11 @@
     try {
       for (let i = 0; i < daftar.length; i++) {
         const t = daftar[i];
-        log(`=== [${i + 1}/${daftar.length}] ${t.idsubsls} — PPL ${(t.ppl || []).join(", ")} (${o.mode}) ===`);
+        log(`=== [${i + 1}/${daftar.length}] ${t.kode ? `kode ${t.kode}` : `${t.idsubsls} — PPL ${(t.ppl || []).join(", ")}`} (${o.mode}) ===`);
         let hasil = await prosesTarget(t, o);
         // Cakupan "semua": ulangi subsls ini selama masih ada CAPI di halaman tampil.
-        for (let ulang = 1; live && o.cakupan === "semua" && hasil.status === "DIUBAH_TERVERIFIKASI" && ulang <= 50; ulang++) {
+        // Target kode tidak diulang — satu kode, satu aksi.
+        for (let ulang = 1; live && !t.kode && o.cakupan === "semua" && hasil.status === "DIUBAH_TERVERIFIKASI" && ulang <= 50; ulang++) {
           simpanHasil(hasil);
           log(`  (cakupan semua) putaran ${ulang + 1} utk ${t.idsubsls}`);
           await sleep(acak(o.jedaMin, o.jedaMaks));
@@ -823,8 +957,11 @@
           log(`⛔ 3 kegagalan berturut-turut (terakhir ${hasil.status}) — batch DIHENTIKAN (VPN/sesi habis? akun tanpa hak?).`);
           break;
         }
-        if (gagal) log(`⚠️ ${hasil.status} — lanjut ke subsls berikutnya (${errorBeruntun}/3 beruntun).`);
-        if (i < daftar.length - 1) await sleep(acak(o.jedaMin, o.jedaMaks));
+        if (gagal) log(`⚠️ ${hasil.status} — lanjut ke target berikutnya (${errorBeruntun}/3 beruntun).`);
+        if (i < daftar.length - 1) {
+          const adaKlik = STATUS_SETELAH_KLIK.has(hasil.status);
+          await sleep(adaKlik ? acak(o.jedaMin, o.jedaMaks) : acak(300, 800));
+        }
       }
     } finally {
       berjalan = false;
@@ -843,7 +980,7 @@
 
   function unduh() {
     const kolom = ["waktu", "jalan", "idsubsls", "akun_ppl", "baris_sheet", "status", "jumlah_assignment",
-      "capi", "papi", "dipilih", "petugas_dipilih", "pesan"];
+      "capi", "papi", "dipilih", "petugas_dipilih", "pesan", "kode_target"];
     const kutip = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
     const baris = Object.values(muatHasil()).map((h) => kolom.map((k) => kutip(h[k])).join(","));
     const blob = new Blob(["﻿" + [kolom.join(","), ...baris].join("\n")], { type: "text/csv" });
@@ -856,8 +993,33 @@
     log(`Diunduh: ${a.download} (${baris.length} subsls)`);
   }
 
+  /** Ganti isi TARGET dgn list kode identitas yang ditempel (satu kode per baris;
+   *  salinan kolom dari Excel juga bisa). Tanpa Python. */
+  function muatDaftarKode(teks) {
+    if (berjalan) return log("Masih berjalan — tunggu selesai atau ubahModa.berhenti().");
+    const { targets, tidakDikenali, ganda } = targetDariDaftarKode(String(teks || "").split(/\r?\n/));
+    TARGET.length = 0;
+    TARGET.push(...targets);
+    log(`Daftar kode dimuat: ${targets.length} kode identitas (tiap kode dicari sendiri).`
+      + (ganda.length ? ` ${ganda.length} kode ganda dilewati.` : ""));
+    if (tidakDikenali.length) {
+      log(`⚠️ ${tidakDikenali.length} baris berisi 16 digit tapi BUKAN kode identitas (tidak dimuat):`);
+      console.table(tidakDikenali.map(([baris, isi]) => ({ baris, isi })));
+    }
+    return { kode: targets.length, tidakDikenali, ganda };
+  }
+
   global.ubahModa = {
-    jalankan, ringkasan, unduh, petakanFilter, target: TARGET,
+    jalankan, ringkasan, unduh, petakanFilter, muatDaftarKode, target: TARGET,
+    dialogTerakhir() {
+      try {
+        const d = JSON.parse(localStorage.getItem("ubahModa.dialogTerakhir") || "null");
+        log(d ? `Dialog terakhir (${d.waktu}): ${d.teks} | tombol: ${JSON.stringify(d.tombol)}` : "Belum ada dialog terekam.");
+        return d;
+      } catch (e) {
+        return null;
+      }
+    },
     berhenti() {
       hentikan = true;
       log("Akan berhenti di langkah berikutnya.");
@@ -868,5 +1030,6 @@
       }
     },
   };
-  log(`Siap: ${TARGET.length} subsls. Mulai dgn: await ubahModa.jalankan({mode: "petakan"})`);
+  log(`Siap: ${TARGET.length} ${TARGET.some((t) => t.kode) ? "kode identitas" : "subsls"}. `
+    + 'Mulai dgn: await ubahModa.jalankan({mode: "petakan"})');
 })(typeof window !== "undefined" ? window : globalThis);

@@ -16,6 +16,8 @@
  *      await bukaWilayah.jalankan({mode: "cek"})                // READ-ONLY: status semua target
  *      await bukaWilayah.jalankan({mode: "eksekusi", limit: 1}) // buka 1 wilayah, cek hasilnya di layar
  *      await bukaWilayah.jalankan({mode: "eksekusi"})           // sisanya
+ *    Opsi: limit (jumlah subsls yang DIPROSES, setelah yang sudah terbuka dilewati),
+ *          idsubsls: [...], izinkanTarikSampel, pindaiDulu (default true), jedaMin/jedaMaks (ms)
  *    bukaWilayah.berhenti()   hentikan di langkah berikutnya
  *    bukaWilayah.ringkasan()  hitungan status
  *    bukaWilayah.unduh()      unduh hasil CSV
@@ -49,6 +51,10 @@
  *   belum diketahui.
  * - Batch BERHENTI SEKETIKA kalau: sesi/CSRF ditolak, respons tidak dikenal,
  *   atau hasil tidak terverifikasi. Kegagalan lain 3x beruntun juga menghentikan.
+ * - PINDAI MASSAL (default): status seluruh wilayah dibaca dulu (request 500 baris,
+ *   offset). Target yang terbaca doneListing === false langsung SUDAH_TERBUKA tanpa
+ *   request per subsls. Hanya bukti positif itu yang dilewati — sisanya tetap dicari
+ *   ulang satu per satu TEPAT sebelum dibuka. Jeda panjang hanya setelah menulis.
  * - Eksekusi tanpa `limit` butuh minimal 1 DIBUKA_TERVERIFIKASI di browser ini.
  * - Hasil disimpan di localStorage (tahan reload); target tuntas dilewati saat
  *   dijalankan ulang.
@@ -132,8 +138,24 @@
     return o.limit ? daftar.slice(0, o.limit) : daftar;
   }
 
+  /** Pisahkan target memakai hasil pindai massal (peta kode -> {doneListing, ...}).
+   *  Yang dilewati HANYA kode yang terbaca doneListing === false (bukti positif sudah
+   *  terbuka). Tidak terbaca / Listing Selesai / nilai aneh -> tetap diproses satu per
+   *  satu, jadi keputusan membuka selalu dari pencarian segar. */
+  function bagiDariPindai(daftar, peta) {
+    const lewati = [];
+    const proses = [];
+    for (const t of daftar) {
+      const r = peta && peta[t.idsubsls];
+      (r && r.doneListing === false ? lewati : proses).push(t);
+    }
+    return { lewati, proses };
+  }
+
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { TARGET, STATUS_BERHENTI_SEGERA, periodeDariPath, rencanakan, nilaiRespons, saringTarget };
+    module.exports = {
+      TARGET, STATUS_BERHENTI_SEGERA, periodeDariPath, rencanakan, nilaiRespons, saringTarget, bagiDariPindai,
+    };
     return;
   }
 
@@ -167,20 +189,44 @@
     return { status: res.status, teks: await res.text() };
   }
 
-  async function cariWilayah(periode, kode) {
+  /** `start` = OFFSET baris (dialog web keliru mengirim nomor halaman). */
+  async function datatable(periode, start, length, cari) {
     const { status, teks } = await post(`${API}/datatable?periodeId=${encodeURIComponent(periode)}`,
-      { start: 0, length: 10, search: { value: kode, regex: true }, order: [{ column: 0, dir: "asc" }] });
-    if (status === 401 || status === 403) throw new Berhenti("SESI_DITOLAK", `pencarian HTTP ${status}: ${teks.slice(0, 150)}`);
+      { start, length, search: { value: cari, regex: true }, order: [{ column: 0, dir: "asc" }] });
+    if (status === 401 || status === 403) throw new Berhenti("SESI_DITOLAK", `datatable HTTP ${status}: ${teks.slice(0, 150)}`);
     let j;
     try {
       j = JSON.parse(teks);
     } catch (e) {
-      throw new Berhenti("RESPONS_TIDAK_DIKENAL", `pencarian HTTP ${status}, bukan JSON: ${teks.slice(0, 150)}`);
+      throw new Berhenti("RESPONS_TIDAK_DIKENAL", `datatable HTTP ${status}, bukan JSON: ${teks.slice(0, 150)}`);
     }
     if (status !== 200 || !j || !Array.isArray(j.data)) {
-      throw new Berhenti("RESPONS_TIDAK_DIKENAL", `pencarian HTTP ${status}: ${teks.slice(0, 150)}`);
+      throw new Berhenti("RESPONS_TIDAK_DIKENAL", `datatable HTTP ${status}: ${teks.slice(0, 150)}`);
     }
-    return j.data;
+    return j;
+  }
+
+  async function cariWilayah(periode, kode) {
+    return (await datatable(periode, 0, 10, kode)).data;
+  }
+
+  /** Status SELURUH wilayah periode (±6 request 500 baris) -> peta kode -> {doneListing, doneTarikSample}.
+   *  `recordsFiltered` = panjang halaman (bukan jumlah hasil) -> batas pakai recordsTotal. */
+  async function pindaiSemua(periode) {
+    const peta = {};
+    let total = null;
+    for (let start = 0; total === null || start < total; start += 500) {
+      cekHenti();
+      const j = await datatable(periode, start, 500, "");
+      if (typeof j.recordsTotal !== "number") throw new Berhenti("RESPONS_TIDAK_DIKENAL", "recordsTotal tidak ada");
+      total = j.recordsTotal;
+      for (const d of j.data) {
+        if (d && d.smallestRegionFullCode) peta[d.smallestRegionFullCode] = { doneListing: d.doneListing, doneTarikSample: d.doneTarikSample };
+      }
+      log(`Pindai massal: ${Object.keys(peta).length}/${total} wilayah terbaca`);
+      if (!j.data.length) break;
+    }
+    return peta;
   }
 
   function muatHasil() {
@@ -217,6 +263,7 @@
 
       cekHenti();
       // IRREVERSIBLE (bisa ditandai selesai lagi, tapi bukan oleh skrip ini).
+      hasil.dikirim = true;
       const kirim = await post(`${API}/undone`, r.item);
       const n = nilaiRespons(kirim.status, kirim.teks);
       if (!n.ok) {
@@ -242,7 +289,7 @@
 
   async function jalankan(opsi = {}) {
     const o = { mode: "cek", limit: null, idsubsls: null, lewatiSelesai: true, izinkanTarikSampel: false,
-      jedaMin: 1500, jedaMaks: 3500, ...opsi };
+      pindaiDulu: true, jedaMin: 1500, jedaMaks: 3500, ...opsi };
     if (!["cek", "eksekusi"].includes(o.mode)) return log(`mode '${o.mode}' tidak dikenal (cek | eksekusi)`);
     if (berjalan) return log("Masih berjalan — tunggu selesai atau bukaWilayah.berhenti().");
     if (!TARGET.length) return log("TARGET kosong — tempel buka_wilayah_console.siap.js, bukan template.");
@@ -252,9 +299,30 @@
     }
 
     const sebelumnya = muatHasil();
-    const daftar = saringTarget(TARGET, sebelumnya, o);
+    // Dgn pindai, limit dihitung SETELAH yang sudah terbuka dilewati (limit:1 = 1 wilayah yg benar-benar diproses).
+    let daftar = saringTarget(TARGET, sebelumnya, o.pindaiDulu ? { ...o, limit: null } : o);
     if (!daftar.length) return log("Tidak ada subsls yang perlu diproses.");
-    if (o.mode === "eksekusi") {
+    let dilewati = [];
+    if (o.pindaiDulu) {
+      berjalan = true;
+      hentikan = false;
+      try {
+        const bagi = bagiDariPindai(daftar, await pindaiSemua(periode));
+        dilewati = bagi.lewati;
+        daftar = o.limit ? bagi.proses.slice(0, o.limit) : bagi.proses;
+        log(`${dilewati.length} subsls sudah terbuka (dilewati tanpa request), ${daftar.length} diproses satu per satu.`);
+      } catch (e) {
+        if (e instanceof Berhenti && e.kode !== "RESPONS_TIDAK_DIKENAL") {
+          log(`⛔ ${e.kode}: ${e.message}`);
+          return;
+        }
+        log(`⚠️ Pindai massal gagal (${e && e.message ? e.message : e}) — semua target dicek satu per satu.`);
+        if (o.limit) daftar = daftar.slice(0, o.limit);
+      } finally {
+        berjalan = false;
+      }
+    }
+    if (o.mode === "eksekusi" && daftar.length) {
       const adaBukti = Object.values(sebelumnya).some((h) => h.status === "DIBUKA_TERVERIFIKASI");
       if (!o.limit && !adaBukti) {
         return log("Eksekusi massal butuh minimal 1 DIBUKA_TERVERIFIKASI dulu. Jalankan: "
@@ -270,6 +338,12 @@
     const hitung = {};
     let gagalBeruntun = 0;
     try {
+      const waktuPindai = new Date().toISOString();
+      for (const t of dilewati) {
+        simpanHasil({ waktu: waktuPindai, jalan: o.mode, idsubsls: t.idsubsls, status: "SUDAH_TERBUKA",
+          done_listing_awal: false, done_tarik_sampel: "", id_wilayah: "", pesan: "status Proses Listing (pindai massal)" });
+        hitung.SUDAH_TERBUKA = (hitung.SUDAH_TERBUKA || 0) + 1;
+      }
       for (let i = 0; i < daftar.length; i++) {
         const t = daftar[i];
         const hasil = await prosesTarget(t, periode, o);
@@ -286,7 +360,8 @@
           log(`⛔ 3 kegagalan berturut-turut (terakhir ${hasil.status}) — batch DIHENTIKAN.`);
           break;
         }
-        if (i < daftar.length - 1) await sleep(acak(o.jedaMin, o.jedaMaks));
+        // Jeda panjang hanya setelah request tulis; pencarian baca-saja cukup jeda pendek.
+        if (i < daftar.length - 1) await sleep(hasil.dikirim ? acak(o.jedaMin, o.jedaMaks) : acak(300, 800));
       }
     } finally {
       berjalan = false;
