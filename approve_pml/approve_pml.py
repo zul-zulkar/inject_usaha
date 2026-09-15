@@ -368,6 +368,17 @@ def approve_satu(sess, t: dict, assignment_id: str, akun_ppl: str, eksekusi: boo
     """Proses satu dokumen. Mengembalikan baris audit (tanpa timestamp/akun)."""
     res = {**t, "dokumen_url": url_entry(t["id"], assignment_id)}
     detail = detail_dokumen(sess, t["id"])
+    if detail is None:
+        # Halaman bisa tersangkut di keadaan yang membuat fetch gagal (mis. redirect pasca-approve
+        # dokumen sebelumnya). Buka dokumennya dulu — hanya membuka, belum mengklik — lalu baca ulang,
+        # supaya dokumen ini tetap dieksekusi di run yang sama, bukan dilewati.
+        sess._log(f"⚠️ Detail {t['id'][:8]} tidak terbaca — buka dokumennya lalu baca ulang.")
+        try:
+            sess.page.goto(res["dokumen_url"], wait_until="domcontentloaded", timeout=45_000)
+            sess.page.locator(SEL["form_root"]).first.wait_for(state="attached", timeout=45_000)
+        except Exception:
+            pass
+        detail = detail_dokumen(sess, t["id"])
     kategori, pesan = nilai_dokumen(detail, akun_ppl)
     res["status_sebelum"] = (detail or {}).get("assignment_status_alias", "")
     if not res["nama"] and detail:
