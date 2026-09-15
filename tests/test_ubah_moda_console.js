@@ -78,6 +78,76 @@ check("semua: sudah PAPI semua", m.rencanakan(T, [b(1, "PAPI")], "semua").status
 check("semua: tanpa CAPI tampil tapi ada halaman lain -> berhenti", m.rencanakan(T, [b(1, "PAPI")], "semua", true).status,
   "PERLU_HALAMAN_LAIN");
 
+// --- list kode identitas milik user (2026-09-15): HANYA kode itu yang diubah ---
+check("normalisasi kode: spasi & huruf kecil & nol depan", m.normalisasiKode(`${S}-umk-04`), `${S} - UMK - 4`);
+check("normalisasi kode: bukan kode", m.normalisasiKode(S), "");
+check("normalisasi kode: 17 digit bukan idsubsls", m.normalisasiKode(`9${S} - UMK - 4`), "");
+let dk = m.targetDariDaftarKode([
+  "Kode Identitas\tNama",                       // judul: diabaikan diam-diam
+  `${S} - UMK - 4\tWARUNG A`,
+  `${S} - UMK - 41`,
+  `${LAIN} - UMK - 2 ; ${S} - umk - 4`,         // dua kode sebaris, satu ganda
+  "5108070013000999\tNIK tanpa kode",           // 16 digit bukan kode -> dilaporkan
+  `${S} - WARUNG - BU SRI - 12`,                // " - " di tengah nama: tidak ditebak
+  `${S} - NON-UMK - 3`,                         // "-" tanpa spasi boleh
+]);
+check("daftar kode: SATU target per kode, urutan list dipertahankan",
+  dk.targets.map((t) => [t.kode, t.idsubsls, t.baris]),
+  [[`${S} - UMK - 4`, S, [2]], [`${S} - UMK - 41`, S, [3]], [`${LAIN} - UMK - 2`, LAIN, [4]],
+    [`${S} - NON-UMK - 3`, S, [7]]]);
+check("daftar kode: ganda dilaporkan", dk.ganda, [[4, `${S} - UMK - 4`]]);
+check("daftar kode: 16 digit tanpa pola kode dilaporkan", dk.tidakDikenali.map((x) => x[0]), [5, 6]);
+// Bentuk nyata dari list user & tabel fasih-sm (2026-09-15)
+check("kode nama keluarga dgn '/'", m.normalisasiKode("5108060029000102 - I KETUT REDIKA / I KOMANG AGUS SETIAWAN - 46"),
+  "5108060029000102 - I KETUT REDIKA / I KOMANG AGUS SETIAWAN - 46");
+check("kode nama diakhiri '/'", m.normalisasiKode("5108070005000601 - WAYAN DERAWA / - 21"),
+  "5108070005000601 - WAYAN DERAWA / - 21");
+check("kode nama berangka", m.normalisasiKode("5108020014000104 - MUH UMAR FARIDL / 1 - 48"),
+  "5108020014000104 - MUH UMAR FARIDL / 1 - 48");
+check("kode nama ber-apostrof & titik", m.normalisasiKode(`${S} - WR. MAK'E (BU TUT) - 9`), `${S} - WR. MAK'E (BU TUT) - 9`);
+check("sel tabel berakhiran '/ - 81119'", m.normalisasiKode("5108060029000102 - BANGUNAN KOSONG - 6 / - 81119"),
+  "5108060029000102 - BANGUNAN KOSONG - 6");
+check("sel tabel berakhiran '/ - 0'", m.normalisasiKode("5108060029000102 - I KADEK RIKI SAPUTRA / KETUT ARINI - 46 / - 0"),
+  "5108060029000102 - I KADEK RIKI SAPUTRA / KETUT ARINI - 46");
+check("kode dari xlsx (tab + nama)", m.normalisasiKode(`${S} - DTSEN - 44\tNAMA`), `${S} - DTSEN - 44`);
+
+// Pencarian memakai KODE itu sendiri; hasil pencarian "…- UMK - 4" bisa ikut memuat "- 41", "- 40", dst.
+const TK = { kode: `${S} - UMK - 4`, idsubsls: S, ppl: [], baris: [2] };
+check("kode: istilah cari = kode identitas", m.istilahCari(TK), `${S} - UMK - 4`);
+check("sheet: istilah cari = idsubsls", m.istilahCari(T), S);
+r = m.rencanakan(TK, [b(41), b(4, "CAPI", "x@gmail.com"), b(40)]);
+check("kode: pilih PERSIS '- 4', bukan '- 41'/'- 40'", [r.status, r.pilih.map((x) => x.kode)],
+  ["PERLU_DIUBAH", [`${S} - UMK - 4`]]);
+check("kode: baris lain yg ikut tampil dicatat", /2 baris kode lain/.test(r.pesan), true);
+check("kode: kode di tabel beda spasi/huruf tetap cocok",
+  m.rencanakan(TK, [{ ...b(4), kode: `${S}-umk-4` }]).status, "PERLU_DIUBAH");
+check("kode: PAPI lain di subsls TIDAK membuat kode ini dilewati", m.rencanakan(TK, [b(41, "PAPI"), b(4)]).status,
+  "PERLU_DIUBAH");
+check("kode: sudah PAPI", m.rencanakan(TK, [b(4, "PAPI")]).status, "KODE_SUDAH_PAPI");
+check("kode: KODE_SUDAH_PAPI tuntas", m.STATUS_TUNTAS_LIVE.has("KODE_SUDAH_PAPI"), true);
+check("kode: hasil kosong -> KODE_TIDAK_ADA (lanjut)", m.rencanakan(TK, []).status, "KODE_TIDAK_ADA");
+check("kode: hanya kode lain subsls sama -> KODE_TIDAK_ADA", m.rencanakan(TK, [b(41)]).status, "KODE_TIDAK_ADA");
+check("kode: tidak ada di halaman tampil tapi >1 halaman -> KODE_TIDAK_TAMPIL",
+  m.rencanakan(TK, [b(41)], "satu", true).status, "KODE_TIDAK_TAMPIL");
+check("kode: KODE_TIDAK_ADA/TIDAK_TAMPIL tidak tuntas & tidak menghentikan",
+  ["KODE_TIDAK_ADA", "KODE_TIDAK_TAMPIL"].map((s) => m.STATUS_TUNTAS_LIVE.has(s) || m.STATUS_BERHENTI_SEGERA.has(s)),
+  [false, false]);
+r = m.rencanakan(TK, [b(1, "CAPI", PPL, LAIN), b(2, "CAPI", PPL, LAIN)]);
+check("kode: hasil berisi subsls lain -> PENCARIAN_TIDAK_MENYARING (berhenti)",
+  [r.status, m.STATUS_BERHENTI_SEGERA.has(r.status)], ["PENCARIAN_TIDAK_MENYARING", true]);
+check("kode: kode sendiri tampil + subsls lain -> tetap kode itu saja",
+  m.rencanakan(TK, [b(4), b(1, "CAPI", PPL, LAIN)]).pilih.map((x) => x.kode), [`${S} - UMK - 4`]);
+r = m.rencanakan(TK, [b(4), b(4)]);
+check("kode: tampil 2x -> KODE_GANDA (berhenti)", [r.status, m.STATUS_BERHENTI_SEGERA.has(r.status)], ["KODE_GANDA", true]);
+check("kode: cakupan 'semua' diabaikan", m.rencanakan(TK, [b(4), b(41)], "semua").pilih.length, 1);
+check("kode: mode aneh pada kode ini", m.rencanakan(TK, [b(4, "CAWI")]).status, "MODE_TIDAK_DIKENAL");
+check("kode: mode aneh pada kode LAIN tidak menghalangi", m.rencanakan(TK, [b(41, "CAWI"), b(4)]).status, "PERLU_DIUBAH");
+check("kunci: target sheet = idsubsls", m.kunciTarget(T), S);
+check("kunci: target kode = kode identitas", m.kunciTarget(TK), `${S} - UMK - 4`);
+check("cocokTarget kode: '- 41' bukan '- 4'", [b(4), b(41)].map(m.cocokTarget(TK)), [true, false]);
+check("cocokTarget sheet: semua baris subsls", [b(4), b(41), b(1, "CAPI", PPL, LAIN)].map(m.cocokTarget(T)),
+  [true, true, false]);
+
 // --- menu & dialog ---
 check("angka item menu (spasi)", m.angkaItemMenu("Ganti Mode (Ke PAPI) (3)"), 3);
 check("angka item menu (rapat + baris baru)", m.angkaItemMenu("Ganti Mode (Ke PAPI)\n(0)"), 0);

@@ -54,6 +54,19 @@ proteksi anti-bot F5/TSPD, sama seperti fasih-web).
 ⚠️ JALUR YANG DISARANKAN: Console Chrome biasa (ubah_moda_console.js), bukan
 Playwright — fasih-sm mendeteksi browser otomatis. File siap-tempel dibuat dgn:
        python ubah_moda.py --sumber Agenda.xlsx --console
+
+LIST KODE IDENTITAS MILIK SENDIRI (2026-09-15)
+---------------------------------------------
+Ganti --sumber dgn --daftar: file .xlsx/.csv/.txt berisi kode identitas
+("5108060003000402 - UMK - 4") di kolom/baris mana pun. HANYA kode itu yang
+diubah — skrip tidak memilih sendiri & --cakupan diabaikan. Tiap kode diproses
+sendiri: KODE itu diketik di kotak "Cari...", baris yang kodenya PERSIS sama
+dicentang ("…- UMK - 4" bukan "…- UMK - 41"), "Ganti Mode (Ke PAPI) (1)", lalu
+kode itu dicari ulang utk verifikasi. Sudah PAPI -> KODE_SUDAH_PAPI; tidak ada
+-> KODE_TIDAK_ADA; hasil pencarian berisi subsls lain -> PENCARIAN_TIDAK_MENYARING
+(berhenti).
+       python ubah_moda.py --daftar list.xlsx --cek
+       python ubah_moda.py --daftar list.xlsx --console
 Jalur Playwright di file ini tetap ada sbg cadangan & sumber logika bersama.
 """
 
@@ -96,6 +109,7 @@ PENANDA_TARGET = "/*__TARGET__*/[]"
 AUDIT_FIELDS = [
     "timestamp", "jalan", "idsubsls", "akun_ppl", "baris_sheet", "status",
     "jumlah_assignment", "capi", "papi", "dipilih", "petugas_dipilih", "pesan",
+    "kode_target",  # di BELAKANG: baris audit lama tetap terbaca benar
 ]
 
 KOLOM_TABEL = {
@@ -108,7 +122,7 @@ POLA_TOMBOL_KONFIRMASI = re.compile(
     r"^\s*(ya|konfirmasi|ganti|ubah|lanjut|lanjutkan|simpan|ok|oke|proses)\b", re.I)
 POLA_TOMBOL_BATAL = re.compile(r"batal|tutup|cancel|kembali|^\s*tidak\b", re.I)
 
-STATUS_TUNTAS_LIVE = {"DIUBAH_TERVERIFIKASI", "SUDAH_ADA_PAPI", "TIDAK_ADA_CAPI"}
+STATUS_TUNTAS_LIVE = {"DIUBAH_TERVERIFIKASI", "SUDAH_ADA_PAPI", "TIDAK_ADA_CAPI", "KODE_SUDAH_PAPI"}
 STATUS_TUNTAS_DRY = STATUS_TUNTAS_LIVE | {"DRY_RUN_AKAN_DIUBAH"}
 # Status yang membuktikan cara kerja skrip tidak cocok dgn halaman — batch
 # berhenti SEKETIKA, bukan lanjut ke subsls berikutnya dgn asumsi yang sama.
@@ -117,6 +131,7 @@ STATUS_BERHENTI_SEGERA = {
     "JUMLAH_TERCENTANG_BEDA", "MENU_TIDAK_TERTUTUP", "TABEL_BERUBAH", "DIALOG_TIDAK_DIKENAL",
     "TOMBOL_KONFIRMASI_AMBIGU", "DIUBAH_BELUM_TERVERIFIKASI", "CENTANG_GAGAL",
     "ITEM_MENU_TIDAK_ADA", "BELUM_LOGIN", "TIDAK_ADA_AKSES",
+    "PENCARIAN_TIDAK_MENYARING", "KODE_GANDA",
 }
 
 
@@ -136,6 +151,98 @@ class Target:
     akun_ppl: tuple[str, ...]
     baris_sheet: list[int] = field(default_factory=list)
     siap_input: bool = False
+    # Kode identitas (bentuk baku) yang HARUS diubah persis — target list milik
+    # user, dicari dgn kode itu sendiri. Kosong = target sheet: dicari per
+    # idsubsls, skrip memilih sendiri menurut cakupan.
+    kode: str = ""
+
+    @property
+    def kunci(self) -> str:
+        """Kunci hasil/audit: kode identitas, atau idsubsls utk target sheet."""
+        return self.kode or self.idsubsls
+
+    @property
+    def istilah_cari(self) -> str:
+        """Teks yang diketik di kotak "Cari..."."""
+        return self.kode or self.idsubsls
+
+    def cocok(self, b: "BarisAssignment") -> bool:
+        """Baris tabel yang dicari: kode PERSIS ("…- UMK - 4" bukan "…- UMK - 41"),
+        atau semua baris subsls-nya utk target sheet."""
+        return normalisasi_kode(b.kode) == self.kode if self.kode else b.idsubsls == self.idsubsls
+
+
+# "5108060003000402 - UMK - 4". Bagian tengah bisa berupa nama ("I KETUT REDIKA /
+# I KOMANG AGUS SETIAWAN", "WAYAN DERAWA /") dan boleh memuat "-" yang TIDAK diikuti
+# spasi ("NON-UMK"); " - " di tengah nama tidak dikenali -> dilaporkan, bukan ditebak.
+# Nol di depan nomor dibuang. Sel tabel bisa berakhiran lain ("… - 6 / - 81119"):
+# yang diambil hanya kode di depannya. HARUS sama dgn ubah_moda_console.js.
+POLA_KODE_IDENTITAS = re.compile(
+    r"(?<!\d)(\d{16})\s*-\s*([A-Za-z0-9](?:[A-Za-z0-9 ._/'&(),+]|-(?=\S))*?)\s*-\s*0*(\d+)(?!\d)")
+
+
+def _kode_baku(m: re.Match) -> str:
+    return f"{m.group(1)} - {' '.join(m.group(2).split()).upper()} - {m.group(3)}"
+
+
+def normalisasi_kode(teks) -> str:
+    """Bentuk baku kode identitas utk dicocokkan PERSIS; "" kalau bukan kode."""
+    m = POLA_KODE_IDENTITAS.search(str(teks or ""))
+    return _kode_baku(m) if m else ""
+
+
+def target_dari_daftar_kode(baris_teks: list[str]):
+    """List kode identitas milik user (satu teks = satu baris file) ->
+    (targets, tidak_dikenali, ganda). SATU TARGET PER KODE: kodenya sendiri yang
+    diketik di kotak "Cari...". Baris tanpa 16 digit (judul kolom dsb.)
+    diabaikan; baris ber-16 digit tanpa pola kode dilaporkan (mis. NIK, atau
+    jenis yang memuat '-')."""
+    targets: list[Target] = []
+    sudah: set[str] = set()
+    tidak_dikenali, ganda = [], []
+    for no, teks in enumerate(baris_teks, start=1):
+        s = str(teks or "")
+        kode = [_kode_baku(m) for m in POLA_KODE_IDENTITAS.finditer(s)]
+        if not kode:
+            if re.search(r"(?<!\d)\d{16}(?!\d)", s):
+                tidak_dikenali.append((no, " ".join(s.split())[:80]))
+            continue
+        for k in kode:
+            if k in sudah:
+                ganda.append((no, k))
+                continue
+            sudah.add(k)
+            targets.append(Target(k[:16], (), [no], kode=k))
+    return targets, tidak_dikenali, ganda
+
+
+def baca_daftar(path: str | Path, sheet: Optional[str] = None) -> list[str]:
+    """File list -> satu teks per baris. .xlsx: sheet pertama (atau `sheet`),
+    sel sebaris digabung tab; lainnya dibaca sbg teks."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"File daftar tidak ditemukan: {path}")
+    if path.suffix.lower() in (".xlsx", ".xlsm"):
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        try:
+            if sheet is None:
+                ws = wb.worksheets[0]
+            elif sheet in wb.sheetnames:
+                ws = wb[sheet]
+            else:
+                raise ValueError(f"sheet '{sheet}' tidak ada di {path.name} (ada: {wb.sheetnames})")
+            print(f"Membaca sheet '{ws.title}' dari {path.name}")
+            return ["\t".join("" if v is None else str(v) for v in row) for row in ws.iter_rows(values_only=True)]
+        finally:
+            wb.close()
+    data = path.read_bytes()
+    for enc in ("utf-8-sig", "cp1252"):
+        try:
+            return data.decode(enc).splitlines()
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace").splitlines()
 
 
 def bangun_target(rows, hasil_cek=None, hanya_siap: bool = False):
@@ -219,7 +326,11 @@ def rencanakan(target: Target, baris: list[BarisAssignment], cakupan: str = "sat
     Baris subsls LAIN yang ikut terbawa pencarian diabaikan (tidak pernah
     dipilih). ada_halaman_lain = hasil pencarian > 1 halaman; halaman lain
     SENGAJA tidak dibaca (paginasi fasih-sm tidak memuat data dgn benar saat
-    dipindah — temuan user 2026-09-14), jadi PAPI di sana tidak terlihat."""
+    dipindah — temuan user 2026-09-14), jadi PAPI di sana tidak terlihat.
+
+    Target kode identitas -> _rencanakan_kode (cakupan diabaikan)."""
+    if target.kode:
+        return _rencanakan_kode(target, baris, ada_halaman_lain)
     milik = [b for b in baris if b.idsubsls == target.idsubsls]
     n_asing = len(baris) - len(milik)
     catatan = (f" | {n_asing} baris subsls lain diabaikan" if n_asing else "") + \
@@ -254,6 +365,34 @@ def rencanakan(target: Target, baris: list[BarisAssignment], cakupan: str = "sat
     punya_ppl = pilih.petugas.strip().lower() in ppl
     return Rencana("PERLU_DIUBAH", [pilih], (
         f"1 dari {len(capi)} assignment CAPI (petugas {pilih.petugas}{' = PPL sheet' if punya_ppl else ''}){catatan}"))
+
+
+def _rencanakan_kode(target: Target, baris: list[BarisAssignment], ada_halaman_lain: bool = False) -> Rencana:
+    """Target kode identitas (hasil pencarian KODE itu) -> HANYA baris kode itu
+    yang diubah (cakupan diabaikan). Baris lain yang ikut tampil (mis. "…- UMK
+    - 41" saat mencari "…- UMK - 4") diabaikan."""
+    cocok = [b for b in baris if target.cocok(b)]
+    n_lain = len(baris) - len(cocok)
+    catatan = f" | {n_lain} baris kode lain ikut tampil, diabaikan" if n_lain else ""
+    if len(cocok) > 1:
+        return Rencana("KODE_GANDA", pesan=(
+            f"kode {target.kode} tampil {len(cocok)}x di hasil pencarian — tidak dipilih{catatan}"))
+    if not cocok:
+        subsls_lain = sum(b.idsubsls != target.idsubsls for b in baris)
+        if subsls_lain:
+            return Rencana("PENCARIAN_TIDAK_MENYARING", pesan=(
+                f"hasil pencarian {target.kode} memuat {subsls_lain} baris subsls lain & kode itu tidak ada — "
+                f"kotak Cari tidak menyaring per kode identitas?{catatan}"))
+        if ada_halaman_lain:
+            return Rencana("KODE_TIDAK_TAMPIL", pesan=f"kode tidak ada di halaman tampil, hasil pencarian >1 halaman{catatan}")
+        return Rencana("KODE_TIDAK_ADA", pesan=f"kode tidak ditemukan di fasih-sm — cek penulisan kode / periode survei{catatan}")
+    b = cocok[0]
+    mode = b.mode.upper()
+    if mode == "PAPI":
+        return Rencana("KODE_SUDAH_PAPI", pesan=f"sudah PAPI (petugas {b.petugas}){catatan}")
+    if mode != "CAPI":
+        return Rencana("MODE_TIDAK_DIKENAL", pesan=f"nilai kolom Mode: {b.mode}{catatan}")
+    return Rencana("PERLU_DIUBAH", [b], f"CAPI (petugas {b.petugas}){catatan}")
 
 
 def angka_item_menu(teks: str) -> Optional[int]:
@@ -405,15 +544,16 @@ class FasihSm:
         data = self.page.evaluate(_JS_TABEL)
         return baris_dari_tabel(data), (data or {}).get("halaman")
 
-    def cari(self, idsubsls: str) -> tuple[list[BarisAssignment], bool]:
-        """Saring daftar lewat kotak "Cari...". Selalu dikosongkan dulu supaya
-        pencarian ulang (verifikasi) benar-benar memuat data baru.
+    def cari(self, istilah: str) -> tuple[list[BarisAssignment], bool]:
+        """Saring daftar lewat kotak "Cari..." (kode identitas atau idsubsls —
+        lihat Target.istilah_cari). Selalu dikosongkan dulu supaya pencarian
+        ulang (verifikasi) benar-benar memuat data baru.
         -> (baris halaman yang tampil, ada_halaman_lain). Paginasi TIDAK PERNAH
         dipindah — halaman yang dipindah tidak memuat datanya dgn benar."""
         self.tutup_menu()
         kotak = self.page.locator('input[placeholder="Cari..."]').locator("visible=true").first
         kotak.wait_for(state="visible", timeout=15_000)
-        for nilai in ("", idsubsls):
+        for nilai in ("", istilah):
             try:
                 with self.page.expect_response(lambda r: "datatable" in r.url, timeout=25_000):
                     kotak.fill(nilai)
@@ -500,10 +640,10 @@ class FasihSm:
         self.page.wait_for_timeout(2_000)
         return "DIKONFIRMASI"
 
-    def verifikasi_papi(self, idsubsls: str, kode: list[str], percobaan: int = 3) -> bool:
+    def verifikasi_papi(self, istilah: str, kode: list[str], percobaan: int = 3) -> bool:
         for ke in range(1, percobaan + 1):
             self.page.wait_for_timeout(3_000 * ke)
-            baris = {b.kode: b for b in self.cari(idsubsls)[0]}
+            baris = {b.kode: b for b in self.cari(istilah)[0]}
             mode = {k: (baris[k].mode if k in baris else "(hilang)") for k in kode}
             self._log(f"Verifikasi ke-{ke}: {mode}")
             if all(m.upper() == "PAPI" for m in mode.values()):
@@ -528,17 +668,21 @@ def status_terakhir() -> dict:
     if not AUDIT_PATH.exists():
         return {}
     with AUDIT_PATH.open(newline="", encoding="utf-8") as f:
-        return {r["idsubsls"]: r["status"] for r in csv.DictReader(f) if r.get("idsubsls")}
+        # Kunci sama dgn Target.kunci: kode identitas, atau idsubsls utk target sheet.
+        return {(r.get("kode_target") or r["idsubsls"]): r["status"]
+                for r in csv.DictReader(f) if r.get("idsubsls")}
 
 
 def proses_target(sm: FasihSm, t: Target, args, jalan: str) -> dict:
     hasil = {"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "jalan": jalan, "idsubsls": t.idsubsls,
-             "akun_ppl": ",".join(t.akun_ppl), "baris_sheet": ",".join(map(str, t.baris_sheet))}
+             "akun_ppl": ",".join(t.akun_ppl), "baris_sheet": ",".join(map(str, t.baris_sheet)),
+             "kode_target": t.kode}
     rencana = None
     try:
-        baris, ada_halaman_lain = sm.cari(t.idsubsls)
+        baris, ada_halaman_lain = sm.cari(t.istilah_cari)
         rencana = rencanakan(t, baris, args.cakupan, ada_halaman_lain)
-        milik = [b for b in baris if b.idsubsls == t.idsubsls]
+        # Target kode: baris kode persis itu saja; target sheet: semua baris subsls-nya.
+        milik = [b for b in baris if t.cocok(b)]
         hasil.update(jumlah_assignment=len(milik), capi=sum(b.mode.upper() == "CAPI" for b in milik),
                      papi=sum(b.mode.upper() == "PAPI" for b in milik), pesan=rencana.pesan,
                      dipilih=" | ".join(b.kode for b in rencana.pilih),
@@ -569,7 +713,7 @@ def proses_target(sm: FasihSm, t: Target, args, jalan: str) -> dict:
 
         cara = sm.klik_ganti_mode(item)
         kode = [b.kode for b in rencana.pilih]
-        ok = sm.verifikasi_papi(t.idsubsls, kode)
+        ok = sm.verifikasi_papi(t.istilah_cari, kode)
         hasil["status"] = "DIUBAH_TERVERIFIKASI" if ok else "DIUBAH_BELUM_TERVERIFIKASI"
         hasil["pesan"] = f"{rencana.pesan} | {cara}"
         # Centang yang tertinggal bisa ikut terkirim di aksi massal subsls
@@ -605,10 +749,32 @@ def tulis_console(targets) -> Path:
     teks = KONSOL_TEMPLATE.read_text(encoding="utf-8")
     if teks.count(PENANDA_TARGET) != 1:
         raise ValueError(f"Penanda {PENANDA_TARGET} harus muncul tepat 1x di {KONSOL_TEMPLATE.name}")
-    data = [{"idsubsls": t.idsubsls, "ppl": list(t.akun_ppl), "baris": t.baris_sheet, "siap": t.siap_input}
+    data = [{"idsubsls": t.idsubsls, "ppl": list(t.akun_ppl), "baris": t.baris_sheet, "siap": t.siap_input,
+             **({"kode": t.kode} if t.kode else {})}
             for t in targets]
     KONSOL_SIAP.write_text(teks.replace(PENANDA_TARGET, json.dumps(data, ensure_ascii=False)), encoding="utf-8")
     return KONSOL_SIAP
+
+
+def laporan_cek_daftar(targets, tidak_dikenali, ganda, sumber: str):
+    print(f"=== TARGET GANTI MODE (kode identitas) dari {sumber} ===")
+    print(f"  {len(targets)} kode identitas (tiap kode dicari sendiri), "
+          f"tersebar di {len({t.idsubsls for t in targets})} idsubsls")
+    if ganda:
+        print(f"  {len(ganda)} kode GANDA dilewati (hanya diproses sekali), mis.: "
+              + ", ".join(f"baris {no}: {k}" for no, k in ganda[:5]))
+    if tidak_dikenali:
+        print(f"  !! {len(tidak_dikenali)} baris berisi 16 digit tapi BUKAN kode identitas — TIDAK dimuat, periksa:")
+        for no, isi in tidak_dikenali[:10]:
+            print(f"       baris {no}: {isi}")
+    with TARGET_CSV.open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["kode_identitas", "idsubsls", "baris_daftar"])
+        for t in targets:
+            w.writerow([t.kode, t.idsubsls, ",".join(map(str, t.baris_sheet))])
+    print(f"\nDaftar lengkap: {TARGET_CSV}")
+    print("Berikutnya (file siap-tempel utk Console Chrome):")
+    print(f"  python ganti_moda/ubah_moda.py --daftar {sumber} --console")
 
 
 def laporan_cek(targets, dikeluarkan, sumber: str):
@@ -633,7 +799,12 @@ def laporan_cek(targets, dikeluarkan, sumber: str):
 
 def main():
     ap = argparse.ArgumentParser(description="Ganti mode assignment CAPI -> PAPI di fasih-sm per idsubsls")
-    ap.add_argument("--sumber", required=True, help="Agenda.xlsx (tab gabungan) atau .csv-nya")
+    sumber = ap.add_mutually_exclusive_group(required=True)
+    sumber.add_argument("--sumber", help="Agenda.xlsx (tab gabungan) atau .csv-nya — skrip memilih 1 CAPI per subsls")
+    sumber.add_argument("--daftar",
+                        help="List KODE IDENTITAS milikmu (.xlsx/.csv/.txt, mis. '5108060003000402 - UMK - 4'); "
+                             "HANYA kode itu yang diubah, --cakupan diabaikan")
+    ap.add_argument("--sheet", default=None, help="Nama sheet utk --daftar .xlsx (default: sheet pertama)")
     ap.add_argument("--cek", action="store_true", help="Hanya daftar target, tanpa browser")
     ap.add_argument("--console", action="store_true",
                     help=f"Tulis {KONSOL_SIAP} utk ditempel di DevTools Console Chrome biasa (DISARANKAN)")
@@ -654,20 +825,31 @@ def main():
     ap.add_argument("--maks-error-beruntun", type=int, default=3)
     args = ap.parse_args()
 
-    rows = load_gabungan(args.sumber)
-    targets, dikeluarkan = bangun_target(rows, periksa_semua(rows), args.hanya_siap)
+    if args.daftar:
+        targets, tidak_dikenali, ganda = target_dari_daftar_kode(baca_daftar(args.daftar, args.sheet))
+        dikeluarkan = []
+    else:
+        rows = load_gabungan(args.sumber)
+        targets, dikeluarkan = bangun_target(rows, periksa_semua(rows), args.hanya_siap)
     if args.idsubsls:
         ingin = {s.strip() for s in args.idsubsls.split(",") if s.strip()}
         tak_dikenal = sorted(ingin - {t.idsubsls for t in targets})
         if tak_dikenal:
-            print(f"⚠️ idsubsls bukan target (tidak ada di sheet / dikeluarkan): {tak_dikenal}")
+            print(f"⚠️ idsubsls bukan target (tidak ada di sheet/daftar / dikeluarkan): {tak_dikenal}")
         targets = [t for t in targets if t.idsubsls in ingin]
     if args.cek:
-        laporan_cek(targets, dikeluarkan, args.sumber)
+        if args.daftar:
+            laporan_cek_daftar(targets, tidak_dikenali, ganda, args.daftar)
+        else:
+            laporan_cek(targets, dikeluarkan, args.sumber)
         return 0
     if args.console:
         path = tulis_console(targets)
-        print(f"{path} ditulis: {len(targets)} subsls ({len(dikeluarkan)} baris sheet dikeluarkan — lihat --cek).")
+        if args.daftar:
+            print(f"{path} ditulis: {len(targets)} kode identitas"
+                  + (f" — ⚠️ {len(tidak_dikenali)} baris tidak dikenali, lihat --cek" if tidak_dikenali else "") + ".")
+        else:
+            print(f"{path} ditulis: {len(targets)} subsls ({len(dikeluarkan)} baris sheet dikeluarkan — lihat --cek).")
         print("Chrome biasa -> login fasih-sm -> buka list dgn perPage=100 -> F12 Console -> tempel isi file itu ->")
         print('  await ubahModa.jalankan({mode: "petakan"})')
         return 0
@@ -677,7 +859,7 @@ def main():
         sudah = status_terakhir()
         tuntas = STATUS_TUNTAS_LIVE if jalan == "live" else STATUS_TUNTAS_DRY
         sebelum = len(targets)
-        targets = [t for t in targets if sudah.get(t.idsubsls) not in tuntas]
+        targets = [t for t in targets if sudah.get(t.kunci) not in tuntas]
         print(f"--lewati-selesai: {sebelum - len(targets)} idsubsls dilewati.")
     if args.petakan:
         targets = targets[:1]
@@ -709,7 +891,8 @@ def main():
             sm.buka_list(url)
             error_beruntun = 0
             for i, t in enumerate(targets, start=1):
-                print(f"\n=== [{i}/{len(targets)}] {t.idsubsls} — PPL {', '.join(t.akun_ppl)} ===")
+                siapa = f"kode {t.kode}" if t.kode else f"{t.idsubsls} — PPL {', '.join(t.akun_ppl)}"
+                print(f"\n=== [{i}/{len(targets)}] {siapa} ===")
                 hasil = proses_target(sm, t, args, jalan)
                 append_audit(hasil)
                 hitung[hasil["status"]] += 1

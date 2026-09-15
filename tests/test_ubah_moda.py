@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from inti.gabungan_loader import GabunganRow, Pemeriksaan
 from ganti_moda.ubah_moda import (
-    BarisAssignment, Berhenti, Target, angka_item_menu, bangun_target, baris_dari_tabel,
-    pilih_tombol_konfirmasi, rencanakan,
+    STATUS_BERHENTI_SEGERA, STATUS_TUNTAS_LIVE, BarisAssignment, Berhenti, Target, angka_item_menu, bangun_target,
+    baca_daftar, baris_dari_tabel, normalisasi_kode, pilih_tombol_konfirmasi, rencanakan, target_dari_daftar_kode,
 )
 
 ok_all = True
@@ -90,6 +90,95 @@ check("semua: seluruh CAPI subsls ini, PAPI & subsls lain dilewati", (r.status, 
 check("semua: sudah PAPI semua", rencanakan(T, [b(1, "PAPI")], cakupan="semua").status, "TIDAK_ADA_CAPI")
 check("semua: tanpa CAPI tampil tapi ada halaman lain -> berhenti",
       rencanakan(T, [b(1, "PAPI")], cakupan="semua", ada_halaman_lain=True).status, "PERLU_HALAMAN_LAIN")
+
+# --- list kode identitas milik user (2026-09-15): HANYA kode itu yang diubah ---
+# Kasus kembar dgn tests/test_ubah_moda_console.js.
+check("normalisasi kode: spasi & huruf kecil & nol depan", normalisasi_kode(f"{S}-umk-04"), f"{S} - UMK - 4")
+check("normalisasi kode: bukan kode", normalisasi_kode(S), "")
+check("normalisasi kode: 17 digit bukan idsubsls", normalisasi_kode(f"9{S} - UMK - 4"), "")
+dk_t, dk_tidak, dk_ganda = target_dari_daftar_kode([
+    "Kode Identitas\tNama",
+    f"{S} - UMK - 4\tWARUNG A",
+    f"{S} - UMK - 41",
+    f"{LAIN} - UMK - 2 ; {S} - umk - 4",
+    "5108070013000999\tNIK tanpa kode",
+    f"{S} - WARUNG - BU SRI - 12",
+    f"{S} - NON-UMK - 3",
+])
+check("daftar kode: SATU target per kode, urutan list dipertahankan",
+      [(t.kode, t.idsubsls, t.baris_sheet) for t in dk_t],
+      [(f"{S} - UMK - 4", S, [2]), (f"{S} - UMK - 41", S, [3]), (f"{LAIN} - UMK - 2", LAIN, [4]),
+       (f"{S} - NON-UMK - 3", S, [7])])
+check("daftar kode: ganda dilaporkan", dk_ganda, [(4, f"{S} - UMK - 4")])
+check("daftar kode: 16 digit tanpa pola kode dilaporkan", [x[0] for x in dk_tidak], [5, 6])
+# Bentuk nyata dari list user & tabel fasih-sm (2026-09-15)
+check("kode nama keluarga dgn '/'", normalisasi_kode("5108060029000102 - I KETUT REDIKA / I KOMANG AGUS SETIAWAN - 46"),
+      "5108060029000102 - I KETUT REDIKA / I KOMANG AGUS SETIAWAN - 46")
+check("kode nama diakhiri '/'", normalisasi_kode("5108070005000601 - WAYAN DERAWA / - 21"),
+      "5108070005000601 - WAYAN DERAWA / - 21")
+check("kode nama berangka", normalisasi_kode("5108020014000104 - MUH UMAR FARIDL / 1 - 48"),
+      "5108020014000104 - MUH UMAR FARIDL / 1 - 48")
+check("kode nama ber-apostrof & titik", normalisasi_kode(f"{S} - WR. MAK'E (BU TUT) - 9"), f"{S} - WR. MAK'E (BU TUT) - 9")
+check("sel tabel berakhiran '/ - 81119'", normalisasi_kode("5108060029000102 - BANGUNAN KOSONG - 6 / - 81119"),
+      "5108060029000102 - BANGUNAN KOSONG - 6")
+check("sel tabel berakhiran '/ - 0'", normalisasi_kode("5108060029000102 - I KADEK RIKI SAPUTRA / KETUT ARINI - 46 / - 0"),
+      "5108060029000102 - I KADEK RIKI SAPUTRA / KETUT ARINI - 46")
+check("kode dari xlsx (tab + nama)", normalisasi_kode(f"{S} - DTSEN - 44\tNAMA"), f"{S} - DTSEN - 44")
+
+# Pencarian memakai KODE itu sendiri; hasil pencarian "…- UMK - 4" bisa ikut memuat "- 41", "- 40", dst.
+TK = Target(S, (), [2], kode=f"{S} - UMK - 4")
+check("kode: istilah cari = kode identitas", TK.istilah_cari, f"{S} - UMK - 4")
+check("sheet: istilah cari = idsubsls", T.istilah_cari, S)
+r = rencanakan(TK, [b(41), b(4, petugas="x@gmail.com"), b(40)])
+check("kode: pilih PERSIS '- 4', bukan '- 41'/'- 40'", (r.status, [x.kode for x in r.pilih]),
+      ("PERLU_DIUBAH", [f"{S} - UMK - 4"]))
+check("kode: baris lain yg ikut tampil dicatat", "2 baris kode lain" in r.pesan, True)
+check("kode: kode di tabel beda spasi/huruf tetap cocok",
+      rencanakan(TK, [BarisAssignment(kode=f"{S}-umk-4", mode="CAPI")]).status, "PERLU_DIUBAH")
+check("kode: PAPI lain di subsls TIDAK membuat kode ini dilewati", rencanakan(TK, [b(41, "PAPI"), b(4)]).status,
+      "PERLU_DIUBAH")
+check("kode: sudah PAPI", rencanakan(TK, [b(4, "PAPI")]).status, "KODE_SUDAH_PAPI")
+check("kode: KODE_SUDAH_PAPI tuntas", "KODE_SUDAH_PAPI" in STATUS_TUNTAS_LIVE, True)
+check("kode: hasil kosong -> KODE_TIDAK_ADA (lanjut)", rencanakan(TK, []).status, "KODE_TIDAK_ADA")
+check("kode: hanya kode lain subsls sama -> KODE_TIDAK_ADA", rencanakan(TK, [b(41)]).status, "KODE_TIDAK_ADA")
+check("kode: tidak ada di halaman tampil tapi >1 halaman -> KODE_TIDAK_TAMPIL",
+      rencanakan(TK, [b(41)], ada_halaman_lain=True).status, "KODE_TIDAK_TAMPIL")
+check("kode: KODE_TIDAK_ADA/TIDAK_TAMPIL tidak tuntas & tidak menghentikan",
+      [s in STATUS_TUNTAS_LIVE or s in STATUS_BERHENTI_SEGERA for s in ("KODE_TIDAK_ADA", "KODE_TIDAK_TAMPIL")],
+      [False, False])
+r = rencanakan(TK, [b(1, sub=LAIN), b(2, sub=LAIN)])
+check("kode: hasil berisi subsls lain -> PENCARIAN_TIDAK_MENYARING (berhenti)",
+      (r.status, r.status in STATUS_BERHENTI_SEGERA), ("PENCARIAN_TIDAK_MENYARING", True))
+check("kode: kode sendiri tampil + subsls lain -> tetap kode itu saja",
+      [x.kode for x in rencanakan(TK, [b(4), b(1, sub=LAIN)]).pilih], [f"{S} - UMK - 4"])
+r = rencanakan(TK, [b(4), b(4)])
+check("kode: tampil 2x -> KODE_GANDA (berhenti)", (r.status, r.status in STATUS_BERHENTI_SEGERA), ("KODE_GANDA", True))
+check("kode: cakupan 'semua' diabaikan", len(rencanakan(TK, [b(4), b(41)], cakupan="semua").pilih), 1)
+check("kode: mode aneh pada kode ini", rencanakan(TK, [b(4, "CAWI")]).status, "MODE_TIDAK_DIKENAL")
+check("kode: mode aneh pada kode LAIN tidak menghalangi", rencanakan(TK, [b(41, "CAWI"), b(4)]).status,
+      "PERLU_DIUBAH")
+check("kunci: target sheet = idsubsls", T.kunci, S)
+check("kunci: target kode = kode identitas", TK.kunci, f"{S} - UMK - 4")
+check("cocok kode: '- 41' bukan '- 4'", [TK.cocok(x) for x in (b(4), b(41))], [True, False])
+check("cocok sheet: semua baris subsls", [T.cocok(x) for x in (b(4), b(41), b(1, sub=LAIN))], [True, True, False])
+
+# --- baca file daftar (.txt & .xlsx) ---
+import tempfile
+with tempfile.TemporaryDirectory() as tmp:
+    txt = Path(tmp) / "list.txt"
+    txt.write_text(f"kode\n{S} - UMK - 4\n", encoding="utf-8")
+    check("baca daftar .txt", baca_daftar(txt), ["kode", f"{S} - UMK - 4"])
+    import openpyxl
+    wb = openpyxl.Workbook()
+    wb.active.append(["No", "Kode Identitas"])
+    wb.active.append([1, f"{S} - UMK - 4"])
+    wb.create_sheet("lain").append([f"{LAIN} - UMK - 2"])
+    xl = Path(tmp) / "list.xlsx"
+    wb.save(xl)
+    check("baca daftar .xlsx: sheet pertama saja", [t.kode for t in target_dari_daftar_kode(baca_daftar(xl))[0]],
+          [f"{S} - UMK - 4"])
+    check("baca daftar .xlsx: --sheet", [t.idsubsls for t in target_dari_daftar_kode(baca_daftar(xl, "lain"))[0]],
+          [LAIN])
 
 # --- menu & dialog ---
 check("angka item menu (spasi)", angka_item_menu("Ganti Mode (Ke PAPI) (3)"), 3)
