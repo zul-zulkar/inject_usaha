@@ -31,3 +31,8 @@ target_reset_mitra.csv
 audit_reset_mitra*.csv
 dump_akun_mitra*.json
 export/
+
+# buka_wilayah: file siap-tempel, daftar target & audit
+buka_wilayah_console.siap.js
+daftar_buka_wilayah*.txt
+audit_buka_wilayah*.csv

@@ -19,6 +19,7 @@ Dulu semua file di root; sekarang dikelompokkan. **Jalankan semua perintah DARI 
 | `input_gabungan/` | Alur sheet gabungan: `fill_gabungan.py`, `main_gabungan.py`. | `python input_gabungan/main_gabungan.py --sumber Agenda.xlsx ...` |
 | `ganti_moda/` | CAPI→PAPI fasih-sm: `ubah_moda.py` (+ `--console`), `ubah_moda_console.js`. | `python ganti_moda/ubah_moda.py --sumber Agenda.xlsx --console` |
 | `reset_mitra/` | Reset password akun PPL di manajemen-mitra: `reset_mitra.py` (+ `--console`), `reset_mitra_console.js`. | `python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --console` |
+| `buka_wilayah/` | fasih-sm "Buka Wilayah" (batal Selesai Listing) massal: `buka_wilayah.py` (+ `--console`), `buka_wilayah_console.js`. | `python buka_wilayah/buka_wilayah.py --daftar daftar_buka_wilayah.txt --console` |
 | `tests/` | Uji offline (Python & Node). Semua menambahkan root ke path, impor `from inti...`/`from input_gabungan...`. Jalankan mis. `python tests/test_gabungan_loader.py`, `node tests/test_ubah_moda_console.js`. |
 | `docs/` | `PANDUAN_*.md`, `catatan usaha pecahan se2026.md`. `CLAUDE.md` sengaja TETAP di root (dimuat otomatis tiap sesi). |
 | root | Data & artefak runtime: `Agenda.xlsx`, `LKpenyalinan.csv`, `export/`, `log_screenshots/`, `log_fasih_sm/`, `audit_log*.csv`, `*.siap.js`. |
@@ -238,6 +239,15 @@ Beda dgn catatan lama "fasih-sm read-only": skrip ini MENULIS ke fasih-sm. Yang 
 - **Dialog Reset PW sudah dipetakan** lewat `resetMitra.petakanDialog()` (lihat bullet "Struktur dialog … TERKONFIRMASI" di atas). Tetap: `otomatis` wajib dimulai `limit:1` lalu verifikasi login mitra dgn password baru sebelum dibesarkan. Kalau suatu akun berhenti `FIELD_PASSWORD_TIDAK_ADA`/`TOMBOL_KONFIRMASI_AMBIGU` (mungkin struktur beda), user buka 1 dialog akun itu lalu `resetMitra.petakanDialog()` utk merekam struktur → sesuaikan `pilihFieldPassword`.
 - **Akun GANDA dilewati, bukan menghentikan batch** (ketetapan user 2026-09-14): `putuskanStatus()` (fungsi murni, diuji) mengembalikan `LEWATI` utk `GANDA` selama opsi `lewatiGanda` (default `true`); akun itu tetap berstatus `GANDA` di audit + pesan "DILEWATI", dan daftarnya dicetak di akhir run. Aman karena `prosesEmail()` hanya mereset `COCOK`. Status galat lain di `STATUS_BERHENTI_SEGERA` TETAP menghentikan batch — jangan ikut dilonggarkan. `lewatiGanda:false` = perilaku lama.
 - Gate `otomatis` = `sayaSudahMelihatDialog:true` (bukan lagi butuh manual-sukses; manual = human ketik, bukan alur yg diinginkan user). Stop-on-anomaly menjaga: 1 galat menghentikan batch, bukan 371. Logika parsing/pilih HARUS sama dgn `tests/test_reset_mitra_console.js`.
+
+### fasih-sm: buka wilayah (`buka_wilayah_console.js`, dipetakan 2026-09-15)
+
+- Tombol "Progress Penyelesaian Wilayah" (kanan atas halaman Data survei) -> dialog "Daftar Wilayah". Kartu `doneListing=true` = "Listing Selesai" + tombol **"Buka Wilayah"** (popover "Ya, Buka Wilayah"); `false` = "Proses Listing" + "Tandai Selesai Listing". Tombol TIDAK bergantung `doneTarikSample` (dilihat di kode halaman), tapi skrip tetap melewati yang sudah Tarik Sampel kecuali `izinkanTarikSampel`.
+- API (dari bundle `index-*.js`, bukan tebakan): daftar `POST /app/api/assignment-general/api/assignment-region/datatable?periodeId=<periode>` body DataTables; buka `POST .../assignment-region/undone` body = **item datatable apa adanya** -> `{success, message}`; tandai selesai = `.../done` (skrip TIDAK PERNAH memanggilnya).
+- **fetch manual wajib header `X-XSRF-TOKEN`** (nilai cookie `XSRF-TOKEN`); tanpa itu 403 "Invalid CSRF Token".
+- **`start` datatable = OFFSET baris**, tapi dialog web mengirim NOMOR HALAMAN sbg `start` -> paginasi dialog bergeser 1 baris per halaman (bug fasih-sm). `recordsFiltered` = panjang halaman, bukan jumlah hasil; pakai `recordsTotal`. Pencarian `regex:true` -> cocokkan `smallestRegionFullCode` persis.
+- Skrip memakai API itu (bukan klik popover sintetis), satu subsls per request: cari -> harus tepat 1 kode persis & `doneListing===true` -> `undone` -> cari ulang, `doneListing` harus false (`DIBUKA_TERVERIFIKASI`). Eksekusi massal butuh 1 `DIBUKA_TERVERIFIKASI` dulu (`limit:1`).
+- Cek status 2026-09-15 thd daftar user (578 subsls): 439 Listing Selesai, 139 sudah terbuka, 0 tidak ada, 0 Tarik Sampel; se-kabupaten 2012 dari 2614 wilayah Listing Selesai.
 
 ## Gap yang diketahui — perbaiki sebelum pakai ke backlog sungguhan
 
