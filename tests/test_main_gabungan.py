@@ -207,6 +207,20 @@ check("satu akun: dipotong per 4 baris", [(a, len(b)) for a, b in sesi],
 check("per baris: satu sesi per akun PPL", sorted(a for a, _ in mg.rencana_sesi(rows, "", 4)),
       ["ppl0@gmail.com", "ppl1@gmail.com"])
 
+# --- dokumen dihapus admin (2026-09-15, Agenda1-1 baris 88) -> baris dibuatkan dokumen baru ---
+with tempfile.TemporaryDirectory() as d:
+    mg.AUDIT_LOG_PATH = Path(d) / "audit.csv"
+    mg.append_audit({"kunci": "k88", "status": mg.STATUS_DIBUAT, "akun_login": "m@mail.com",
+                     "idsubsls_input": "1", "dokumen_url": "https://x/s/p/lama/entry"})
+    mg.append_audit({"kunci": "k88", "status": mg.STATUS_TERKUNCI, "akun_login": "m@mail.com", "idsubsls_input": "1"})
+    mg.append_audit({"kunci": "k88", "status": mg.STATUS_DIHAPUS, "akun_login": "m@mail.com", "idsubsls_input": "1",
+                     "dokumen_url": "https://x/s/p/lama/entry"})
+    check("DOKUMEN_DIHAPUS menggugurkan catatan dokumen", "k88" in mg.dokumen_per_kunci(), False)
+    check("DOKUMEN_DIHAPUS bukan status tuntas", mg.status_terakhir_per_kunci()["k88"] in mg.STATUS_TERKIRIM, False)
+    mg.append_audit({"kunci": "k88", "status": mg.STATUS_DIBUAT, "akun_login": "m@mail.com",
+                     "idsubsls_input": "1", "dokumen_url": "https://x/s/p/baru/entry"})
+    check("dokumen baru sesudahnya tercatat lagi", mg.dokumen_per_kunci()["k88"][2], "https://x/s/p/baru/entry")
+
 # --- paralel beda akun: list per akun, audit bersama ---
 import time as _time
 with tempfile.TemporaryDirectory() as d:
@@ -230,6 +244,16 @@ with tempfile.TemporaryDirectory() as d:
     check("giliran: sudah terkirim -> lewati",
           bool(mg.alasan_lewati_saat_giliran("kB", ("b@mail.com", "2"), tuntas)), True)
     check("giliran: belum pernah -> kerjakan", mg.alasan_lewati_saat_giliran("kZ", ("a@mail.com", "1"), tuntas), "")
+    # Agenda2 baris 267 vs Agenda baris 108: usaha beda, nama dokumen sama, akun list sama.
+    mg.append_audit({"kunci": "k108", "status": mg.STATUS_DIBUAT, "akun_login": "a@mail.com", "idsubsls_input": "1",
+                     "nama_usaha": "PANGKALAN GAS (NYOMAN SHUARJANA)", "dokumen_url": "https://x/s/p/d108/entry"})
+    check("giliran: nama dokumen sudah dipakai baris lain di akun ini -> lewati",
+          mg.alasan_lewati_saat_giliran("k267", ("a@mail.com", "1"), tuntas, "Pangkalan Gas (Nyoman  Shuarjana)")
+          .startswith("SKIP_NAMA_DIPAKAI_BARIS_LAIN"), True)
+    check("giliran: nama sama tapi di akun lain -> kerjakan",
+          mg.alasan_lewati_saat_giliran("k267", ("z@mail.com", "9"), tuntas, "PANGKALAN GAS (NYOMAN SHUARJANA)"), "")
+    check("giliran: pemilik nama itu sendiri -> kerjakan (dibuka lewat URL)",
+          mg.alasan_lewati_saat_giliran("k108", ("a@mail.com", "1"), tuntas, "PANGKALAN GAS (NYOMAN SHUARJANA)"), "")
 
 _cwd0 = __import__("os").getcwd()
 with tempfile.TemporaryDirectory() as d:

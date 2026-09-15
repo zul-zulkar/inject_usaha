@@ -182,6 +182,36 @@ check("kurung tak tertutup di 12a -> satu kurung di belakang, tetap SIAP",
 _, h = muat(baris(**u("11. a.", "1. Perseroan Terbatas (PT)/CV")))
 check("11a 'PT/CV' bukan opsi form", h[3].status, "SKIP_DATA_OPSI_TIDAK_ADA_DI_FORM")
 
+# Ketetapan user 2026-09-15: 11a "PT/CV" diturunkan dari awalan nama; PT/CV dipindah ke belakang.
+for nama, want_opsi, want_nama in (
+    ("PT. WIRA DEK SU", "1.a. Perseroan (PT/NV, PT Persero, PT Tbk, PT Persero Tbk, Perseroan Daerah",
+     "WIRA DEK SU, PT (I MADE)"),
+    ("CV. DEWI KUNTI DUA/ SPBU 5480315", "7. Persekutuan Komanditer (CV)", "DEWI KUNTI DUA/ SPBU 5480315, CV (I MADE)"),
+    ("UD.SINAR PRIANDANA SARI", "13. Bukan Badan Usaha", "UD.SINAR PRIANDANA SARI (I MADE)"),
+    ("SPBU 54.811.03", "1.a. Perseroan (PT/NV, PT Persero, PT Tbk, PT Persero Tbk, Perseroan Daerah",
+     "SPBU 54.811.03 (I MADE)"),
+):
+    rows_b, h = muat(baris(**u("Nama Keluarga", nama), **u("8. b.", nama), **u("11. a.", "1. Perseroan Terbatas (PT)/CV"),
+                           **u("10. a.", "1. Ya"), **u("10. b.", "9999"), **u("10. c.", "0")))
+    check(f"11a PT/CV dari awalan '{nama}' (10c '0' diabaikan krn 10a Ya)",
+          (rows_b[0]["badan_usaha"], rows_b[0].nama_dokumen, rows_b[0].nama_komersial, h[3].status,
+           rows_b[0].kunci == muat(baris(**u("Nama Keluarga", nama)))[0][0].kunci),
+          (want_opsi, want_nama, want_nama, "SIAP", True))
+rows_bd, h = muat(baris(**u("Nama Keluarga", "PANGKALAN GAS BUMDES PANCA GIRI KENCANA"),
+                        **u("11. d.", "2. Tidak")))
+check("BUMDES (Agenda2 baris 239): 11a 6, 11d Ya, modal pemerintah 100, SIAP",
+      (rows_bd[0]["badan_usaha"], rows_bd[0]["lap_keuangan"],
+       [rows_bd[0][k] for k in ("pribadi", "non_profit", "publik", "non_publik", "pemerintah", "asing")], h[3].status),
+      ("6. BUM Desa", "1. Ya", ["0", "0", "0", "0", "100", "0"], "SIAP"))
+_, h = muat(baris(**u("11. a.", "1. Perseroan Terbatas (PT)/CV")))
+check("11a PT/CV tanpa awalan dikenal -> tetap skip", h[3].status, "SKIP_DATA_OPSI_TIDAK_ADA_DI_FORM")
+_, h = muat(baris(**u("10. a.", "2. Tidak"), **u("10. c.", "0")))
+check("10c '0' saat 10a Tidak -> tetap skip", h[3].status, "SKIP_DATA_OPSI_TIDAK_ADA_DI_FORM")
+rows_n, h = muat(baris(**u("Nama Keluarga", "PUSKESMAS PEMBANTU DESA LOKAPAKSA DI BANJAR DINAS SORGA"),
+                       **u("8. b.", "PUSKESMAS PEMBANTU DESA LOKAPAKSA DI BANJAR DINAS SORGA"), **u("12. a.", "X")))
+check("KOREKSI_NAMA (Agenda1-1 baris 90): 55 -> nama pengganti, SIAP",
+      (rows_n[0].nama_dokumen, h[3].status), ("PUSTU DESA LOKAPAKSA BANJAR DINAS SORGA (X)", "SIAP"))
+
 _, h = muat(baris(**u("24. a2.", "0"), **u("24. b2.", "1")))
 check("24a1+24b1 != 24a2+24b2", h[3].status, "SKIP_DATA_PEKERJA_24_TIDAK_KONSISTEN")
 

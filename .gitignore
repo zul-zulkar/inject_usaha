@@ -30,4 +30,11 @@ reset_mitra_console.siap.js
 target_reset_mitra.csv
 audit_reset_mitra*.csv
 dump_akun_mitra*.json
+export/# sinkron_list: daftar dokumen server (nama usaha, akun petugas)
+list_api_*.json
+
+# approve_pml: profil login fasih-web (berisi sesi!) & rekaman halaman
+.profil_fasih_web_*/
+.sesi_fasih_web_*.json
+log_approve/
 export/

@@ -210,6 +210,48 @@ KEY_PEKERJA = ("tk_laki", "tk_pr", "tk_dibayar", "tk_tdk_dibayar")
 # 0, dan form menolak 24a2 > 0 dgn 26a/24a2 <= Rp50.000 (file-validation `gaji`).
 # Pola lain TIDAK ditebak -> tetap PEKERJA_24_TIDAK_KONSISTEN.
 KOREKSI_PEKERJA = {("0", "2", "0", "1"): ("0", "2", "0", "2")}
+
+# 11a di sheet "1. Perseroan Terbatas (PT)/CV" tidak ada di form. Ketetapan user
+# 2026-09-15 (Agenda baris 33/37/40/41/53/64/74/99/103/177), diturunkan dari AWALAN
+# nama usaha; awalan lain tidak ditebak (tetap OPSI_TIDAK_ADA_DI_FORM).
+BADAN_USAHA_PT_CV = "1. Perseroan Terbatas (PT)/CV"
+OPSI_PT = "1.a. Perseroan (PT/NV, PT Persero, PT Tbk, PT Persero Tbk, Perseroan Daerah"
+OPSI_CV = "7. Persekutuan Komanditer (CV)"
+KOREKSI_BADAN_DARI_AWALAN = (   # (regex awalan, opsi 11a, akhiran yang dipindah ke belakang nama)
+    (r"PT\b\.?", OPSI_PT, "PT"),
+    (r"CV\b\.?", OPSI_CV, "CV"),
+    (r"UD\b\.?", "13. Bukan Badan Usaha", ""),
+    (r"SPBU\b", OPSI_PT, ""),
+)
+
+# Nama memuat BUMDES -> validasi form `badan_usaha`: "Nama perusahaan mengandung Bum Desa/
+# Bumdes/Badan Usaha Milik Desa maka status badan usaha harus berkode 6" (GALAT, Agenda2
+# baris 239). Kode 6 sendiri menuntut 11d catatan keuangan Ya & 29e modal pemerintah > 0 dan
+# > 29a pribadi. Ketetapan user 2026-09-15: 11a 6, 11d Ya, 29 = pemerintah 100%.
+POLA_BUMDES = r"bum\s*des|badan usaha milik desa"
+OPSI_BUMDES = "6. BUM Desa"
+
+# Nama usaha yang diganti (ketetapan user 2026-09-15, Agenda1-1): baris 137 termuat
+# di nama baris 60 ("PUSKESMAS PEMBANTU MUNDUK [BESTALA]", pencarian list bisa membuka
+# dokumen yang salah), baris 90 55 karakter. Kunci UPPERCASE nama sheet; kunci baris
+# (`GabunganRow.kunci`) tetap dari nama mentah.
+KOREKSI_NAMA = {
+    "PUSKESMAS PEMBANTU MUNDUK": "PUSKESMAS PEMBANTU DESA MUNDUK",
+    "PUSKESMAS PEMBANTU DESA LOKAPAKSA DI BANJAR DINAS SORGA": "PUSTU DESA LOKAPAKSA BANJAR DINAS SORGA",
+}
+
+
+def nama_tampil(nama: str, akhiran_badan: str = "") -> str:
+    """Nama sheet setelah KOREKSI_NAMA & pemindahan "PT."/"CV." ke belakang
+    ("CV. WIRA ADITYA" -> "WIRA ADITYA, CV"): form menolak 8b yang diawali CV
+    (GALAT file-validation `nama_komersial`) & panduannya meletakkan PT/CV di belakang."""
+    nama = " ".join((nama or "").split())
+    nama = KOREKSI_NAMA.get(nama.upper(), nama)
+    if akhiran_badan:
+        sisa = re.sub(rf"^\s*{akhiran_badan}\b\.?\s*", "", nama, flags=re.I).strip(" ,;:-/&")
+        if sisa and sisa != nama:
+            nama = f"{sisa}, {akhiran_badan}"
+    return nama
 KEY_26 = ("gaji", "biaya_produksi", "biaya_pembelian", "operasional", "non_operasional")
 KEY_27 = ("nilai_pendapatan", "pendapatan_lain")
 KEY_28 = ("aset_usaha_thn", "aset_lain_thn", "luas_tanah_thn")
@@ -368,6 +410,7 @@ class GabunganRow:
     wilayah: dict = field(default_factory=dict)
     wilayah_bentrok: str = ""   # terisi kalau sumber nama wilayah saling bertentangan
     koreksi: list = field(default_factory=list)  # nilai sheet yang diubah ketetapan user (-> tanda review)
+    akhiran_badan: str = ""  # "PT"/"CV" yang dipindah ke belakang nama (lihat nama_tampil)
 
     def __getitem__(self, key: str) -> str:
         return self.v.get(key, "")
@@ -381,14 +424,14 @@ class GabunganRow:
     def nama_dokumen(self) -> str:
         """Nama yang diketik ke fasih-web ("+Dokumen Baru" & SE2026-P) dan
         dipakai mencari dokumen di list: "<nama> (<12a>)" (lihat nama_muat)."""
-        return nama_muat(self.nama, self["pengusaha"])
+        return nama_muat(nama_tampil(self.nama, self.akhiran_badan), self["pengusaha"])
 
     @property
     def nama_komersial(self) -> str:
         """8b dgn format yang sama dgn nama dokumen (ketetapan user: penamaan
         berlaku utk nama usaha DAN nama komersial). Masih lebih dari MAKS_8B
         karakter setelah nama_muat -> skip 8B_TERLALU_PANJANG, tidak dipotong."""
-        return nama_muat(self["nama_komersial"], self["pengusaha"])
+        return nama_muat(nama_tampil(self["nama_komersial"], self.akhiran_badan), self["pengusaha"])
 
     @property
     def akun_ppl(self) -> str:
@@ -517,6 +560,23 @@ def load_gabungan(path: str | Path) -> list[GabunganRow]:
             v.update(zip(KEY_PEKERJA, baru))
             row.koreksi.append(f"24 (laki, perempuan, dibayar, tidak dibayar) {'/'.join(pekerja)} -> "
                                f"{'/'.join(baru)} (ketetapan user)")
+        if v.get("badan_usaha") == BADAN_USAHA_PT_CV:
+            for pola, opsi, akhiran in KOREKSI_BADAN_DARI_AWALAN:
+                if re.match(rf"\s*{pola}", v.get("nama", ""), flags=re.I):
+                    v["badan_usaha"] = opsi
+                    row.akhiran_badan = akhiran
+                    row.koreksi.append(f"11a '{BADAN_USAHA_PT_CV}' -> '{opsi}' dari awalan nama (ketetapan user)")
+                    break
+        if (re.search(POLA_BUMDES, f"{v.get('nama', '')} {v.get('nama_komersial', '')}", flags=re.I)
+                and v.get("badan_usaha") != OPSI_BUMDES):
+            lama = (v.get("badan_usaha"), v.get("lap_keuangan"), "/".join(v.get(k, "") for k in KEY_29))
+            v["badan_usaha"], v["lap_keuangan"] = OPSI_BUMDES, "1. Ya"
+            v.update({k: "0" for k in KEY_29})
+            v["pemerintah"] = "100"
+            row.koreksi.append(f"BUMDES: 11a/11d/29 {lama} -> ('{OPSI_BUMDES}', '1. Ya', pemerintah 100) "
+                               "(validasi form, ketetapan user)")
+        if " ".join(v.get("nama", "").split()).upper() in KOREKSI_NAMA:
+            row.koreksi.append(f"nama usaha diganti -> '{nama_tampil(v['nama'])}' (ketetapan user)")
         ref = WILAYAH_BY_IDSUBSLS.get(row.idsubsls) or {}
         if ref.get("sls"):
             wil["sls"] = ref["sls"]
@@ -603,6 +663,8 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         nilai = row[key]
         if not nilai or (key == "keg_jasa" and not row.rincian_13b4_dirender):
             continue  # kosong sudah dilaporkan di atas; 13b4 tidak dirender -> tidak dipakai
+        if key == "tidak_nib" and row["punya_nib"].startswith("1"):
+            continue  # 10c hanya dirender kalau 10a "2. Tidak" (fill_gabungan tidak mengisinya)
         if key in KEY_16B + ("digital",) and not row["internet"].startswith("1"):
             continue
         if nilai not in opsi:

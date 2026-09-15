@@ -105,6 +105,9 @@ STATUS_SELESAI_DRY_RUN = STATUS_TERKIRIM | {"DRY_RUN_SIAP_KIRIM"}
 # Ditulis SEGERA setelah dokumen baru terbuat (sebelum diisi), supaya proses
 # yang mati di tengah tidak berujung dokumen duplikat pada run berikutnya.
 STATUS_DIBUAT = "DOKUMEN_DIBUAT"
+# Dokumen tercatat sudah DIHAPUS admin (dibuktikan list API, lihat sinkron_list.py):
+# catatan dokumen kunci itu sebelum baris ini gugur -> baris dibuatkan dokumen baru.
+STATUS_DIHAPUS = "DOKUMEN_DIHAPUS"
 # Kejanggalan yang pasti berulang di baris berikutnya -> hentikan batch.
 # SUBMIT_GAGAL ikut: jalur kirim yang tidak bekerja (run 2026-09-14 baris 4)
 # pasti berulang di semua baris & tidak boleh lolos diam-diam.
@@ -274,6 +277,9 @@ def dokumen_per_kunci() -> dict:
     out: dict = {}
     for b in _baca_audit():
         kunci, url = b.get("kunci"), b.get("dokumen_url") or ""
+        if kunci and b.get("status") == STATUS_DIHAPUS:
+            out.pop(kunci, None)  # dokumen lama sudah tidak ada -> boleh dibuat baru
+            continue
         if not kunci or not (url or b.get("status") == STATUS_DIBUAT):
             continue
         lama = out.get(kunci)
@@ -282,7 +288,23 @@ def dokumen_per_kunci() -> dict:
     return out
 
 
-def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set) -> str:
+def kunci_lain_bernama_sama(nama_dokumen: str, kunci: str, akun: str = "") -> str:
+    """Kunci baris LAIN yang dokumennya (akun `akun` kalau diisi) tercatat dgn nama dokumen
+    yang sama persis, "" kalau tidak ada. Run 2026-09-15: Agenda2 baris 267 &
+    Agenda baris 108 = dua usaha BERBEDA bernama "PANGKALAN GAS (NYOMAN SHUARJANA)".
+    create_document mencari nama di list -> akan membuka dokumen baris 108 (terkirim)
+    & baris 267 salah dianggap tuntas (DOKUMEN_TERKUNCI)."""
+    n = " ".join((nama_dokumen or "").split()).upper()
+    milik = dokumen_per_kunci()
+    for b in _baca_audit():
+        k = b.get("kunci")
+        if (k and k != kunci and k in milik and (not akun or milik[k][0] == akun.lower())
+                and " ".join((b.get("nama_usaha") or "").split()).upper() == n):
+            return k
+    return ""
+
+
+def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set, nama_dokumen: str = "") -> str:
     """Audit dibaca ULANG tepat sebelum baris dikerjakan (daftar awal dihitung saat
     start). Batch lain (akun lain) bisa sudah membuat/mengirim dokumen baris ini
     selama batch ini berjalan -> membuatnya lagi di sini = duplikat. "" = kerjakan."""
@@ -291,6 +313,11 @@ def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set)
         return f"dokumennya sudah dibuat proses lain ({tercatat[0]} / {tercatat[1]})"
     if tuntas and status_terakhir_per_kunci().get(kunci) in tuntas:
         return "sudah selesai di audit (dikerjakan proses lain)"
+    if nama_dokumen and not tercatat:
+        lain = kunci_lain_bernama_sama(nama_dokumen, kunci, target[0])
+        if lain:
+            return (f"SKIP_NAMA_DIPAKAI_BARIS_LAIN: '{nama_dokumen}' sudah jadi nama dokumen baris lain "
+                    f"(kunci {lain}) di list akun ini — bedakan nama di sheet (atau KOREKSI_NAMA)")
     return ""
 
 
@@ -770,6 +797,19 @@ def main():
             print(f"\n##### sesi {nomor_sesi}/{len(sesi)} — {akun} — {len(anggota)} baris #####")
 
             def mulai_sesi():
+                """Login dgn pengulangan utk gangguan transien (run 2026-09-14 "Execution context
+                was destroyed", 2026-09-15 "Page.goto: Timeout 15000ms" — fasih-web normal lagi
+                beberapa detik kemudian). Akun salah TIDAK diulang."""
+                for percobaan in range(1, 4):
+                    try:
+                        return _mulai_sesi_sekali()
+                    except Exception as e:
+                        if "AKUN" in str(e) or percobaan == 3:
+                            raise
+                        print(f"⚠️ Login gagal (percobaan {percobaan}/3): {str(e)[:150]} — ulangi 30 dtk lagi.")
+                        time.sleep(30)
+
+            def _mulai_sesi_sekali():
                 """Context baru = cookie SSO kosong (CLAUDE.md -> Pergantian akun), login &
                 verifikasi akun. Melempar exception kalau gagal (context sudah ditutup)."""
                 ctx = browser.new_context()
@@ -783,7 +823,8 @@ def main():
                         raise RuntimeError(f"AKUN TIDAK TERVERIFIKASI: diminta '{akun}', terbaca '{aktif or '-'}'")
                 except Exception:
                     try:
-                        s.logout()
+                        if not args.paralel:  # lihat tutup_sesi
+                            s.logout()
                     except Exception:
                         pass
                     ctx.close()
@@ -791,6 +832,11 @@ def main():
                 return ctx, s
 
             def tutup_sesi(ctx, s):
+                if args.paralel:
+                    # Run 2026-09-14/15: logout satu proses memutus sesi proses lain yang
+                    # memakai akun SAMA. Context baru sudah tanpa cookie, jadi cukup ditutup.
+                    ctx.close()
+                    return
                 try:
                     s.logout()
                 except Exception as e:
@@ -836,7 +882,8 @@ def main():
                           "Hapus file itu sebelum menjalankan ulang.")
                     berhenti = True
                     break
-                alasan = alasan_lewati_saat_giliran(row.kunci, target(row), tuntas_audit)
+                alasan = alasan_lewati_saat_giliran(row.kunci, target(row), tuntas_audit,
+                                                    row.nama_dokumen if satu_subsls else "")
                 if alasan:
                     print(f"\n=== baris {row.baris} — dilewati: {alasan} ===")
                     continue

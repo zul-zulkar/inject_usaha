@@ -12,6 +12,7 @@ meleset (lihat config.py -> dict L) tanpa harus baca ulang seluruh kode.
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -127,6 +128,8 @@ class FasihWebSession:
         self.total_list_waktu = 0.0
         # Jumlah dokumen di list tepat sebelum create_document mengklik "+Dokumen Baru".
         self.jumlah_dokumen_awal: Optional[int] = None
+        # False kalau daftar_dokumen_api() tidak berhasil membaca list yang konsisten.
+        self.daftar_dokumen_lengkap = True
         self._pasang_penyadap_akun()
 
     # ------------------------------------------------------------------
@@ -927,6 +930,66 @@ class FasihWebSession:
         except Exception as e:
             self._log(f"⚠️ jumlah dokumen list tidak terbaca: {str(e)[:120]}")
             return None
+
+    def daftar_dokumen_api(self, assignment_id: str, per_halaman: int = 100) -> list[dict]:
+        """SEMUA dokumen akun ini di list PENDATAAN, lewat API datatable yang
+        dipanggil list sendiri (request pertamanya disadap: body DataTables +
+        header x-xsrf-token), lalu diulang dgn start/length per halaman. READ-ONLY.
+        Tiap item: id (segmen URL entry), data1 (nama, di-UPPERCASE form),
+        assignmentStatusAlias ("DRAFT" / "SUBMITTED BY Pencacah" / ...), dateCreated,
+        dateModified. Melempar RuntimeError kalau request list tidak tertangkap."""
+        tangkap: dict = {}
+
+        def _on_request(req):
+            if ("datatable-all-user-survey-periode" in req.url and req.method == "POST"
+                    and "body" not in tangkap):
+                tangkap.update(url=req.url, body=req.post_data, headers=req.headers)
+
+        self.page.on("request", _on_request)
+        try:
+            self.goto_pendataan(assignment_id)
+            batas = time.time() + 45
+            while "body" not in tangkap and time.time() < batas:
+                self.page.wait_for_timeout(300)
+        finally:
+            self.page.remove_listener("request", _on_request)
+        if "body" not in tangkap:
+            raise RuntimeError("Request datatable list PENDATAAN tidak tertangkap dalam 45 dtk")
+        body = json.loads(tangkap["body"])
+        hdr = {k: v for k, v in tangkap["headers"].items()
+               if k.lower() in ("content-type", "accept") or k.lower().startswith("x-")}
+        # Run 2026-09-15: program lain membuat dokumen SELAMA halaman dibaca -> halaman
+        # bergeser, satu dokumen terbaca 2x (bisa juga terlewat). Saring per id & cocokkan
+        # dgn totalHit; tidak cocok -> baca ulang semua (maks 3x), lalu peringatkan.
+        for percobaan in range(1, 4):
+            per_id: dict = {}
+            start, total = 0, 0
+            while True:
+                body["start"], body["length"] = start, per_halaman
+                hasil = self.page.evaluate("""async ([url, body, hdr]) => {
+                    const r = await fetch(url, {method: 'POST', credentials: 'include', headers: hdr,
+                                                body: JSON.stringify(body)});
+                    return {status: r.status, text: await r.text()};
+                }""", [tangkap["url"], body, hdr])
+                if hasil["status"] != 200:
+                    raise RuntimeError(f"API list status {hasil['status']}: {hasil['text'][:200]}")
+                data = json.loads(hasil["text"])
+                halaman = data.get("searchData") or []
+                total = int(data.get("totalHit") or 0)
+                for it in halaman:
+                    per_id[it.get("id")] = it
+                start += per_halaman
+                if not halaman or start >= total:
+                    break
+            self.daftar_dokumen_lengkap = len(per_id) == total
+            if self.daftar_dokumen_lengkap:
+                break
+            self._log(f"⚠️ Daftar dokumen API: {len(per_id)} id unik != totalHit {total} "
+                      f"(list berubah saat dibaca?) — baca ulang ({percobaan}/3).")
+            self.page.wait_for_timeout(3_000)
+        self._log(f"Daftar dokumen lewat API: {len(per_id)} dokumen"
+                  + ("." if self.daftar_dokumen_lengkap else " — ⚠️ TIDAK LENGKAP/berubah saat dibaca."))
+        return list(per_id.values())
 
     def _reload_list(self):
         """Klik 'Muat Ulang' di list PENDATAAN. List bisa stale sesaat
