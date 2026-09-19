@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-main_gabungan.py — Otomatisasi input dari tab "gabungan" (Google Sheet "Agenda").
+main_gabungan.py — Inject usaha dari FORMAT STANDAR (input_usaha.xlsx, tab "input_usaha";
+nama lama: Agenda.xlsx, tab "gabungan").
 
 Alurnya SAMA dgn main.py (baca docstring di sana utk latar belakang
 keselamatan). Bedanya sumber data: sheet gabungan sudah berisi jawaban final
@@ -32,16 +33,16 @@ LANGKAH
 
 2. Periksa TANPA browser (2 detik) — daftar lengkap per baris ditulis ke
    cek_gabungan.csv utk diperbaiki di sheet:
-       python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --cek
+       python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --cek
 
 3. Dry-run SATU baris dulu, tinjau hasilnya di browser:
-       python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --baris 2
+       python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2
 
 4. Dry-run bertahap (batch terputus bisa dilanjutkan):
-       python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --lewati-selesai --limit 10
+       python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --lewati-selesai --limit 10
 
 5. Kirim HANYA baris yang sudah ditinjau (irreversible, wajib ketik YA):
-       python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --baris 2,3,4 --submit
+       python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2,3,4 --submit
 
 Audit: audit_log_gabungan.csv (terpisah dari audit_log.csv backlog lama).
 Baris yang gagal pemeriksaan offline TIDAK pernah dibuka di browser.
@@ -69,7 +70,7 @@ import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from inti.config import (
     ASSIGNMENT_ID_GABUNGAN, FIXED_PASSWORD, GABUNGAN_AKUN_TUNGGAL, GABUNGAN_BARIS_PER_SESI,
-    GABUNGAN_SUBSLS_TUNGGAL, WILAYAH_BY_IDSUBSLS,
+    GABUNGAN_MODE_MURNI, GABUNGAN_SUBSLS_TUNGGAL, WILAYAH_BY_IDSUBSLS,
 )
 from inti.fasih_web import DokumenNamaLamaAda, FasihWebSession, FieldNotFound
 from inti.fill_blok2 import fill_catatan, fill_keterangan_pemberi_jawaban
@@ -470,7 +471,7 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
         # Nomor Urut Bangunan dari sheet SENGAJA tidak diketik (aturan
         # keselamatan #3) — cuma dicatat utk pembanding kalau auto-fix jalan.
         sess.fill_se2026_p(nama_usaha=row.nama_dokumen, nama_jalan=row.jalan_lengkap,
-                           blok_nomor=row["nomor_domisili"] or "-")
+                           blok_nomor=row.nomor_rumah)
         sess.do_geotagging(row["latitude"], row["longitude"])
         sess.save()
         if not sess.next_section():
@@ -681,9 +682,10 @@ def main():
         mode = f"MODE SATU SUBSLS: subsls={subsls_tunggal or '(belum diisi)'} akun={akun_tunggal or '(belum diisi)'}"
     else:
         mode = "MODE PER BARIS (alur lama)"
+    mode += " | ISIAN MURNI dari Excel" if GABUNGAN_MODE_MURNI else " | aturan & koreksi Buleleng aktif"
     if satu_subsls and not args.cek and not (re.fullmatch(r"\d{16}", subsls_tunggal) and "@" in akun_tunggal):
         print("❌ Mode satu subsls butuh --subsls-tunggal (16 digit) DAN --akun-tunggal (email PPL), atau isi "
-              "GABUNGAN_SUBSLS_TUNGGAL/GABUNGAN_AKUN_TUNGGAL di inti/config.py. Alur lama: --per-baris.",
+              "GABUNGAN_SUBSLS_TUNGGAL/GABUNGAN_AKUN_TUNGGAL di inti/config_lokal.py. Alur lama: --per-baris.",
               file=sys.stderr)
         return 2
 

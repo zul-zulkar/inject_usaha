@@ -297,12 +297,12 @@ memuat datanya dengan benar.
 
 ---
 
-## Alur lain: dari sheet Agenda
+## Alur lain: dari sheet input usaha
 
-Kalau targetnya bukan list kode tapi sheet `Agenda.xlsx` (tab gabungan), ganti `--daftar` dengan `--sumber`:
+Kalau targetnya bukan list kode tapi sheet `input_usaha.xlsx` (tab input_usaha), ganti `--daftar` dengan `--sumber`:
 
 ```bash
-python ganti_moda/ubah_moda.py --sumber Agenda.xlsx --console
+python ganti_moda/ubah_moda.py --sumber input_usaha.xlsx --console
 ```
 
 Alur ini **berbeda**: skrip mencari per **idsubsls** dan **memilih sendiri** assignment yang diubah.

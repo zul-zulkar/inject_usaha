@@ -7,7 +7,7 @@
  * tab Chrome milikmu yang sudah login, dgn jeda acak antar akun.
  *
  * FILE INI TEMPLATE. Buat versi berisi target:
- *     python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --console
+ *     python reset_mitra/reset_mitra.py --sumber input_usaha.xlsx --console
  * -> reset_mitra_console.siap.js (berisi email PPL -> .gitignore).
  *
  * STRUKTUR akun-mitra (dipetakan 2026-09-14): tabel kolom [NIK, Email, Nama

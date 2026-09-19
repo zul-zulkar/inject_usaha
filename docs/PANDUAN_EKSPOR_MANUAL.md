@@ -45,7 +45,7 @@ seperti kamu buka halaman itu manual seperti biasa.
 ### Langkah 3 — Konversi ke field yang rapi
 
 ```bash
-python convert_manual_export.py export/nama_file.json
+python input_fasihweb/convert_manual_export.py export/nama_file.json
 ```
 
 Ini otomatis:

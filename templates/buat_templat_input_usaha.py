@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 """
-buat_templat_agenda.py — Bangkitkan templates/Agenda.contoh.xlsx: templat KOSONG
-sheet "Agenda" (tab "gabungan") untuk alur input_gabungan/main_gabungan.py.
+buat_templat_input_usaha.py — Bangkitkan templat FORMAT STANDAR input usaha
+(input_usaha.xlsx, tab "input_usaha") untuk input_gabungan/main_gabungan.py —
+berlaku utk jenis usaha apa pun. Dua file:
 
-Isi workbook:
-  gabungan      judul kolom PERSIS yang dibaca inti/gabungan_loader.py (KOLOM),
-                dropdown utk kolom berpilihan (OPSI_FORM & NILAI_TETAP), kolom kode
-                berformat teks (idsubsls 16 digit tidak berubah jadi notasi ilmiah).
-                Baris 2 dst. KOSONG — isi data Anda di sini.
-  contoh        satu baris FIKTIF yang lolos pemeriksaan offline (--cek). Tab ini
-                tidak dibaca skrip (hanya tab bernama "gabungan").
-  petunjuk      penjelasan tiap kolom: wajib/opsional & isi yang diharapkan.
+templates/input_usaha.kosong.xlsx — BENAR-BENAR KOSONG: hanya tab "input_usaha" berisi
+  baris judul (semua kolom, termasuk kolom opsional 13d/13e/13f/19/20), dropdown
+  opsi form, dan format teks utk kolom kode. Tempat menyalin hasil pendataan lapangan.
+
+templates/input_usaha.contoh.xlsx — sama, ditambah:
+  petunjuk      penjelasan tiap kolom: wajib/bersyarat/opsional & isi yang diharapkan.
+  contoh        dua baris FIKTIF (perdagangan & produksi) yang lolos pemeriksaan
+                offline di mode normal MAUPUN mode murni. Tidak dibaca skrip.
   Nama Wilayah  (opsional) kode + nama provinsi/kab/kec/desa. Dipakai melengkapi
-                "Nama Jalan" yang kurang dari 10 huruf (lihat lengkapi_alamat).
+                "Nama Jalan" yang kurang dari 10 huruf (non-murni, lengkapi_alamat).
   opsi          (tersembunyi) sumber daftar dropdown.
 
 Jalankan ulang setiap kali KOLOM/OPSI_FORM di gabungan_loader.py berubah:
-    python templates/buat_templat_agenda.py
-Skrip ini juga MEMVERIFIKASI hasilnya: judul kolom harus diterima loader dan
-baris contoh harus berstatus SIAP di pemeriksaan offline.
+    python templates/buat_templat_input_usaha.py
+Skrip ini juga MEMVERIFIKASI hasilnya: judul kolom harus diterima loader (semua
+kolom KOLOM ada, termasuk opsional) dan kedua baris contoh harus berstatus SIAP di
+pemeriksaan offline, baik mode normal maupun mode murni (GABUNGAN_MODE_MURNI).
 """
 
 from __future__ import annotations
@@ -40,7 +42,8 @@ from inti.gabungan_loader import (  # noqa: E402
     KOLOM, NAMA_SHEET, NILAI_TETAP, OPSI_FORM, _cari_indeks, _norm_judul, load_gabungan, periksa_semua,
 )
 
-KELUARAN = Path(__file__).resolve().parent / "Agenda.contoh.xlsx"
+KELUARAN_CONTOH = Path(__file__).resolve().parent / "input_usaha.contoh.xlsx"
+KELUARAN_KOSONG = Path(__file__).resolve().parent / "input_usaha.kosong.xlsx"
 BARIS_DISIAPKAN = 500   # baris berformat teks + dropdown
 
 OPSI_IS_NEW = ("Bangunan Lainnya (Selain Tempat Tinggal dan Campuran)",)
@@ -66,12 +69,14 @@ KOLOM_TEMPLAT: list[tuple[str, str | None, str, str]] = [
     ("Keberadaan Bangunan Lainnya/ Usaha", "ada_bang_usaha", "2. Baru", "Hanya '2. Baru'."),
     ("Nama Jalan/Gang/Komplek/Gedung/dll (Tuliskan dengan rinci)", "jalan_domisili", "BANJAR DINAS KAJA KANGIN",
      "WAJIB. Minimal 10 huruf a-z (kalau kurang, dilengkapi nama desa/kec dari tab 'Nama Wilayah' / kolom 8c)."),
-    ("Blok/Nomor Rumah", "nomor_domisili", "-", "Isi '-' kalau tidak ada nomor."),
+    ("Blok/Nomor Rumah", "nomor_domisili", "-",
+     "Isi '-' kalau tidak ada nomor (mode normal mengisi '-' otomatis kalau kosong; mode murni tidak)."),
     ("Nomor Urut Bangunan", "no_bang", "", "JANGAN diisi — skrip tidak pernah menyentuh field ini."),
     ("Kode Penggunaan Bangunan", "kode_bang", "1. Bangunan Khusus Usaha", "Kosong atau '1. Bangunan Khusus Usaha'."),
     ("Latitude", "latitude", "-8.129", "Desimal, titik sbg pemisah (mis. -8.1290)."),
     ("Longitude", "longitude", "115.200", "Desimal, titik sbg pemisah (mis. 115.2000)."),
-    ("Pilih UMKM dalam satu SLS yang sama", "pilih_umkm_sls", "", "Kosong atau 'Tidak Ada'."),
+    ("Pilih UMKM dalam satu SLS yang sama", "pilih_umkm_sls", "Tidak Ada",
+     "'Tidak Ada'. Hanya dipakai di SLS yang punya daftar UMKM prelist (mode murni: wajib kalau form memunculkannya)."),
     ("Keberadaan Usaha", "keberadaan_usaha", "2. Baru", "Hanya '2. Baru'."),
     ("8. b. Nama komersial usaha/perusahaan", "nama_komersial", "WARUNG CONTOH",
      "Nama komersial; ditulis '<8b> (<12a>)', maks 50 karakter."),
@@ -100,6 +105,12 @@ KOLOM_TEMPLAT: list[tuple[str, str | None, str, str]] = [
      "Hanya dipakai kalau 13b1, 13b2, 13b3 semuanya '2. Tidak'."),
     ("13. c. Di mana usaha tersebut biasa dilakukan?", "lokasi_usaha", "4. Toko, ruko, dan sejenisnya",
      "Pilih dari dropdown."),
+    ("13. d. Apa input yang digunakan?", "input_produksi", "",
+     "WAJIB kalau 13b1 = '1. Ya' (usaha memproduksi barang), mis. 'singkong, minyak goreng'."),
+    ("13. e. Bagaimana proses produksinya?", "proses_produksi", "",
+     "WAJIB kalau 13b1 = '1. Ya', mis. 'mengupas, mengiris, menggoreng, mengemas'."),
+    ("13. f. Apa produk utama yang dihasilkan?", "produk", "Makanan ringan dan minuman kemasan",
+     "Produk utama. Mode normal: kosong = disalin dari 13a. Mode murni: WAJIB."),
     ("Pilih dari Master KBLI", "kbli", "47112", "WAJIB. Kode KBLI 5 digit."),
     ("14. a. Apa jaringan usaha dari usaha/perusahaan ini?", "jaringan", "1. Tunggal", "Pilih dari dropdown."),
     ("16. a. Apakah usaha/perusahaan ini menggunakan internet dalam menjalankan usaha?", "internet", "2. Tidak",
@@ -120,6 +131,19 @@ KOLOM_TEMPLAT: list[tuple[str, str | None, str, str]] = [
      "Pilih dari dropdown."),
     ("18. Apakah usaha/perusahaan ini menggunakan produk karya seni, sastra, desain, teknologi atau warisan "
      "budaya, baik diproduksi sendiri maupun oleh pihak lain?", "produk_seni", "2. Tidak", "Pilih dari dropdown."),
+    ("19. a. Apakah usaha/perusahaan ini menghasilkan produk bersertifikat halal?", "halal", "3. Tidak/Belum",
+     "Hanya ditanyakan form utk kategori usaha tertentu (BPJPH). Kosong: mode normal pakai default config, "
+     "mode murni baris di-skip kalau form memunculkannya."),
+    ("19. b. Berapa jumlah varian produk yang sudah bersertifikat halal BPJPH?", "sudah_halal", "",
+     "Bilangan bulat; wajib kalau form memunculkannya (19a = Ya)."),
+    ("19. c. Berapa jumlah varian produk yang belum bersertifikat halal BPJPH?", "belum_halal", "1",
+     "Bilangan bulat (kategori tertentu)."),
+    ("20. a. Apakah usaha/perusahaan ini memiliki izin edar?", "izin_edar", "3. Tidak",
+     "Hanya ditanyakan form utk kategori usaha tertentu (BPOM, mis. perdagangan & makanan)."),
+    ("20. b. Berapa jumlah varian produk yang sudah memiliki izin edar BPOM?", "sudah_bpom", "",
+     "Bilangan bulat (kalau form memunculkannya)."),
+    ("20. c. Berapa jumlah varian produk yang belum memiliki izin edar BPOM?", "belum_bpom", "1",
+     "Bilangan bulat; form memintanya di semua jawaban 20a."),
     ("21. Apakah usaha/perusahaan ini bermitra dengan Koperasi Desa/Kelurahan Merah Putih (KDKMP)?",
      "mitra_kdkmp", "2. Tidak", "Pilih dari dropdown."),
     ("22. Apakah usaha/perusahaan ini terlibat dalam program Makan Bergizi Gratis (MBG)?", "peran_mbg",
@@ -136,7 +160,9 @@ KOLOM_TEMPLAT: list[tuple[str, str | None, str, str]] = [
     ("idsubsls", "idsubsls", "5108080008000202", "WAJIB. 16 digit, format TEKS (bukan angka)."),
     ("26. a. Total upah dan gaji, serta jaminan sosial pegawai", "gaji", "0", "Rupiah, bilangan bulat tanpa titik."),
     ("26. b. Biaya produksi", "biaya_produksi", "0", "Rupiah."),
-    ("26. c. Biaya pembelian barang yang terjual", "biaya_pembelian", "4000000", "Rupiah."),
+    ("26. c. Biaya pembelian barang yang terjual", "biaya_pembelian", "4000000",
+     "Rupiah. KBLI kategori B-F (golongan 05-43) & golongan 56: form TIDAK punya 26c — isi 0 dan masukkan "
+     "biaya pembelian ke 26b."),
     ("26. d. Biaya operasional (air, listrik, gas, internet, pulsa, pemeliharaan, biaya angkutan, dll.)",
      "operasional", "300000", "Rupiah."),
     ("26. e. Biaya non-operasional", "non_operasional", "50000", "Rupiah. Total 26a-26e minimal 100.000."),
@@ -157,6 +183,17 @@ KOLOM_TEMPLAT: list[tuple[str, str | None, str, str]] = [
     ("Nama Pemberi Informasi", "nama_info_list", "Lainnya", "Hanya 'Lainnya'."),
 ]
 
+# Contoh kedua: usaha PRODUKSI (13b1 = Ya -> 13d/13e; kategori C -> 26c tidak ada, masuk 26b).
+CONTOH_PRODUKSI = {
+    "nama": "KERIPIK CONTOH", "nama_komersial": "KERIPIK CONTOH", "pengusaha": "NI MADE CONTOH",
+    "jk": "2. Perempuan", "umur": "38", "keg_utama": "Membuat keripik singkong",
+    "produk_sendiri": "1. Ya", "input_produksi": "Singkong, minyak goreng, bumbu",
+    "proses_produksi": "Mengupas, mengiris, menggoreng, dan mengemas", "produk": "Keripik singkong",
+    "kbli": "10794", "tk_laki": "0", "tk_pr": "2", "tk_dibayar": "1", "tk_tdk_dibayar": "1",
+    "tahun_operasi": "2018", "gaji": "2400000", "biaya_produksi": "3500000", "biaya_pembelian": "0",
+    "operasional": "250000", "nilai_pendapatan": "9000000", "aset_lain_thn": "2000000",
+}
+
 # Kolom yang WAJIB diformat teks (kode panjang / nol di depan).
 KEY_TEKS = {"pilih_prov", "pilih_kab", "pilih_kec", "pilih_desa", "pilih_sls", "pilih_subsls", "kodepos", "hp",
             "nib_nomor", "nik_pengusaha", "kbli", "idsubsls"}
@@ -171,6 +208,8 @@ WAJIB_SELALU = {
     "pendapatan_lain", "pendapatan_online", "aset_usaha_thn", "aset_lain_thn", "luas_tanah_thn", "pribadi",
     "non_profit", "publik", "non_publik", "pemerintah", "asing", "jalan_domisili",
 }
+BERSYARAT = {"nib_nomor", "tidak_nib", "keg_jasa", "digital", "input_produksi", "proses_produksi",
+             "pilih_umkm_sls", "halal", "sudah_halal", "belum_halal", "izin_edar", "sudah_bpom", "belum_bpom"}
 
 JUDUL_WILAYAH = ["Pilih PROVINSI", "Provinsi", "Pilih KABUPATEN/KOTA", "Kabupaten/Kota", "Pilih KECAMATAN",
                  "Kecamatan", "Pilih DESA", "Desa/Kelurahan", "idsubsls"]
@@ -202,7 +241,15 @@ def tulis_judul(ws, judul: list[str]):
     ws.freeze_panes = "C2"
 
 
-def bangun(path: Path, baris_contoh_di_gabungan: bool = False) -> None:
+def nilai_contoh(ubah: dict | None = None) -> list[str]:
+    """Isi satu baris contoh menurut urutan KOLOM_TEMPLAT (kolom tanpa key = salinan nama)."""
+    ubah = ubah or {}
+    return [ubah.get(key, isi) if key else (ubah.get("nama", isi) if j.startswith("Nama Keluarga") else isi)
+            for j, key, isi, _ in KOLOM_TEMPLAT]
+
+
+def bangun(path: Path, lengkap: bool = True, contoh_di_gabungan: bool = False) -> None:
+    """lengkap=False -> hanya tab data (NAMA_SHEET) + opsi tersembunyi utk dropdown."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = NAMA_SHEET
@@ -232,23 +279,32 @@ def bangun(path: Path, baris_contoh_di_gabungan: bool = False) -> None:
         ws.add_data_validation(dv)
     wo.sheet_state = "hidden"
 
-    # Tab contoh: satu baris fiktif.
+    contoh = [nilai_contoh(), nilai_contoh(CONTOH_PRODUKSI)]
+    if contoh_di_gabungan:   # hanya utk verifikasi()
+        for r, isi in enumerate(contoh, start=2):
+            for c, v in enumerate(isi, start=1):
+                ws.cell(row=r, column=c, value=v)
+    if not lengkap:
+        wb.active = 0
+        wb.save(path)
+        return
+
+    # Tab contoh: dua baris fiktif (perdagangan & produksi).
     wc = wb.create_sheet("contoh")
     tulis_judul(wc, judul)
-    for c, (_, key, isi, _) in enumerate(KOLOM_TEMPLAT, start=1):
-        sel = wc.cell(row=2, column=c, value=isi)
-        sel.fill = ISI_CONTOH
-        if key in KEY_TEKS:
-            sel.number_format = "@"
-        if baris_contoh_di_gabungan:
-            s2 = ws.cell(row=2, column=c, value=isi)
-            s2.number_format = "@" if key in KEY_TEKS else "General"
-    wc.cell(row=4, column=1, value="Baris kuning di atas FIKTIF — hanya contoh bentuk isian. "
-                                   "Skrip hanya membaca tab 'gabungan'.").font = Font(italic=True)
+    for r, isi in enumerate(contoh, start=2):
+        for c, (v, (_, key, _, _)) in enumerate(zip(isi, KOLOM_TEMPLAT), start=1):
+            sel = wc.cell(row=r, column=c, value=v)
+            sel.fill = ISI_CONTOH
+            if key in KEY_TEKS:
+                sel.number_format = "@"
+    wc.cell(row=5, column=1, value="Baris kuning di atas FIKTIF — contoh bentuk isian usaha perdagangan (baris 2) "
+                                   "dan usaha produksi (baris 3). Skrip hanya membaca tab 'input_usaha'."
+            ).font = Font(italic=True)
 
     # Tab petunjuk.
     wp = wb.create_sheet("petunjuk")
-    for c, (t, w) in enumerate((("No", 5), ("Judul kolom (tab gabungan)", 45), ("Key skrip", 22),
+    for c, (t, w) in enumerate((("No", 5), (f"Judul kolom (tab {NAMA_SHEET})", 45), ("Key skrip", 22),
                                 ("Wajib?", 14), ("Isi yang diharapkan", 60), ("Pilihan valid", 60)), start=1):
         sel = wp.cell(row=1, column=c, value=t)
         sel.font, sel.fill = TEBAL, ISI_JUDUL
@@ -258,7 +314,9 @@ def bangun(path: Path, baris_contoh_di_gabungan: bool = False) -> None:
             wajib = "tidak dibaca"
         elif key in WAJIB_SELALU:
             wajib = "WAJIB"
-        elif key in ("nib_nomor", "tidak_nib", "keg_jasa") or key.startswith("internet_") or key == "digital":
+        elif key == "produk":
+            wajib = "WAJIB (murni)"
+        elif key in BERSYARAT or key.startswith("internet_"):
             wajib = "bersyarat"
         else:
             wajib = "opsional"
@@ -267,11 +325,14 @@ def bangun(path: Path, baris_contoh_di_gabungan: bool = False) -> None:
             wp.cell(row=r, column=c, value=v).alignment = BUNGKUS
     catatan = len(KOLOM_TEMPLAT) + 3
     for i, t in enumerate((
-        "Cara pakai: isi tab 'gabungan' mulai baris 2 (satu baris = satu usaha/dokumen). Nilai = jawaban FINAL "
-        "per rincian form (tidak ada kalkulasi 10%).",
+        "Cara pakai: isi tab 'input_usaha' mulai baris 2 (satu baris = satu usaha/dokumen, jenis usaha apa pun). "
+        "Nilai = jawaban FINAL per rincian form hasil pendataan lapangan (tidak ada kalkulasi 10%).",
+        "Mode murni (GABUNGAN_MODE_MURNI = True di inti/config_lokal.py): SEMUA isian diambil dari sheet, tanpa "
+        "aturan/default skrip. Kolom 'bersyarat' wajib diisi kalau form memunculkan rinciannya — kalau kosong, "
+        "baris di-skip (tidak ditebak).",
         "Teks opsi harus PERSIS seperti di dropdown (termasuk nomor & titik), mis. '2. Tidak'.",
         "Kolom kode (idsubsls, kodepos, NIK, HP, KBLI) berformat TEKS; jangan diubah ke angka.",
-        "Periksa tanpa browser: python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --cek",
+        "Periksa tanpa browser: python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --cek",
         "Google Sheets: File > Import > unggah file ini, lalu File > Download > .xlsx setelah diisi.",
     )):
         wp.cell(row=catatan + i, column=2, value=t).alignment = Alignment(wrap_text=False)
@@ -298,22 +359,27 @@ def verifikasi() -> None:
         k_templat = KOLOM_TEMPLAT[i][1]
         assert k_templat == key or (key == "nama" and k_templat == "nama"), (key, judul[i])
     hilang = set(KOLOM) - set(idx)
-    assert hilang <= {"produk"}, hilang
+    assert not hilang, f"kolom loader tidak ada di templat: {hilang}"
     assert all(_norm_judul(j) for j in judul)
     with tempfile.TemporaryDirectory() as tmp:
         uji = Path(tmp) / "uji.xlsx"
-        bangun(uji, baris_contoh_di_gabungan=True)
-        rows = load_gabungan(uji)
-        assert len(rows) == 1, len(rows)
-        hasil = periksa_semua(rows, mode_satu_subsls=True)[rows[0].baris]
-        assert hasil.status == "SIAP", (hasil.status, hasil.pesan)
-        print(f"  baris contoh: {hasil.status}; nama dokumen '{rows[0].nama_dokumen}'")
+        bangun(uji, contoh_di_gabungan=True)
+        for murni in (False, True):
+            rows = load_gabungan(uji, murni=murni)
+            assert len(rows) == 2, len(rows)
+            hasil = periksa_semua(rows, mode_satu_subsls=True)
+            for row in rows:
+                h = hasil[row.baris]
+                assert h.status == "SIAP", (murni, row.baris, h.status, h.pesan)
+                print(f"  contoh baris {row.baris} ({'murni' if murni else 'normal'}): {h.status}; "
+                      f"nama dokumen '{row.nama_dokumen}'")
 
 
 def main() -> int:
     verifikasi()
-    bangun(KELUARAN)
-    print(f"Ditulis: {KELUARAN} ({len(KOLOM_TEMPLAT)} kolom, tab gabungan kosong)")
+    bangun(KELUARAN_KOSONG, lengkap=False)
+    bangun(KELUARAN_CONTOH)
+    print(f"Ditulis: {KELUARAN_KOSONG.name} & {KELUARAN_CONTOH.name} ({len(KOLOM_TEMPLAT)} kolom, tab {NAMA_SHEET} kosong)")
     return 0
 
 

@@ -15,8 +15,8 @@
  *      Opsi cakupan diabaikan. Kode yang sudah PAPI dilewati (KODE_SUDAH_PAPI),
  *      kode yang tidak ada dilaporkan (KODE_TIDAK_ADA). Kalau hasil pencarian
  *      kode malah berisi subsls lain -> PENCARIAN_TIDAK_MENYARING (berhenti).
- *   b) Sheet Agenda (skrip memilih sendiri 1 CAPI per subsls):
- *        python ganti_moda/ubah_moda.py --sumber Agenda.xlsx --console
+ *   b) Sheet input usaha (skrip memilih sendiri 1 CAPI per subsls):
+ *        python ganti_moda/ubah_moda.py --sumber input_usaha.xlsx --console
  * -> ubah_moda_console.siap.js (berisi email PPL, sudah di .gitignore).
  *
  * CARA PAKAI

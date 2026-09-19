@@ -709,7 +709,7 @@ class FasihWebSession:
         pusat, jadi lebih aman hindari duplikat drpd bersih-bersih belakangan.
 
         `nama_lama`: nama dokumen menurut aturan penamaan SEBELUMNYA (alur
-        Agenda: nama mentah sheet, sebelum format "<nama> (<pemilik>)").
+        format standar: nama mentah sheet, sebelum format "<nama> (<pemilik>)").
         Kalau nama baru tidak ada tapi nama lama ada -> DokumenNamaLamaAda,
         TIDAK membuat dokumen.
 

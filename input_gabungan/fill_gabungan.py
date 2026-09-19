@@ -1,5 +1,6 @@
 """
-fill_gabungan.py — Isi SE2026-L BLOK II dari SATU baris sheet gabungan.
+fill_gabungan.py — Isi SE2026-L BLOK II dari SATU baris format standar
+(input_usaha.xlsx, tab "input_usaha") — berlaku utk jenis usaha apa pun.
 
 Padanan fill_blok2.py utk sumber gabungan. Urutan & penjagaan field
 bersyarat SENGAJA sama (alasannya dicatat panjang di fill_blok2.py):
@@ -9,8 +10,10 @@ blok finansial baru dirender setelah rincian 25 di-blur.
 Bedanya: nilai diambil APA ADANYA dari sheet. Tidak ada 10%, tidak ada
 aturan pekerja <=3, tidak ada override aset/luas tanah = 0 — sheet ini sudah
 berisi jawaban final per rincian. Default config HANYA dipakai utk rincian
-yang tidak punya kolom di sheet (19, 20) dan setiap pemakaiannya
-dikembalikan sbg daftar ASUMSI supaya masuk kolom review_disarankan.
+19/20 kalau kolom opsionalnya kosong/tidak ada, dan setiap pemakaiannya
+dikembalikan sbg daftar ASUMSI supaya masuk kolom review_disarankan. Rincian
+bersyarat yang WAJIB tapi tidak ada nilainya (13d/13e, 19b) -> BarisPerluManual,
+tidak ditebak.
 """
 
 from __future__ import annotations
@@ -43,7 +46,13 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
     # pilih_umkm_sls HILANG dari DOM begitu keberadaan_usaha dijawab, jadi
     # wajib lebih dulu (radio tidak bisa di-unset, jadi tidak ada jalan kembali).
     if ISI_PILIH_UMKM_SLS and sess.komponen_ada("pilih_umkm_sls", timeout_ms=4000):
-        kandidat = tuple(dict.fromkeys(filter(None, (row["pilih_umkm_sls"], *UMKM_SATU_SLS_KANDIDAT))))
+        if row.murni:
+            if not row["pilih_umkm_sls"]:
+                raise BarisPerluManual("UMKM_SLS_KOSONG",
+                                       "'Pilih UMKM dalam satu SLS yang sama' dirender tapi kolomnya kosong di sheet.")
+            kandidat = (row["pilih_umkm_sls"],)
+        else:
+            kandidat = tuple(dict.fromkeys(filter(None, (row["pilih_umkm_sls"], *UMKM_SATU_SLS_KANDIDAT))))
         sess.pilih_combobox_pertama_yang_cocok("pilih_umkm_sls", kandidat)
     else:
         log("'Pilih UMKM dalam satu SLS yang sama' tidak dirender — dilewati.")
@@ -85,13 +94,18 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
     else:
         log("13c (tempat usaha) tidak dirender — dilewati.")
     sess.fill_by_datakey("produk", row.produk_utama)
-    if not row["produk"]:
+    if not row["produk"] and row.produk_utama:
         asumsi.append("13f disalin dari 13a")
 
-    # 13d/13e muncul kalau 13b1 = Ya; sheet tidak punya kolomnya.
-    for pola, nama in ((r"^13\.\s*d\.", "13d"), (r"^13\.\s*e\.", "13e")):
-        if sess.datakey_by_label(pola):
-            raise BarisPerluManual("13DE_DIRENDER", f"{nama} dirender tapi sheet gabungan tidak punya kolomnya.")
+    # 13d/13e (input & proses produksi) muncul kalau 13b1 = Ya. dataKey sisi
+    # fasih-web belum terpetakan -> dicari lewat label (sama dgn fill_blok2).
+    for pola, key, nama in ((r"^13\.\s*d\.", "input_produksi", "13d"),
+                            (r"^13\.\s*e\.", "proses_produksi", "13e")):
+        if not sess.datakey_by_label(pola):
+            continue
+        if not row[key]:
+            raise BarisPerluManual("13DE_KOSONG", f"{nama} dirender tapi kolom '{nama}' di sheet kosong.")
+        sess.isi_bersyarat_by_label(pola, row[key], nama)
 
     # 13g KBLI. Frasa cadangan = 13a; pilih() tetap memverifikasi KODE ada
     # di teks opsi sebelum mengklik, jadi frasa ini tidak bisa salah pilih.
@@ -104,6 +118,8 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
     # 13b1-b3 semuanya Tidak, dan cadangannya diturunkan dari kategori 13h.
     if sess.komponen_ada("keg_jasa", timeout_ms=4000):
         pilihan = row["keg_jasa"]
+        if pilihan not in OPSI_FORM["keg_jasa"] and row.murni:
+            raise BarisPerluManual("13B4_KOSONG", f"13b4 dirender tapi kolom 13b4 sheet '{pilihan}' bukan opsi form.")
         if pilihan not in OPSI_FORM["keg_jasa"]:
             pilihan = OPSI_13B4_PERTANIAN if kategori.strip().upper() == "A" else OPSI_13B4_JASA
             asumsi.append(f"13b4 sheet '{row['keg_jasa']}' bukan opsi -> '{pilihan}' dari kategori {kategori}")
@@ -124,20 +140,44 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
     for key in ("produksi_lingkungan", "perlindungan_lingkungan", "produk_seni"):
         sess.select_radio_by_datakey(key, row[key])
 
-    # --- 19 & 20: tidak ada kolomnya di sheet -> default config (ASUMSI) --
-    if sess.isi_bersyarat_by_label(r"^19\.\s*a\.", DEFAULT_19A, "19a"):
-        asumsi.append(f"19a default '{DEFAULT_19A}'")
-    if sess.isi_bersyarat_by_label(r"^19\.\s*c\.", DEFAULT_19C, "19c"):
-        asumsi.append(f"19c default '{DEFAULT_19C}'")
+    # --- 19 (halal BPJPH) & 20 (izin edar BPOM): hanya dirender utk kategori
+    # tertentu. Kolom opsional sheet dipakai kalau terisi; kosong -> default
+    # config & dicatat ASUMSI. 19a dijawab dulu (19b/19c baru muncul sesudahnya).
+    def _perlu_nilai(key: str, nama: str):
+        if row.murni and not row[key]:
+            raise BarisPerluManual("19_20_KOSONG", f"{nama} dirender tapi kolom {nama} sheet kosong "
+                                                   "(mode murni: tanpa default).")
+
+    def _isi_label(pola: str, key: str, bawaan: str, nama: str) -> bool:
+        if sess.datakey_by_label(pola):
+            _perlu_nilai(key, nama)
+        nilai = row[key] or bawaan
+        diisi = sess.isi_bersyarat_by_label(pola, nilai, nama)
+        if diisi and not row[key]:
+            asumsi.append(f"{nama} default '{bawaan}'")
+        return diisi
+
+    if _isi_label(r"^19\.\s*a\.", "halal", DEFAULT_19A, "19a"):
+        sess.page.wait_for_timeout(800)  # datakey_by_label snapshot: beri waktu 19b/19c ter-render
+    if sess.datakey_by_label(r"^19\.\s*b\."):
+        if not row["sudah_halal"]:
+            raise BarisPerluManual("19B_KOSONG", "19b dirender tapi kolom '19b' di sheet kosong.")
+        sess.isi_bersyarat_by_label(r"^19\.\s*b\.", row["sudah_halal"], "19b")
+    _isi_label(r"^19\.\s*c\.", "belum_halal", DEFAULT_19C, "19c")
+
     if sess.komponen_ada("izin_edar_bpom"):
-        sess.select_radio_by_datakey("izin_edar_bpom", "3. Tidak")
-        asumsi.append("20a default '3. Tidak'")
+        _perlu_nilai("izin_edar", "20a")
+        sess.select_radio_by_datakey("izin_edar_bpom", row["izin_edar"] or "3. Tidak")
+        if not row["izin_edar"]:
+            asumsi.append("20a default '3. Tidak'")
         if sess.datakey_by_label(r"^20\.\s*b\."):
-            sess.isi_bersyarat_by_label(r"^20\.\s*b\.", DEFAULT_20B_VARIAN_SUDAH_BPOM, "20b (default)")
-            asumsi.append(f"20b default '{DEFAULT_20B_VARIAN_SUDAH_BPOM}'")
+            _isi_label(r"^20\.\s*b\.", "sudah_bpom", DEFAULT_20B_VARIAN_SUDAH_BPOM, "20b")
+        # 20c wajib di SEMUA cabang jawaban 20a (lihat fill_blok2).
         if sess.komponen_ada("jumlah_varian_belum_bpom"):
-            sess.fill_by_datakey("jumlah_varian_belum_bpom", DEFAULT_20C_VARIAN_BELUM_BPOM)
-            asumsi.append(f"20c default '{DEFAULT_20C_VARIAN_BELUM_BPOM}'")
+            _perlu_nilai("belum_bpom", "20c")
+            sess.fill_by_datakey("jumlah_varian_belum_bpom", row["belum_bpom"] or DEFAULT_20C_VARIAN_BELUM_BPOM)
+            if not row["belum_bpom"]:
+                asumsi.append(f"20c default '{DEFAULT_20C_VARIAN_BELUM_BPOM}'")
     else:
         log("Rincian 20 (BPOM) tidak dirender utk kategori ini — dilewati.")
 

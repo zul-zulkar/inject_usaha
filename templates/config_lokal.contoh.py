@@ -41,8 +41,8 @@ KODE_KAB = "5108"
 # Kodepos per idsubsls (16 digit) — WAJIB untuk alur backlog lama
 # (input_fasihweb/main.py): baris yang idsubsls-nya tidak ada di sini di-skip
 # (SKIP_KODEPOS_TIDAK_DIKETAHUI), kecuali kodepos bisa diturunkan dari file
-# export. Kodepos dialokasikan per DESA. Alur Agenda (input_gabungan/) membaca
-# kodepos dari kolom sheet, jadi tidak butuh ini.
+# export. Kodepos dialokasikan per DESA. Format standar (input_gabungan/)
+# membaca kodepos dari kolom sheet, jadi tidak butuh ini.
 # KODEPOS_BY_IDSUBSLS = {
 #     "5108080008000202": "81172",
 # }
@@ -62,14 +62,20 @@ KODE_KAB = "5108"
 # PETA_SLS_PATH = r"D:\data\peta\final_sls_5108_2025-1.json"
 
 # ---------------------------------------------------------------------------
-# 3. Alur Agenda "satu subsls + satu akun" (input_gabungan/main_gabungan.py)
+# 3. Format standar input usaha (input_usaha.xlsx, input_gabungan/main_gabungan.py)
 # ---------------------------------------------------------------------------
-# Semua dokumen dibuat di SATU subsls oleh SATU akun PPL, lalu dipindah ke
-# wilayah aslinya belakangan (pindah_wilayah/). Akun ini harus punya assignment
-# mode PAPI di subsls tsb (lihat ganti_moda/). Bisa juga lewat CLI:
-# --subsls-tunggal / --akun-tunggal.
+# Mode "satu subsls + satu akun" (bawaan): semua dokumen dibuat di SATU subsls
+# oleh SATU akun PPL, lalu dipindah ke wilayah aslinya belakangan
+# (pindah_wilayah/). Akun ini harus punya assignment mode PAPI di subsls tsb
+# (lihat ganti_moda/). Bisa juga lewat CLI: --subsls-tunggal / --akun-tunggal.
 GABUNGAN_SUBSLS_TUNGGAL = ""   # mis. "5108010010000105"
 GABUNGAN_AKUN_TUNGGAL = ""     # mis. "ppl.contoh@gmail.com"
+
+# MODE MURNI (disarankan untuk data hasil pendataan lapangan): SEMUA isian form
+# diambil apa adanya dari Excel — tanpa aturan penamaan, default, atau koreksi
+# data yang ditetapkan BPS Buleleng. Kalau form meminta sesuatu yang kosong di
+# Excel, baris di-skip (tidak ditebak). Lihat docs/FORMAT_STANDAR_INPUT_USAHA.md.
+GABUNGAN_MODE_MURNI = True
 
 # ---------------------------------------------------------------------------
 # 4. ID periode survei (segmen URL list PENDATAAN fasih-web)

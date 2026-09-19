@@ -344,5 +344,120 @@ for label, nilai, ref, want in (
 ):
     check(f"wilayah dokumen: {label}", cocokkan_wilayah_dokumen(nilai, ID, ref)[0], want)
 
+# --- FORMAT STANDAR: kolom opsional utk jenis usaha lain (produksi, halal, BPOM) ---
+OPSIONAL = [
+    ("13. d. Input yang digunakan", ""), ("13. e. Proses produksi", ""),
+    ("13. f. Apa produk utama yang dihasilkan?", ""),
+    ("19. a. Apakah usaha/perusahaan ini menghasilkan produk bersertifikat halal?", ""),
+    ("19. b. Jumlah varian produk yang sudah bersertifikat halal BPJPH", ""),
+    ("19. c. Berapa jumlah varian produk yang belum bersertifikat halal BPJPH?", ""),
+    ("20. a. Apakah usaha/perusahaan ini memiliki izin edar?", ""),
+    ("20. b. Berapa jumlah varian produk yang sudah memiliki izin edar BPOM?", ""),
+    ("20. c. Berapa jumlah varian produk yang belum memiliki izin edar BPOM?", ""),
+]
+JUDUL_STD = JUDUL + [j for j, _ in OPSIONAL]
+
+
+def _idx_std(key):
+    from inti.gabungan_loader import KOLOM, _norm_judul
+    return next(i for i, j in enumerate(JUDUL_STD) if _norm_judul(j).startswith(KOLOM[key]))
+
+
+def muat_std(murni=False, **isi):
+    """Satu baris sheet berkolom lengkap (termasuk kolom opsional). `isi` = {key loader: nilai}."""
+    nilai = baris() + ["" for _ in OPSIONAL]
+    for key, v in isi.items():
+        nilai[_idx_std(key)] = v
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "std.csv"
+        with p.open("w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(JUDUL_STD)
+            w.writerow(nilai)
+        rows = load_gabungan(p, murni=murni)
+    return rows[0], periksa_semua(rows, tahun_berjalan=2026)[rows[0].baris]
+
+
+r, h = muat_std()
+check("std: kolom opsional kosong -> tetap SIAP", h.status, "SIAP")
+r, h = muat_std(produk="Obat-obatan")
+check("std: 13f dari kolom sendiri (bukan salinan 13a)", (r.produk_utama, h.tanda), ("Obat-obatan", []))
+
+PRODUKSI = dict(produk_sendiri="1. Ya", keg_utama="Membuat keripik singkong", kbli="10794",
+                biaya_produksi="30000000", biaya_pembelian="0")
+r, h = muat_std(**PRODUKSI)
+check("std: 13b1 Ya tanpa 13d/13e -> WAJIB_KOSONG sebelum dokumen dibuat",
+      (h.status, "input_produksi" in h.pesan and "proses_produksi" in h.pesan), ("SKIP_DATA_WAJIB_KOSONG", True))
+r, h = muat_std(**PRODUKSI, input_produksi="Singkong, minyak", proses_produksi="Mengiris, menggoreng")
+check("std: 13b1 Ya + 13d/13e terisi -> SIAP", h.status, "SIAP")
+r, h = muat_std(**{**PRODUKSI, "biaya_pembelian": "5000000"}, input_produksi="x", proses_produksi="y")
+check("std: KBLI kategori C + 26c > 0 -> skip (form tidak punya 26c)", h.status, "SKIP_DATA_26C_KATEGORI_TANPA_26C")
+r, h = muat_std(kbli="56304", biaya_pembelian="1000000")
+check("std: golongan 56 + 26c > 0 -> skip", h.status, "SKIP_DATA_26C_KATEGORI_TANPA_26C")
+check("std: kategori G + 26c > 0 -> tetap SIAP", muat_std()[1].status, "SIAP")
+
+r, h = muat_std(halal="1. Ya, oleh BPJPH", sudah_halal="2", belum_halal="0",
+                izin_edar="2. Ya, bukan oleh BPOM", sudah_bpom="1", belum_bpom="3")
+check("std: 19/20 dari sheet terbaca & SIAP",
+      (h.status, r["halal"], r["sudah_halal"], r["izin_edar"], r["belum_bpom"]),
+      ("SIAP", "1. Ya, oleh BPJPH", "2", "2. Ya, bukan oleh BPOM", "3"))
+check("std: opsi 20a bukan opsi form -> skip", muat_std(izin_edar="Ya")[1].status, "SKIP_DATA_OPSI_TIDAK_ADA_DI_FORM")
+check("std: opsi 19a bukan opsi form -> skip", muat_std(halal="Belum")[1].status, "SKIP_DATA_OPSI_TIDAK_ADA_DI_FORM")
+check("std: 20c bukan bilangan -> skip", muat_std(belum_bpom="dua")[1].status, "SKIP_DATA_ANGKA_TIDAK_VALID")
+
+# --- MODE MURNI: isian 100% dari Excel, tanpa aturan/default/koreksi skrip ---
+LENGKAP = dict(produk="Obat-obatan", pengusaha="I MADE", nama="APOTEK SEHAT", nama_komersial="APOTEK SEHAT")
+r, h = muat_std(murni=True, **LENGKAP)
+check("murni: baris lengkap SIAP tanpa tanda", (h.status, h.tanda), ("SIAP", []))
+check("murni: nama dokumen & 8b apa adanya (tanpa '(12a)')", (r.nama_dokumen, r.nama_komersial),
+      ("APOTEK SEHAT", "APOTEK SEHAT"))
+check("non-murni: tetap '<nama> (<12a>)'", muat_std(**LENGKAP)[0].nama_dokumen, "APOTEK SEHAT (I MADE)")
+r, h = muat_std(murni=True)
+check("murni: 13f kosong TIDAK disalin dari 13a -> WAJIB_KOSONG",
+      (r.produk_utama, h.status, "produk (13f)" in h.pesan), ("", "SKIP_DATA_WAJIB_KOSONG", True))
+r, h = muat_std(murni=True, **LENGKAP, nomor_domisili="")
+check("murni: Blok/Nomor kosong tetap kosong (non-murni '-')",
+      (r.nomor_rumah, muat_std(nomor_domisili="")[0].nomor_rumah), ("", "-"))
+r, h = muat_std(murni=True, **{**LENGKAP, "jalan_domisili": "BR. X"})
+check("murni: Nama Jalan < 10 huruf tidak dilengkapi -> skip",
+      (h.status, "mode murni" in h.pesan), ("SKIP_DATA_JALAN_KURANG_10_HURUF", True))
+r, h = muat_std(murni=True, **LENGKAP, tk_laki="0", tk_pr="2", tk_dibayar="0", tk_tdk_dibayar="1")
+check("murni: KOREKSI_PEKERJA tidak diterapkan -> 24 tidak konsisten", h.status,
+      "SKIP_DATA_PEKERJA_24_TIDAK_KONSISTEN")
+check("non-murni: KOREKSI_PEKERJA tetap jalan",
+      muat_std(**LENGKAP, tk_laki="0", tk_pr="2", tk_dibayar="0", tk_tdk_dibayar="1")[0]["tk_tdk_dibayar"], "2")
+r, h = muat_std(murni=True, **{**LENGKAP, "nama": "BUMDES MAJU", "nama_komersial": "BUMDES MAJU"})
+check("murni: BUMDES tidak dikoreksi -> dilaporkan", (r["badan_usaha"], h.status),
+      ("13. Bukan Badan Usaha", "SKIP_DATA_BUMDES_BUKAN_KODE_6"))
+r, h = muat_std(murni=True, **{**LENGKAP, "nama_komersial": "CV. MAJU"})
+check("murni: 8b diawali CV -> dilaporkan", h.status, "SKIP_DATA_8B_DIAWALI_CV")
+
+# --- nama tab: "input_usaha" (baku) & "gabungan" (nama lama Buleleng) sama-sama diterima ---
+import openpyxl  # noqa: E402
+
+
+def muat_xlsx(tab_isi: dict):
+    """tab_isi = {nama tab: nama usaha di baris data} -> nama usaha yang terbaca loader."""
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "tab.xlsx"
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        for tab, nama in tab_isi.items():
+            ws = wb.create_sheet(tab)
+            ws.append(JUDUL)
+            ws.append(baris(**u("Nama Keluarga", nama)))
+        wb.save(p)
+        return [r.nama for r in load_gabungan(p)]
+
+
+check("tab 'input_usaha' dibaca", muat_xlsx({"input_usaha": "BARU"}), ["BARU"])
+check("tab lama 'gabungan' tetap dibaca", muat_xlsx({"gabungan": "LAMA"}), ["LAMA"])
+check("keduanya ada -> 'input_usaha' dipakai", muat_xlsx({"gabungan": "LAMA", "input_usaha": "BARU"}), ["BARU"])
+try:
+    muat_xlsx({"Sheet lain": "X"})
+    check("tab tidak dikenal -> ditolak", "tidak ditolak", "ValueError")
+except ValueError:
+    check("tab tidak dikenal -> ditolak", "ValueError", "ValueError")
+
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

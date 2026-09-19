@@ -1,8 +1,16 @@
 """
-gabungan_loader.py — Baca tab "gabungan" (Google Sheet "Agenda") sbg sumber
-input, lalu periksa kelayakan tiap baris TANPA browser & TANPA VPN.
+gabungan_loader.py — Baca FORMAT STANDAR input usaha (input_usaha.xlsx, tab
+"input_usaha"; nama lama: Agenda.xlsx, tab "gabungan") sbg sumber input, lalu periksa kelayakan tiap baris TANPA browser
+& TANPA VPN.
 
-Beda mendasar dgn data_loader.py (backlog LKpenyalinan):
+Format ini berlaku utk JENIS USAHA APA PUN (satu baris = satu usaha = satu
+dokumen; kolom = jawaban final per rincian SE2026-L BLOK II). Awalnya dibuat
+utk pangkalan gas LPG & faskes — nama tab lama "gabungan" berasal dari situ.
+Rincian yang hanya muncul utk jenis usaha tertentu (13d/13e produksi, 19
+halal, 20 BPOM, 13f) berupa kolom OPSIONAL (KOLOM_OPSIONAL). Spesifikasi &
+templat: docs/FORMAT_STANDAR_INPUT_USAHA.md, templates/input_usaha.contoh.xlsx.
+
+Beda mendasar dgn data_loader.py (backlog salin dokumen sumber):
 - Setiap kolom sheet ini SUDAH jawaban final per rincian form. Tidak ada
   kalkulasi 10%, tidak ada file export fasih-sm, tidak ada aturan pekerja
   <=3 / override aset 0 — angka diketik APA ADANYA.
@@ -35,10 +43,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from inti.config import (
-    GABUNGAN_13F_DARI_13A, GABUNGAN_IZINKAN_JALAN_KOSONG, MINIMAL_TOTAL_RUPIAH, WILAYAH_BY_IDSUBSLS,
+    GABUNGAN_13F_DARI_13A, GABUNGAN_IZINKAN_JALAN_KOSONG, GABUNGAN_MODE_MURNI, MINIMAL_TOTAL_RUPIAH,
+    WILAYAH_BY_IDSUBSLS,
 )
 
-NAMA_SHEET = "gabungan"
+# Nama tab format standar. "gabungan" = nama lama (sheet "Agenda" BPS Buleleng) — tetap
+# diterima supaya file lama tidak perlu diubah; kalau keduanya ada, "input_usaha" dipakai.
+NAMA_SHEET = "input_usaha"
+NAMA_SHEET_LAMA = ("gabungan",)
+NAMA_SHEET_DITERIMA = (NAMA_SHEET, *NAMA_SHEET_LAMA)
 
 # 8b "Nama komersial usaha/perusahaan": validasi form "Panjang maksimal 50"
 # (GALAT ringkasan, run live 2026-09-14).
@@ -90,7 +103,10 @@ KOLOM: dict[str, str] = {
     "keg_penjualan": "13.b3.",
     "keg_jasa": "13.b4.",
     "lokasi_usaha": "13.c.",
-    "produk": "13.f.",                          # OPSIONAL — tidak ada di sheet 2026-09-13
+    # 13d/13e dirender form kalau 13b1 = "1. Ya" (usaha memproduksi barang).
+    "input_produksi": "13.d.",                  # OPSIONAL — wajib kalau 13b1 = Ya
+    "proses_produksi": "13.e.",                 # OPSIONAL — wajib kalau 13b1 = Ya
+    "produk": "13.f.",                          # OPSIONAL — kosong = salin 13a (GABUNGAN_13F_DARI_13A)
     "kbli": "pilih dari master kbli",
     "jaringan": "14.a.",
     "internet": "16.a.",
@@ -104,6 +120,15 @@ KOLOM: dict[str, str] = {
     "produksi_lingkungan": "17.a.",
     "perlindungan_lingkungan": "17.b.",
     "produk_seni": "18.",
+    # 19 (halal BPJPH) & 20 (izin edar BPOM) hanya dirender utk kategori usaha
+    # tertentu. Kolom kosong/tidak ada -> default config (DEFAULT_19A/19C/20B/20C,
+    # 20a "3. Tidak"), dicatat ASUMSI di review_disarankan.
+    "halal": "19.a.",                           # OPSIONAL
+    "sudah_halal": "19.b.",                     # OPSIONAL — wajib kalau form merender 19b
+    "belum_halal": "19.c.",                     # OPSIONAL
+    "izin_edar": "20.a.",                       # OPSIONAL
+    "sudah_bpom": "20.b.",                      # OPSIONAL
+    "belum_bpom": "20.c.",                      # OPSIONAL
     "mitra_kdkmp": "21.",
     "peran_mbg": "22.",
     "barang_non_pddk": "23.a.",
@@ -134,7 +159,17 @@ KOLOM: dict[str, str] = {
     "asing": "29.f.",
     "nama_info_list": "nama pemberi informasi",
 }
-KOLOM_OPSIONAL = {"produk"}
+KOLOM_OPSIONAL = {"produk", "input_produksi", "proses_produksi", "halal", "sudah_halal", "belum_halal",
+                  "izin_edar", "sudah_bpom", "belum_bpom"}
+KEY_JUMLAH_19_20 = ("sudah_halal", "belum_halal", "sudah_bpom", "belum_bpom")
+
+# Kategori B-F (golongan KBLI 05-43) & golongan 56 (kategori I, penyediaan
+# makan minum): form TIDAK merender 26c terpisah — biaya pembelian barang
+# masuk 26b (pesan form: "Biaya produksi harus>0 jika kategori usaha B-F dan I
+# (gol 56)"; terbukti record manual 2 KBLI 56304). Deteksi utama tetap dari DOM
+# (fill_gabungan berhenti 26C_TIDAK_DIRENDER); ini hanya pencegah dini.
+def kbli_tanpa_26c(kbli: str) -> bool:
+    return len(kbli) >= 2 and kbli[:2].isdigit() and (5 <= int(kbli[:2]) <= 43 or kbli[:2] == "56")
 
 YA_TIDAK = ("1. Ya", "2. Tidak")
 
@@ -199,6 +234,9 @@ OPSI_FORM: dict[str, tuple] = {
     "barang_non_pddk": YA_TIDAK,
     "jasa_non_pddk": YA_TIDAK,
     "beli_jasa_non_pddk": YA_TIDAK,
+    # Opsional (kategori tertentu) — dikutip dari dump DOM 2026-09-07.
+    "halal": ("1. Ya, oleh BPJPH", "2. Ya, bukan oleh BPJPH", "3. Tidak/Belum", "4. Dalam proses"),
+    "izin_edar": ("1. Ya, oleh BPOM", "2. Ya, bukan oleh BPOM", "3. Tidak"),
 }
 
 KEY_16B = ("internet_pesanan", "internet_produksi", "internet_distribusi",
@@ -271,7 +309,7 @@ NILAI_TETAP: dict[str, tuple] = {
 
 
 def format_nama_usaha(nama: str, pemilik: str) -> str:
-    """Penamaan usaha alur Agenda: "<nama_usaha> (<nama_pemilik>)" —
+    """Penamaan usaha format standar (mode normal): "<nama_usaha> (<nama_pemilik>)" —
     ketetapan user 2026-09-14, sama dgn pola 3 record manual backlog lama
     (mis. "WARUNG SEMBAKO (KETUT CONTOH)"). Pemilik = kolom 12a.
 
@@ -391,9 +429,11 @@ def _baca_mentah(path: Path) -> list[list]:
         import openpyxl  # hanya perlu kalau sumbernya xlsx
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         try:
-            ws = next((w for w in wb.worksheets if w.title.strip().lower() == NAMA_SHEET), None)
+            per_nama = {w.title.strip().lower(): w for w in wb.worksheets}
+            ws = next((per_nama[n] for n in NAMA_SHEET_DITERIMA if n in per_nama), None)
             if ws is None:
-                raise ValueError(f"Sheet '{NAMA_SHEET}' tidak ada di {path.name}. Tersedia: {wb.sheetnames}")
+                raise ValueError(f"Tab '{NAMA_SHEET}' (atau nama lama {NAMA_SHEET_LAMA}) tidak ada di "
+                                 f"{path.name}. Tersedia: {wb.sheetnames}")
             return [list(r) for r in ws.iter_rows(values_only=True)]
         finally:
             wb.close()
@@ -411,6 +451,9 @@ class GabunganRow:
     wilayah_bentrok: str = ""   # terisi kalau sumber nama wilayah saling bertentangan
     koreksi: list = field(default_factory=list)  # nilai sheet yang diubah ketetapan user (-> tanda review)
     akhiran_badan: str = ""  # "PT"/"CV" yang dipindah ke belakang nama (lihat nama_tampil)
+    # MODE MURNI (config.GABUNGAN_MODE_MURNI): semua isian apa adanya dari sheet,
+    # tanpa aturan penamaan/pelengkap/koreksi — lihat komentar di config.
+    murni: bool = False
 
     def __getitem__(self, key: str) -> str:
         return self.v.get(key, "")
@@ -423,14 +466,20 @@ class GabunganRow:
     @property
     def nama_dokumen(self) -> str:
         """Nama yang diketik ke fasih-web ("+Dokumen Baru" & SE2026-P) dan
-        dipakai mencari dokumen di list: "<nama> (<12a>)" (lihat nama_muat)."""
+        dipakai mencari dokumen di list: "<nama> (<12a>)" (lihat nama_muat).
+        Mode murni: nama sheet apa adanya."""
+        if self.murni:
+            return " ".join(self.nama.split())
         return nama_muat(nama_tampil(self.nama, self.akhiran_badan), self["pengusaha"])
 
     @property
     def nama_komersial(self) -> str:
         """8b dgn format yang sama dgn nama dokumen (ketetapan user: penamaan
         berlaku utk nama usaha DAN nama komersial). Masih lebih dari MAKS_8B
-        karakter setelah nama_muat -> skip 8B_TERLALU_PANJANG, tidak dipotong."""
+        karakter setelah nama_muat -> skip 8B_TERLALU_PANJANG, tidak dipotong.
+        Mode murni: kolom 8b apa adanya."""
+        if self.murni:
+            return " ".join(self["nama_komersial"].split())
         return nama_muat(nama_tampil(self["nama_komersial"], self.akhiran_badan), self["pengusaha"])
 
     @property
@@ -460,12 +509,22 @@ class GabunganRow:
     @property
     def jalan_lengkap(self) -> str:
         """Nama Jalan yang diketik ke SE2026-P (dilengkapi nama wilayah kalau
-        kurang dari 10 huruf — lihat lengkapi_alamat)."""
+        kurang dari 10 huruf — lihat lengkapi_alamat). Mode murni: apa adanya."""
+        if self.murni:
+            return " ".join(self["jalan_domisili"].split())
         return lengkapi_alamat(self["jalan_domisili"], self.wilayah)
 
     @property
+    def nomor_rumah(self) -> str:
+        """Blok/Nomor Rumah SE2026-P. Kosong -> "-" (petunjuk form: "Jika tidak ada
+        isikan -"); mode murni: apa adanya (kosong = tidak diisi)."""
+        if self.murni:
+            return self["nomor_domisili"]
+        return self["nomor_domisili"] or "-"
+
+    @property
     def produk_utama(self) -> str:
-        if self["produk"]:
+        if self["produk"] or self.murni:
             return self["produk"]
         return self["keg_utama"] if GABUNGAN_13F_DARI_13A else ""
 
@@ -479,7 +538,7 @@ class GabunganRow:
 
 def _baca_nama_wilayah(path: Path) -> dict[str, dict]:
     """{kode desa 10 digit: {provinsi, kabkota, kecamatan, desa}} dari tab LAIN
-    di xlsx Agenda yang punya kolom kode "Pilih DESA" + nama "Desa/Kelurahan"
+    di xlsx input usaha yang punya kolom kode "Pilih DESA" + nama "Desa/Kelurahan"
     (tab "Pangkalan Gas" & "Faskes", 2026-09-14). Tab gabungan sendiri hanya
     berisi kode. Tiap baris tab dicatat di bawah kode dari kolom `idsubsls`
     (10 digit pertama) DAN dari kolom "Pilih ...": sebagian baris sheet punya
@@ -495,7 +554,7 @@ def _baca_nama_wilayah(path: Path) -> dict[str, dict]:
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         for ws in wb.worksheets:
-            if ws.title.strip().lower() == NAMA_SHEET:
+            if ws.title.strip().lower() in NAMA_SHEET_DITERIMA:
                 continue
             it = ws.iter_rows(values_only=True)
             judul = [" ".join(str(j or "").split()) for j in (next(it, None) or [])]
@@ -530,7 +589,10 @@ def _nama_wilayah_dari_8c(alamat: str) -> dict:
     return {"desa": desa, "kecamatan": kec, "kabkota": kab, "provinsi": prov}
 
 
-def load_gabungan(path: str | Path) -> list[GabunganRow]:
+def load_gabungan(path: str | Path, murni: bool | None = None) -> list[GabunganRow]:
+    """`murni` None = config.GABUNGAN_MODE_MURNI. Mode murni: koreksi data
+    (KOREKSI_PEKERJA, badan usaha dari awalan, BUMDES) TIDAK diterapkan."""
+    murni = GABUNGAN_MODE_MURNI if murni is None else murni
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"File sumber tidak ditemukan: {path}")
@@ -544,7 +606,7 @@ def load_gabungan(path: str | Path) -> list[GabunganRow]:
         if not any(_sel(x) for x in sel):
             continue
         v = {k: (_sel(sel[i]) if i < len(sel) else "") for k, i in idx.items()}
-        row = GabunganRow(nomor, v)
+        row = GabunganRow(nomor, v, murni=murni)
         peta = nama_desa.get(row.idsubsls[:10]) or nama_desa.get(row.idsubsls_pilih[:10]) or {}
         dari_8c = _nama_wilayah_dari_8c(row["alamat_usaha_view"])
         if peta and dari_8c and (peta["desa"], peta["kecamatan"]) != (dari_8c["desa"], dari_8c["kecamatan"]):
@@ -555,19 +617,21 @@ def load_gabungan(path: str | Path) -> list[GabunganRow]:
                                    f"8c '{dari_8c['desa']}, {dari_8c['kecamatan']}'")
         wil = dict(peta or dari_8c)
         pekerja = tuple(v.get(k, "") for k in KEY_PEKERJA)
-        if pekerja in KOREKSI_PEKERJA:
+        if murni:
+            pass  # apa adanya: pelanggaran aturan form dilaporkan periksa_baris
+        elif pekerja in KOREKSI_PEKERJA:
             baru = KOREKSI_PEKERJA[pekerja]
             v.update(zip(KEY_PEKERJA, baru))
             row.koreksi.append(f"24 (laki, perempuan, dibayar, tidak dibayar) {'/'.join(pekerja)} -> "
                                f"{'/'.join(baru)} (ketetapan user)")
-        if v.get("badan_usaha") == BADAN_USAHA_PT_CV:
+        if not murni and v.get("badan_usaha") == BADAN_USAHA_PT_CV:
             for pola, opsi, akhiran in KOREKSI_BADAN_DARI_AWALAN:
                 if re.match(rf"\s*{pola}", v.get("nama", ""), flags=re.I):
                     v["badan_usaha"] = opsi
                     row.akhiran_badan = akhiran
                     row.koreksi.append(f"11a '{BADAN_USAHA_PT_CV}' -> '{opsi}' dari awalan nama (ketetapan user)")
                     break
-        if (re.search(POLA_BUMDES, f"{v.get('nama', '')} {v.get('nama_komersial', '')}", flags=re.I)
+        if (not murni and re.search(POLA_BUMDES, f"{v.get('nama', '')} {v.get('nama_komersial', '')}", flags=re.I)
                 and v.get("badan_usaha") != OPSI_BUMDES):
             lama = (v.get("badan_usaha"), v.get("lap_keuangan"), "/".join(v.get(k, "") for k in KEY_29))
             v["badan_usaha"], v["lap_keuangan"] = OPSI_BUMDES, "1. Ya"
@@ -575,7 +639,7 @@ def load_gabungan(path: str | Path) -> list[GabunganRow]:
             v["pemerintah"] = "100"
             row.koreksi.append(f"BUMDES: 11a/11d/29 {lama} -> ('{OPSI_BUMDES}', '1. Ya', pemerintah 100) "
                                "(validasi form, ketetapan user)")
-        if " ".join(v.get("nama", "").split()).upper() in KOREKSI_NAMA:
+        if not murni and " ".join(v.get("nama", "").split()).upper() in KOREKSI_NAMA:
             row.koreksi.append(f"nama usaha diganti -> '{nama_tampil(v['nama'])}' (ketetapan user)")
         ref = WILAYAH_BY_IDSUBSLS.get(row.idsubsls) or {}
         if ref.get("sls"):
@@ -630,6 +694,8 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         wajib += [*KEY_16B, "digital"]
     if not GABUNGAN_IZINKAN_JALAN_KOSONG:
         wajib.append("jalan_domisili")
+    if row["produk_sendiri"].startswith("1"):
+        wajib += ["input_produksi", "proses_produksi"]   # form merender 13d & 13e
     kosong = [k for k in wajib if not row[k]]
     if not row.produk_utama:
         kosong.append("produk (13f)")
@@ -641,7 +707,8 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
     # 10 huruf" (baris 17, run 2026-09-14). Sheet berisi "0", "BR. KAJANAN", dst.
     jalan = row.jalan_lengkap
     if jalan and jalan != "-" and jumlah_huruf(jalan) < MIN_HURUF_JALAN:
-        sebab = (f"nama wilayah bertentangan: {row.wilayah_bentrok}" if row.wilayah_bentrok
+        sebab = ("mode murni: tidak dilengkapi nama wilayah" if row.murni
+                 else f"nama wilayah bertentangan: {row.wilayah_bentrok}" if row.wilayah_bentrok
                  else "nama wilayah baris tidak ditemukan")
         salah(("JALAN_KURANG_10_HURUF", f"Nama Jalan '{jalan}' kurang dari {MIN_HURUF_JALAN} huruf & tidak bisa "
                                         f"dilengkapi — {sebab} (form menolak)"))
@@ -650,8 +717,16 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
                            + (f" (desa idsubsls dipakai; {row.wilayah_bentrok})" if row.wilayah_bentrok else ""))
     hasil.tanda.extend(row.koreksi)
     for label, nama in (("nama dokumen", row.nama_dokumen), ("8b", row.nama_komersial)):
-        if nama and "(" not in nama and row["pengusaha"]:
+        if not row.murni and nama and "(" not in nama and row["pengusaha"]:
             hasil.tanda.append(f"{label} tanpa (12a): format lengkap > {MAKS_8B} karakter")
+    if row.murni:
+        # Aturan form yang di mode non-murni dikoreksi skrip -> di sini dilaporkan.
+        if (re.search(POLA_BUMDES, f"{row.nama} {row['nama_komersial']}", flags=re.I)
+                and row["badan_usaha"] != OPSI_BUMDES):
+            salah(("BUMDES_BUKAN_KODE_6", f"nama memuat BUMDES tapi 11a='{row['badan_usaha']}' — form "
+                                          f"mewajibkan '{OPSI_BUMDES}', 11d Ya & modal pemerintah (29e) dominan"))
+        if re.match(r"\s*CV\b", row.nama_komersial, flags=re.I):
+            salah(("8B_DIAWALI_CV", f"8b '{row.nama_komersial}' diawali CV — form menolak; tulis 'NAMA, CV'"))
 
     for key, boleh in NILAI_TETAP.items():
         if row[key].lower() not in {b.lower() for b in boleh}:
@@ -670,7 +745,8 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         if nilai not in opsi:
             salah(("OPSI_TIDAK_ADA_DI_FORM", f"{key}='{nilai}' bukan salah satu opsi form (lihat OPSI_FORM)"))
 
-    tidak_valid = [k for k in (*KEY_PEKERJA, *KEY_26, *KEY_27, "pendapatan_online", *KEY_28, *KEY_29, "umur")
+    tidak_valid = [k for k in (*KEY_PEKERJA, *KEY_26, *KEY_27, "pendapatan_online", *KEY_28, *KEY_29, "umur",
+                               *KEY_JUMLAH_19_20)
                    if row[k] and not _bulat(row[k])]
     for key, pola in (("idsubsls", r"\d{16}"), ("kodepos", r"\d{5}"), ("kbli", r"\d{5}"),
                       ("tahun_operasi", r"\d{4}")):
@@ -721,6 +797,10 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
             salah(("ANGKA_TIDAK_VALID", f"tahun_operasi={th}"))
     if row["internet"].startswith("1") and not any(row[k].startswith("1") for k in KEY_16B):
         salah(("16B_TANPA_YA", "16a = Ya tapi 16b1-16b6 tidak ada yang Ya (form menolak)"))
+    if kbli_tanpa_26c(row["kbli"]) and row["biaya_pembelian"] and row.angka("biaya_pembelian") > 0:
+        salah(("26C_KATEGORI_TANPA_26C",
+               f"KBLI {row['kbli']} (kategori B-F / golongan 56): form tidak punya 26c — pindahkan "
+               f"26c={row['biaya_pembelian']} ke 26b di sheet"))
 
     if not row["produk"] and row.produk_utama:
         hasil.tanda.append("13f disalin dari 13a (sheet tidak punya kolom 13f)")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ubah_moda.py — Ganti mode assignment CAPI -> PAPI di fasih-sm untuk setiap
-idsubsls di Agenda.xlsx (tab gabungan). Jalankan SEBELUM main_gabungan.py.
+idsubsls di input_usaha.xlsx (tab input_usaha). Jalankan SEBELUM main_gabungan.py.
 
 KENAPA
 ------
@@ -35,17 +35,17 @@ terverifikasi -> berhenti. Tidak ada yang ditebak.
 LANGKAH
 -------
 1. Daftar target, tanpa browser:
-       python ubah_moda.py --sumber Agenda.xlsx --cek
+       python ubah_moda.py --sumber input_usaha.xlsx --cek
 2. Pemetaan 1 subsls (login MANUAL sekali; profil disimpan di .profil_fasih_sm/).
    Tidak mencentang & tidak mengubah apa pun; tabel/menu/API direkam ke log_fasih_sm/:
-       python ubah_moda.py --sumber Agenda.xlsx --petakan
+       python ubah_moda.py --sumber input_usaha.xlsx --petakan
 3. Dry-run: cari, rencanakan, centang, cocokkan angka N di menu, lalu lepas
    centang. TIDAK mengklik "Ganti Mode":
-       python ubah_moda.py --sumber Agenda.xlsx --limit 5
+       python ubah_moda.py --sumber input_usaha.xlsx --limit 5
 4. LIVE untuk SATU subsls dulu (wajib ketik YA), cek hasilnya di fasih-sm & fasih-web:
-       python ubah_moda.py --sumber Agenda.xlsx --idsubsls 5108070013000901 --eksekusi
+       python ubah_moda.py --sumber input_usaha.xlsx --idsubsls 5108070013000901 --eksekusi
 5. Sisanya:
-       python ubah_moda.py --sumber Agenda.xlsx --eksekusi --lewati-selesai
+       python ubah_moda.py --sumber input_usaha.xlsx --eksekusi --lewati-selesai
 
 Skrip TIDAK PERNAH mengetik kata sandi fasih-sm — login dilakukan manusia di
 jendela browser. Headless sengaja tidak disediakan (fasih-sm memakai
@@ -53,7 +53,7 @@ proteksi anti-bot F5/TSPD, sama seperti fasih-web).
 
 ⚠️ JALUR YANG DISARANKAN: Console Chrome biasa (ubah_moda_console.js), bukan
 Playwright — fasih-sm mendeteksi browser otomatis. File siap-tempel dibuat dgn:
-       python ubah_moda.py --sumber Agenda.xlsx --console
+       python ubah_moda.py --sumber input_usaha.xlsx --console
 
 LIST KODE IDENTITAS MILIK SENDIRI (2026-09-15)
 ---------------------------------------------
@@ -860,7 +860,7 @@ def laporan_cek(targets, dikeluarkan, sumber: str):
 def main():
     ap = argparse.ArgumentParser(description="Ganti mode assignment CAPI -> PAPI di fasih-sm per idsubsls")
     sumber = ap.add_mutually_exclusive_group(required=True)
-    sumber.add_argument("--sumber", help="Agenda.xlsx (tab gabungan) atau .csv-nya — skrip memilih 1 CAPI per subsls")
+    sumber.add_argument("--sumber", help="input_usaha.xlsx (tab input_usaha) atau .csv-nya — skrip memilih 1 CAPI per subsls")
     sumber.add_argument("--daftar",
                         help="List KODE IDENTITAS milikmu (.xlsx/.csv/.txt, mis. '5108060003000402 - UMK - 4'); "
                              "HANYA kode itu yang diubah, --cakupan diabaikan")

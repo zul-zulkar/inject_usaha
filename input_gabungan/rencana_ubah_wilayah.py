@@ -28,9 +28,9 @@ status_rencana per dokumen (urutan = prioritas kalau kena lebih dari satu):
   SIAP_PINDAH       terkirim di server & titik koordinat di dalam subsls tujuan
 
 Contoh:
-    python input_gabungan/sinkron_list.py --sumber Agenda.xlsx --akun-tunggal ppl.contoh@mail.com \
+    python input_gabungan/sinkron_list.py --sumber input_usaha.xlsx --akun-tunggal ppl.contoh@mail.com \
         --subsls-tunggal 5108010010000105          # (sekali per akun) unduh list server
-    python input_gabungan/rencana_ubah_wilayah.py --sumber Agenda.xlsx --sumber Agenda1-1.xlsx
+    python input_gabungan/rencana_ubah_wilayah.py --sumber input_usaha.xlsx --sumber input_usaha_2.xlsx
 """
 from __future__ import annotations
 

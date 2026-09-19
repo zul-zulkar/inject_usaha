@@ -1,10 +1,12 @@
-# Tutorial Input Otomatis — sumber **Agenda.xlsx** (SE2026 Usaha Pecahan)
+# Tutorial Inject Usaha — format standar (**input_usaha.xlsx**)
 
-Panduan langkah-demi-langkah untuk mengisi & mengirim dokumen SE2026-P dari sheet
-**Agenda** (tab "gabungan") ke **fasih-web** secara otomatis.
+Panduan langkah-demi-langkah untuk membuat, mengisi & mengirim dokumen usaha SE2026 ke
+**fasih-web** secara otomatis dari **format standar input usaha** (file `input_usaha.xlsx`,
+tab `input_usaha`) — untuk jenis usaha apa pun.
 
-> Ini versi **sekarang** (sumber `Agenda.xlsx`). Untuk backlog lama (LKpenyalinan)
-> lihat `docs/PANDUAN_INPUT_OTOMATIS.md`. Referensi padat alur ini: `docs/PANDUAN_GABUNGAN.md`.
+> Arti tiap kolom & aturan pemeriksaan: `docs/FORMAT_STANDAR_INPUT_USAHA.md`. Referensi padat
+> skrip input: `docs/PANDUAN_GABUNGAN.md`. Alur khusus salin dari dokumen sumber (`salin_dokumen_sumber.csv`):
+> `docs/PANDUAN_INPUT_OTOMATIS.md`.
 
 Semua perintah **dijalankan DARI ROOT proyek** (folder hasil clone, mis. `D:\innovations\split_usaha`),
 bukan dari dalam folder. Contoh benar: `python input_gabungan/main_gabungan.py ...`.
@@ -40,12 +42,14 @@ sesi sebelumnya, langsung ke tahap **C**.
 3. **Google Chrome biasa** (untuk tahap A & B yang lewat DevTools Console).
 4. **Konfigurasi lokal** (sekali): salin `templates/config_lokal.contoh.py` ke `inti/config_lokal.py`,
    lalu isi `FIXED_PASSWORD`, `KODE_KAB`, dan (alur satu subsls) `GABUNGAN_SUBSLS_TUNGGAL` /
-   `GABUNGAN_AKUN_TUNGGAL`. File itu tidak ikut git — aman untuk password.
-5. **Download sheet**: buka Google Sheet **Agenda** → tab **gabungan** →
-   `File > Download > Microsoft Excel (.xlsx)` → simpan sebagai **`Agenda.xlsx`** di root proyek.
-   Belum punya sheet? Mulai dari templat `templates/Agenda.contoh.xlsx` (judul kolom persis, dropdown opsi,
-   tab `petunjuk`); unggah ke Google Sheets kalau ingin diisi bersama.
-   > Setiap kali sheet diperbaiki, **download ulang** dan timpa `Agenda.xlsx`.
+   `GABUNGAN_AKUN_TUNGGAL`. Templat itu menyalakan `GABUNGAN_MODE_MURNI` (isian 100% dari Excel).
+   File itu tidak ikut git — aman untuk password.
+5. **Siapkan sheet format standar**: salin hasil pendataan lapangan ke templat
+   `templates/input_usaha.kosong.xlsx` (arti tiap kolom ada di tab `petunjuk` pada
+   `templates/input_usaha.contoh.xlsx`), simpan sebagai **`input_usaha.xlsx`** di root proyek. Kalau diisi
+   bersama di Google Sheets: unggah templatnya, isi tab **input_usaha**, lalu
+   `File > Download > Microsoft Excel (.xlsx)` → simpan sebagai **`input_usaha.xlsx`**.
+   > Setiap kali sheet diperbaiki, **download ulang** dan timpa `input_usaha.xlsx`.
    >
 
 ---
@@ -59,7 +63,7 @@ menyeragamkan password semua PPL ke nilai itu. **Lewati kalau sudah dilakukan.**
 manajemen-mitra mendeteksi browser otomatis → jalurnya **Console Chrome biasa**.
 
 ```bash
-python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --console
+python reset_mitra/reset_mitra.py --sumber input_usaha.xlsx --console
 ```
 
 1. Chrome → login manajemen-mitra → buka **`/mitra/akun-mitra`** (JANGAN dashboard).
@@ -85,14 +89,14 @@ akun yang sudah `DIRESET_TERVERIFIKASI` dilewati otomatis. Detail & troubleshoot
 ## Tahap B — Ganti mode assignment CAPI → PAPI (fasih-sm)
 
 **Kenapa perlu:** fasih-web hanya bisa "+ Dokumen Baru" di subsls yang **sudah
-punya assignment**. Ini membuat tiap subsls di Agenda punya assignment PAPI.
+punya assignment**. Ini membuat tiap subsls di sheet input usaha punya assignment PAPI.
 **Lewati kalau sudah dilakukan.**
 
 fasih-sm juga mendeteksi bot → jalurnya **Console Chrome biasa**.
 
 ```bash
-python ganti_moda/ubah_moda.py --sumber Agenda.xlsx --cek       # daftar target, tanpa browser
-python ganti_moda/ubah_moda.py --sumber Agenda.xlsx --console   # tulis ubah_moda_console.siap.js
+python ganti_moda/ubah_moda.py --sumber input_usaha.xlsx --cek       # daftar target, tanpa browser
+python ganti_moda/ubah_moda.py --sumber input_usaha.xlsx --console   # tulis ubah_moda_console.siap.js
 ```
 
 1. Chrome → login fasih-sm → buka list dengan **`perPage=100`** (wajib — satu subsls
@@ -118,7 +122,7 @@ Detail lengkap (cakupan satu vs semua, status berhenti, dll): **`docs/PANDUAN_GA
 Ini cepat (±2 detik) dan tidak menyentuh apa pun — cuma memvalidasi sheet.
 
 ```bash
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --cek
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --cek
 ```
 
 Hasilnya diringkas di layar + ditulis ke **`cek_gabungan.csv`** (rincian per baris).
@@ -140,7 +144,7 @@ opsi 11a yang tidak ada di form). Setelah memperbaiki sheet: download ulang → 
 ### D1. Dry-run SATU baris, lalu tinjau di browser
 
 ```bash
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --baris 2
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2
 ```
 
 `--baris` memakai **nomor baris seperti di Google Sheets** (judul = baris 1).
@@ -151,7 +155,7 @@ lapor, jangan lanjut submit.
 ### D2. Dry-run bertahap (aman kalau terputus)
 
 ```bash
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --lewati-selesai --limit 10
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --lewati-selesai --limit 10
 ```
 
 `--lewati-selesai` mencocokkan lewat **kunci** (akun PPL + idsubsls + nama), jadi
@@ -164,7 +168,7 @@ Cek hasilnya di **`audit_log_gabungan.csv`** (lihat tabel status di bawah).
 ### D3. Kirim HANYA baris yang sudah ditinjau ⚠️ IRREVERSIBLE
 
 ```bash
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --baris 2,3,4 --submit
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2,3,4 --submit
 ```
 
 `--submit` = mode LIVE. Skrip akan minta ketik **`YA`** per batch sebelum benar-benar
@@ -195,7 +199,7 @@ di D1/D2 dan yakin benar.
 | `SKIP_DOKUMEN_BELUM_ADA`                                                         | subsls belum punya assignment → ulang**Tahap B**, atau cek `--assignment-id` |
 | `SKIP_GALAT_PERLU_REVIEW`                                                        | ada GALAT selain Nomor Urut Bangunan → baca`error_message`                         |
 | `SKIP_VARIAN_BULANAN`                                                            | form minta rincian 30–33 (usaha baru beroperasi) → isi manual                       |
-| `SKIP_26C_TIDAK_DIRENDER` / `SKIP_10B_TIDAK_DIRENDER` / `SKIP_13DE_DIRENDER` | percabangan form di luar isi sheet → isi manual                                      |
+| `SKIP_26C_TIDAK_DIRENDER` / `SKIP_10B_TIDAK_DIRENDER` / `SKIP_13DE_KOSONG` / `SKIP_19_20_KOSONG` | form memunculkan rincian yang tidak ada/kosong di sheet → lengkapi sheet atau isi manual |
 | `ERROR_LOGIN`                                                                    | cek VPN & password (harus = `FIXED_PASSWORD` → ulang **Tahap A**)                    |
 | `ERROR_AKUN_SALAH`                                                               | sesi login nyangkut ke akun lain —**jangan kirim** baris ini                   |
 | `ERROR_FIELD_NOT_FOUND`                                                          | selector meleset → ulangi dengan`--dump-dom`, lapor                                |
@@ -209,14 +213,14 @@ Selalu tengok kolom **`review_disarankan`**, terutama `dokumen SUDAH ADA sebelum
 
 ```bash
 # Prasyarat (lewati kalau sudah)
-python reset_mitra/reset_mitra.py  --sumber Agenda.xlsx --console   # A: reset password -> Console
-python ganti_moda/ubah_moda.py     --sumber Agenda.xlsx --console   # B: ganti moda    -> Console
+python reset_mitra/reset_mitra.py  --sumber input_usaha.xlsx --console   # A: reset password -> Console
+python ganti_moda/ubah_moda.py     --sumber input_usaha.xlsx --console   # B: ganti moda    -> Console
 
 # Input
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --cek                      # C: cek offline
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --baris 2                  # D1: dry-run 1 baris
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --lewati-selesai --limit 10 # D2: dry-run batch
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --baris 2,3,4 --submit     # D3: KIRIM (irreversible)
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --cek                      # C: cek offline
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2                  # D1: dry-run 1 baris
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --lewati-selesai --limit 10 # D2: dry-run batch
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2,3,4 --submit     # D3: KIRIM (irreversible)
 
 # Uji offline (tanpa VPN, kapan saja)
 python tests/test_gabungan_loader.py

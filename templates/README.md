@@ -14,39 +14,46 @@ cp templates/config_lokal.contoh.py inti/config_lokal.py        # Linux/macOS
 Isi minimal `FIXED_PASSWORD` dan `KODE_KAB`. Setiap nama yang Anda definisikan di situ
 menimpa nilai di `inti/config.py`.
 
-## `Agenda.contoh.xlsx` — sheet sumber alur utama
+## `input_usaha.kosong.xlsx` & `input_usaha.contoh.xlsx` — format standar input usaha
 
-Salin ke root sebagai `Agenda.xlsx` (atau unggah ke Google Sheets untuk diisi bersama, lalu
-*File → Download → Microsoft Excel*).
+Satu baris = satu usaha = satu dokumen, untuk **jenis usaha apa pun**. Spesifikasi lengkap:
+[`docs/FORMAT_STANDAR_INPUT_USAHA.md`](../docs/FORMAT_STANDAR_INPUT_USAHA.md).
 
-| Tab | Isi |
+| File | Isi |
 | --- | --- |
-| `petunjuk` | Penjelasan tiap kolom: wajib/bersyarat/opsional, isi yang diharapkan, pilihan valid |
-| `gabungan` | **Tempat mengisi data.** Satu baris = satu usaha/dokumen. Judul kolom jangan diubah. Kolom berpilihan punya dropdown; kolom kode berformat teks |
-| `contoh` | Satu baris fiktif yang lolos `--cek` — contoh bentuk isian |
-| `Nama Wilayah` | Opsional: kode & nama provinsi/kab/kec/desa. Dipakai melengkapi "Nama Jalan" yang kurang dari 10 huruf |
+| `input_usaha.kosong.xlsx` | **Benar-benar kosong**: hanya tab `input_usaha` berisi baris judul semua kolom (termasuk kolom opsional 13d/13e/13f, 19, 20), dropdown opsi form, dan format teks untuk kolom kode. Tempat menyalin hasil pendataan lapangan. |
+| `input_usaha.contoh.xlsx` | Sama, ditambah tab `petunjuk` (wajib/bersyarat/opsional & isi tiap kolom), `contoh` (dua baris fiktif: warung perdagangan & usaha produksi keripik), dan `Nama Wilayah` (opsional). |
 
-Nilai di tab `gabungan` = **jawaban final** per rincian kuesioner (diketik apa adanya).
-Teks opsi harus persis sama dengan dropdown (mis. `2. Tidak`). Periksa tanpa browser:
+Salin salah satunya ke root proyek sebagai `input_usaha.xlsx` (atau unggah ke Google Sheets untuk
+diisi bersama, lalu *File → Download → Microsoft Excel*). Isi tab `input_usaha` mulai baris 2;
+judul kolom jangan diubah (kolom dikenali dari awalan judulnya, urutan bebas). Nama lama
+(`Agenda.xlsx`, tab `gabungan`) tetap diterima.
+
+Nilai = **jawaban final** per rincian kuesioner (diketik apa adanya). Teks opsi harus persis
+sama dengan dropdown (mis. `2. Tidak`). Dengan **mode murni** (`GABUNGAN_MODE_MURNI = True`,
+sudah menyala di `config_lokal.contoh.py`) tidak ada isian yang dibuat skrip: kolom berstatus
+"bersyarat" wajib diisi kalau form memunculkan rinciannya. Periksa tanpa browser:
 
 ```bash
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --cek
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --cek
 ```
 
-File ini dibangkitkan oleh `buat_templat_agenda.py` dari daftar kolom & opsi di
+Kedua file dibangkitkan oleh `buat_templat_input_usaha.py` dari daftar kolom & opsi di
 `inti/gabungan_loader.py`. Kalau judul kolom atau opsi form berubah, perbarui loader lalu:
 
 ```bash
-python templates/buat_templat_agenda.py
+python templates/buat_templat_input_usaha.py
 ```
 
-(skrip itu juga memverifikasi bahwa baris contohnya lolos pemeriksaan offline).
+(skrip itu juga memverifikasi bahwa kedua baris contohnya lolos pemeriksaan offline, di mode
+normal maupun mode murni).
 
-## `LKpenyalinan.contoh.csv` — backlog alur lama
+## `salin_dokumen_sumber.contoh.csv` — alur salin dari dokumen sumber
 
-Header saja. Dipakai `input_fasihweb/main.py --csv`. Alur ini juga butuh file export
-fasih-sm per baris (`export/{No}_{assignment_id}.converted.json`) — lihat
-`docs/PANDUAN_EKSPOR_MANUAL.md`. Untuk pengguna baru, alur Agenda di atas lebih sederhana.
+Header saja. Dipakai `input_fasihweb/main.py --csv` — alur khusus **salin dari dokumen
+sumber** (usaha pecahan yang jawabannya disalin dari dokumen lain di fasih-sm). Alur ini juga
+butuh file export fasih-sm per baris (`export/{No}_{assignment_id}.converted.json`) — lihat
+`docs/PANDUAN_EKSPOR_MANUAL.md`. Untuk data hasil pendataan lapangan, pakai format standar di atas.
 
 ## `daftar_idsubsls.contoh.txt` — daftar wilayah
 

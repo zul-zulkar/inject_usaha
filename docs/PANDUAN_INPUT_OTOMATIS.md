@@ -1,7 +1,16 @@
-# Panduan Input Otomatis — Usaha Pecahan SE2026
+# Panduan Inject Usaha — salin dari dokumen sumber (`salin_dokumen_sumber.csv`)
 
-Panduan singkat. Aturan keselamatan ada di `README.md`, aturan pengisian resmi ada di
-`catatan usaha pecahan se2026.md`.
+Alur **khusus** `input_fasihweb/main.py`: usaha *pecahan* yang jawabannya **disalin dari
+dokumen keluarga/usaha lain di fasih-sm** (file export per dokumen, lihat
+`PANDUAN_EKSPOR_MANUAL.md`), dengan penyesuaian yang ditetapkan BPS Buleleng (nilai
+finansial 10%, NIK `9999`, aset & luas tanah 0, aturan pekerja ≤ 3). Di Buleleng dipakai
+untuk usaha perdagangan. Nama lama file backlognya: `LKpenyalinan.csv`.
+
+> Data dari pendataan lapangan? Pakai **format standar** (`FORMAT_STANDAR_INPUT_USAHA.md`) —
+> lebih sederhana dan berlaku untuk jenis usaha apa pun.
+
+Aturan keselamatan ada di `README.md`, aturan pengisian resmi ada di
+`catatan usaha pecahan se2026.md`. Contoh nomor record (2514 dst.) berasal dari backlog Buleleng.
 
 ---
 
@@ -20,7 +29,7 @@ Kalau dokumennya sudah ada, skrip otomatis mendeteksinya dan langsung mengisi
 ### 2. Jalankan dry-run per record
 
 ```bash
-python main.py --csv LKpenyalinan.csv --only-no 2514
+python input_fasihweb/main.py --csv salin_dokumen_sumber.csv --only-no 2514
 ```
 
 Isi semuanya, berhenti tepat sebelum Kirim. Hasil akhir yang diharapkan:
@@ -38,7 +47,7 @@ field milik PML) — polanya sama dengan 3 record yang sudah sukses terkirim.
 Buka dokumennya, cek sekilas, baru:
 
 ```bash
-python main.py --csv LKpenyalinan.csv --only-no 2514 --submit --headed
+python input_fasihweb/main.py --csv salin_dokumen_sumber.csv --only-no 2514 --submit --headed
 ```
 
 Skrip akan minta ketik `YA` dulu. **Kirim itu irreversible** — konfirmasi wajib
@@ -65,7 +74,7 @@ Setiap kegagalan otomatis menyimpan screenshot di `log_screenshots/`.
 ## Kalau ada field baru yang tidak ketemu
 
 ```bash
-python main.py --csv LKpenyalinan.csv --only-no 2514 --dump-dom
+python input_fasihweb/main.py --csv salin_dokumen_sumber.csv --only-no 2514 --dump-dom
 ```
 
 Menghasilkan `log_screenshots/*.map.tsv` berisi `dataKey / jenis input / label`
@@ -156,7 +165,7 @@ Uji perhitungannya tanpa VPN: `python tests/test_pengeluaran.py`.
 ## Periksa dulu sebelum jalan (2 detik, tanpa VPN)
 
 ```bash
-python preflight.py --csv LKpenyalinan.csv
+python input_fasihweb/preflight.py --csv salin_dokumen_sumber.csv
 ```
 
 Menampilkan berapa baris SIAP, mana yang bakal ke-skip beserta alasannya,
@@ -178,19 +187,19 @@ VPN nonstop. Jangan dijalankan sekaligus — pecah per batch, dan pakai
 mengulang yang sudah beres:
 
 ```bash
-python main.py --csv LKpenyalinan.csv --lewati-selesai --limit 10
+python input_fasihweb/main.py --csv salin_dokumen_sumber.csv --lewati-selesai --limit 10
 ```
 
 `--lewati-selesai` membaca `audit_log.csv` dan melewati baris yang statusnya
 sudah selesai — di dry-run berarti `DRY_RUN_SIAP_KIRIM` atau `TERKIRIM_*`, di
 `--submit` hanya `TERKIRIM_*`. Jadi urutan kerja sehari-hari:
 
-1. `python preflight.py --csv LKpenyalinan.csv` — pastikan tidak ada yang bakal ke-skip.
-2. `python main.py --csv LKpenyalinan.csv --lewati-selesai --limit 10` — dry-run 10 baris.
+1. `python input_fasihweb/preflight.py --csv salin_dokumen_sumber.csv` — pastikan tidak ada yang bakal ke-skip.
+2. `python input_fasihweb/main.py --csv salin_dokumen_sumber.csv --lewati-selesai --limit 10` — dry-run 10 baris.
 3. Buka `audit_log.csv`, pastikan semuanya `DRY_RUN_SIAP_KIRIM` & kolom
    `review_disarankan` kosong.
 4. Baru kirim, dengan daftar No yang sudah kamu tinjau:
-   `python main.py --csv LKpenyalinan.csv --only-no 2524,2537,2540 --submit`
+   `python input_fasihweb/main.py --csv salin_dokumen_sumber.csv --only-no 2524,2537,2540 --submit`
 5. Ulangi dari langkah 2.
 
 Kalau VPN putus di tengah, baris grup itu tercatat `ERROR_LOGIN` dan sisanya

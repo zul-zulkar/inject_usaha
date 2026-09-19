@@ -1,8 +1,9 @@
-# Otomatisasi Input SE2026 "Usaha Pecahan" — fasih-web & fasih-sm
+# Inject Usaha SE2026 — otomatisasi fasih-web & fasih-sm
 
-Kumpulan skrip Python (Playwright) dan skrip Console Chrome untuk membantu pekerjaan
-**Sensus Ekonomi 2026**: membuat, mengisi, dan mengirim dokumen SE2026-P "Usaha Pecahan"
-di **fasih-web**, lalu alat pendukungnya di **fasih-sm** & **manajemen-mitra**: ganti mode
+Skrip Python (Playwright) dan skrip Console Chrome untuk **inject usaha** pada
+**Sensus Ekonomi 2026**: menambahkan dokumen usaha baru ke **fasih-web** dari data yang sudah
+dikumpulkan di luar aplikasi — membuat dokumen, mengisi SE2026-P & SE2026-L BLOK II, lalu
+mengirim. Termasuk alat pendukung di **fasih-sm** & **manajemen-mitra**: ganti mode
 CAPI→PAPI, reset password mitra, approve oleh PML, buka/tandai selesai wilayah, dan pindah
 wilayah dokumen.
 
@@ -19,21 +20,52 @@ bisa diganti lewat satu file konfigurasi lokal (lihat [Menyesuaikan untuk kabupa
 
 ---
 
+## Format input: satu standar untuk semua jenis usaha
+
+Data usaha disiapkan dalam **format standar**: satu file Excel, **satu baris = satu usaha =
+satu dokumen**, **satu kolom = jawaban final satu rincian kuesioner**. Format ini berlaku untuk
+jenis usaha apa pun — perdagangan, jasa, fasilitas kesehatan, pangkalan gas, produksi makanan,
+dst. Rincian yang hanya muncul untuk jenis usaha tertentu (13d/13e produksi, 19 halal, 20 BPOM)
+punya kolom sendiri yang boleh dikosongkan kalau tidak relevan.
+
+- **Templat kosong:** [`templates/input_usaha.kosong.xlsx`](templates/input_usaha.kosong.xlsx) — tinggal
+  salin hasil pendataan lapangan ke tab `input_usaha`.
+- **Templat berpetunjuk:** [`templates/input_usaha.contoh.xlsx`](templates/input_usaha.contoh.xlsx) — penjelasan
+  tiap kolom + dua contoh fiktif (usaha perdagangan & usaha produksi).
+- **Spesifikasi lengkap:** [`docs/FORMAT_STANDAR_INPUT_USAHA.md`](docs/FORMAT_STANDAR_INPUT_USAHA.md) —
+  kolom per jenis usaha, aturan pemeriksaan, cara menambah rincian baru.
+
+**Mode murni** (`GABUNGAN_MODE_MURNI = True`, disarankan untuk data hasil pendataan lapangan):
+setiap isian di fasih-web diambil apa adanya dari Excel — tanpa aturan penamaan, nilai default,
+atau koreksi data buatan skrip. Kalau form meminta sesuatu yang tidak ada di Excel, baris itu
+dilewati, tidak ditebak. Mode normal (bawaan) memakai aturan & koreksi yang ditetapkan BPS
+Buleleng; perbedaannya dirinci di spesifikasi.
+
+> Nama baku: file `input_usaha.xlsx`, tab `input_usaha` (nama file sebenarnya bebas). Nama lama
+> di Buleleng — `Agenda.xlsx` dengan tab `gabungan` — tetap diterima.
+
+Ada juga alur khusus **salin dari dokumen sumber** (`input_fasihweb/`, backlog `salin_dokumen_sumber.csv`):
+usaha *pecahan* yang jawabannya disalin dari dokumen lain di fasih-sm dengan penyesuaian
+(nilai finansial 10%, dst.). Di Buleleng dipakai untuk usaha perdagangan. Kalau data Anda dari
+pendataan lapangan, pakai format standar.
+
+---
+
 ## Isi repo
 
 | Folder | Fungsi | Sistem | Cara kerja |
 | --- | --- | --- | --- |
-| [`input_gabungan/`](input_gabungan/) | **Alur utama**: buat & isi dokumen SE2026-P dari sheet **Agenda** (tab `gabungan`), sinkron list, rencana ubah wilayah | fasih-web | Playwright (browser terbuka) |
-| [`input_fasihweb/`](input_fasihweb/) | Alur lama: backlog `LKpenyalinan.csv` + file export fasih-sm (nilai 10%) | fasih-web | Playwright |
+| [`input_gabungan/`](input_gabungan/) | **Inject usaha dari format standar** (semua jenis usaha): cek offline, buat & isi dokumen, kirim, sinkron list, rencana ubah wilayah | fasih-web | Playwright (browser terbuka) |
+| [`input_fasihweb/`](input_fasihweb/) | Inject usaha **salin dari dokumen sumber** (`salin_dokumen_sumber.csv` + file export fasih-sm) | fasih-web | Playwright |
 | [`approve_pml/`](approve_pml/) | Approve dokumen oleh akun PML (Pengawas) | fasih-web | Playwright |
 | [`ganti_moda/`](ganti_moda/) | Ganti mode assignment CAPI → PAPI supaya "+ Dokumen Baru" muncul | fasih-sm | Console Chrome |
 | [`reset_mitra/`](reset_mitra/) | Seragamkan password akun PPL | manajemen-mitra | Console Chrome |
 | [`buka_wilayah/`](buka_wilayah/) | Buka Wilayah (batal "Selesai Listing") | fasih-sm | Console Chrome |
 | [`tandai_selesai/`](tandai_selesai/) | Tandai Selesai Listing | fasih-sm | Console Chrome |
 | [`pindah_wilayah/`](pindah_wilayah/) | Pindah wilayah (Change Region) dokumen yang sudah di-approve | fasih-sm | Console Chrome |
-| [`inti/`](inti/) | Modul bersama: konfigurasi, loader data, interaksi fasih-web | — | — |
-| [`templates/`](templates/) | **Templat kosong** untuk memulai (sheet Agenda, CSV, daftar kode, config lokal) | — | — |
-| [`docs/`](docs/) | Panduan langkah-demi-langkah per alat | — | — |
+| [`inti/`](inti/) | Modul bersama: konfigurasi, pembaca format standar, interaksi fasih-web | — | — |
+| [`templates/`](templates/) | **Templat** untuk memulai (format standar kosong & berpetunjuk, CSV, daftar kode, config lokal) | — | — |
+| [`docs/`](docs/) | Spesifikasi format & panduan langkah-demi-langkah per alat | — | — |
 | [`tests/`](tests/) | Uji offline (tanpa VPN/browser) | — | — |
 
 **Kenapa ada dua cara kerja?** fasih-web bisa dikendalikan Playwright. fasih-sm &
@@ -66,16 +98,17 @@ playwright install chromium
    ```
 
    (Linux/macOS: `cp templates/config_lokal.contoh.py inti/config_lokal.py`.)
-   `inti/config_lokal.py` ada di `.gitignore`, jadi password tidak ikut ter-commit.
+   `inti/config_lokal.py` ada di `.gitignore`, jadi password tidak ikut ter-commit. Templat ini
+   sudah menyalakan mode murni.
 
-2. **Siapkan data** dari templat di [`templates/`](templates/) — untuk alur utama salin
-   `templates/Agenda.contoh.xlsx` ke root sebagai `Agenda.xlsx` lalu isi tab `gabungan`
-   (tab `petunjuk` menjelaskan setiap kolom).
+2. **Siapkan data** — salin `templates/input_usaha.kosong.xlsx` ke root proyek sebagai `input_usaha.xlsx`,
+   lalu isi tab `input_usaha` dengan hasil pendataan lapangan (lihat tab `petunjuk` di
+   `input_usaha.contoh.xlsx` untuk arti tiap kolom).
 
 3. **Periksa offline** (tanpa browser/VPN):
 
    ```bash
-   python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --cek
+   python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --cek
    ```
 
 4. **Dry-run** (browser terbuka, mengisi tapi tidak mengirim), lalu tinjau hasilnya di fasih-web.
@@ -92,9 +125,10 @@ Urutan lengkap (reset password → ganti mode → cek → input → approve → 
 
 | File | Untuk | Dipakai oleh |
 | --- | --- | --- |
-| [`templates/config_lokal.contoh.py`](templates/config_lokal.contoh.py) | Password, `KODE_KAB`, akun & subsls tunggal, kodepos/wilayah, path peta | salin ke `inti/config_lokal.py` |
-| [`templates/Agenda.contoh.xlsx`](templates/Agenda.contoh.xlsx) | Sheet Agenda: tab `gabungan` kosong (83 kolom persis, dropdown opsi), `petunjuk`, `contoh` | `input_gabungan/`, `reset_mitra/`, `ganti_moda/`, `pindah_wilayah/` (`--sumber`) |
-| [`templates/LKpenyalinan.contoh.csv`](templates/LKpenyalinan.contoh.csv) | Header backlog alur lama | `input_fasihweb/main.py --csv` |
+| [`templates/config_lokal.contoh.py`](templates/config_lokal.contoh.py) | Password, `KODE_KAB`, mode murni, akun & subsls tunggal, kodepos/wilayah, path peta | salin ke `inti/config_lokal.py` |
+| [`templates/input_usaha.kosong.xlsx`](templates/input_usaha.kosong.xlsx) | Format standar **kosong**: tab `input_usaha` (92 kolom, dropdown opsi form) | `input_gabungan/`, `reset_mitra/`, `ganti_moda/`, `pindah_wilayah/` (`--sumber`) |
+| [`templates/input_usaha.contoh.xlsx`](templates/input_usaha.contoh.xlsx) | Format standar + tab `petunjuk`, `contoh` (perdagangan & produksi), `Nama Wilayah` | rujukan saat mengisi |
+| [`templates/salin_dokumen_sumber.contoh.csv`](templates/salin_dokumen_sumber.contoh.csv) | Header backlog alur salin dari dokumen sumber | `input_fasihweb/main.py --csv` |
 | [`templates/daftar_idsubsls.contoh.txt`](templates/daftar_idsubsls.contoh.txt) | Daftar idsubsls, satu per baris | `buka_wilayah/`, `tandai_selesai/` (`--daftar`) |
 | [`templates/daftar_kode_identitas.contoh.txt`](templates/daftar_kode_identitas.contoh.txt) | Daftar kode identitas assignment | `ganti_moda/ubah_moda.py --daftar` |
 | [`templates/rencana_approve.contoh.csv`](templates/rencana_approve.contoh.csv) | Rencana approve multi-PML | `approve_pml/approve_pml.py --rencana` |
@@ -111,19 +145,19 @@ Semua diisi di `inti/config_lokal.py`. Nama apa pun di `inti/config.py` boleh di
 | --- | --- | --- |
 | `FIXED_PASSWORD` | ya | Password SSO yang sama untuk semua akun petugas yang dipakai skrip (disamakan lewat `reset_mitra/`). Bisa juga lewat variabel lingkungan `FASIH_PASSWORD`. Kosong → skrip berhenti sebelum login. |
 | `KODE_KAB` | ya | 2 digit provinsi + 2 digit kab/kota, awalan idsubsls. Dipakai memvalidasi daftar wilayah & disuntikkan ke skrip Console. |
-| `GABUNGAN_SUBSLS_TUNGGAL`, `GABUNGAN_AKUN_TUNGGAL` | alur Agenda | Subsls & akun PPL tempat semua dokumen dibuat (bisa juga lewat `--subsls-tunggal` / `--akun-tunggal`). |
+| `GABUNGAN_MODE_MURNI` | disarankan `True` | Isian 100% dari Excel, tanpa aturan/default/koreksi Buleleng (lihat [spesifikasi](docs/FORMAT_STANDAR_INPUT_USAHA.md#dua-mode-pengisian)). |
+| `GABUNGAN_SUBSLS_TUNGGAL`, `GABUNGAN_AKUN_TUNGGAL` | format standar | Subsls & akun PPL tempat semua dokumen dibuat (bisa juga lewat `--subsls-tunggal` / `--akun-tunggal`). |
 | `ASSIGNMENT_ID_GABUNGAN` | cek | Segmen kedua URL list PENDATAAN fasih-web (`/survey/<SURVEY_ID>/<ini>`). Bawaan = periode SE2026 yang dipakai di Buleleng. |
 | `SURVEY_ID` | jarang | ID survei SE2026 di URL fasih-web; kemungkinan sama secara nasional. |
-| `KODEPOS_BY_IDSUBSLS` | alur lama | Kodepos per idsubsls untuk `input_fasihweb/`. Alur Agenda membaca kodepos dari sheet. |
+| `KODEPOS_BY_IDSUBSLS` | alur salin | Kodepos per idsubsls untuk `input_fasihweb/`. Format standar membaca kodepos dari sheet. |
 | `WILAYAH_BY_IDSUBSLS` | tidak | Nama wilayah per idsubsls, hanya referensi log/pencocokan. |
 | `PETA_SLS_PATH` | tidak | GeoJSON batas SUBSLS untuk `rencana_ubah_wilayah.py` (atau pakai `--tanpa-peta`). |
 
-**Keputusan lokal yang perlu Anda tinjau.** Beberapa aturan pengisian adalah ketetapan
-BPS Buleleng, bukan aturan form — terutama di alur lama (`input_fasihweb/`): nilai
-finansial = 10% nilai sumber, NIK diisi `9999`, aset & luas tanah `0`, aturan pekerja ≤ 3
-orang, default rincian 13b/16b/19/20, dan koreksi nama/badan usaha di
-`inti/gabungan_loader.py` (`KOREKSI_*`). Semuanya diberi komentar "ketetapan user" di kode.
-Sesuaikan dengan kebijakan kabupaten Anda **sebelum** mengirim data sungguhan.
+**Keputusan lokal Buleleng.** Tanpa mode murni, format standar memakai aturan yang ditetapkan
+BPS Buleleng (nama `<usaha> (<pemilik>)`, 13f disalin dari 13a, default rincian 19/20, dan
+koreksi data `KOREKSI_*` di `inti/gabungan_loader.py`). Alur salin dari dokumen sumber juga punya
+aturan sendiri (nilai finansial 10%, NIK `9999`, aset & luas tanah `0`, aturan pekerja ≤ 3 orang).
+Semuanya diberi komentar "ketetapan user" di kode. Tinjau dulu sebelum mengirim data sungguhan.
 
 ---
 
@@ -164,9 +198,10 @@ mengubah kode, terutama selektor (`tests/test_selectors.py`).
 
 | Dokumen | Isi |
 | --- | --- |
-| [`docs/TUTORIAL_INPUT_OTOMATIS.md`](docs/TUTORIAL_INPUT_OTOMATIS.md) | Tutorial end-to-end alur Agenda |
-| [`docs/PANDUAN_GABUNGAN.md`](docs/PANDUAN_GABUNGAN.md) | Referensi alur Agenda: status audit, keputusan skrip |
-| [`docs/PANDUAN_INPUT_OTOMATIS.md`](docs/PANDUAN_INPUT_OTOMATIS.md), [`docs/PANDUAN_EKSPOR_MANUAL.md`](docs/PANDUAN_EKSPOR_MANUAL.md) | Alur lama (LKpenyalinan + export fasih-sm) |
+| [`docs/FORMAT_STANDAR_INPUT_USAHA.md`](docs/FORMAT_STANDAR_INPUT_USAHA.md) | **Spesifikasi format standar**: kolom per jenis usaha, mode murni, aturan pemeriksaan |
+| [`docs/TUTORIAL_INPUT_OTOMATIS.md`](docs/TUTORIAL_INPUT_OTOMATIS.md) | Tutorial end-to-end inject usaha dari format standar |
+| [`docs/PANDUAN_GABUNGAN.md`](docs/PANDUAN_GABUNGAN.md) | Referensi `main_gabungan.py`: mode satu subsls, status audit, setelan |
+| [`docs/PANDUAN_INPUT_OTOMATIS.md`](docs/PANDUAN_INPUT_OTOMATIS.md), [`docs/PANDUAN_EKSPOR_MANUAL.md`](docs/PANDUAN_EKSPOR_MANUAL.md) | Alur salin dari dokumen sumber (`salin_dokumen_sumber.csv` + export fasih-sm) |
 | [`docs/PANDUAN_UBAH_MODA.md`](docs/PANDUAN_UBAH_MODA.md) | Ganti mode CAPI → PAPI |
 | [`docs/PANDUAN_RESET_MITRA.md`](docs/PANDUAN_RESET_MITRA.md) | Reset password mitra |
 | [`docs/PANDUAN_BUKA_WILAYAH.md`](docs/PANDUAN_BUKA_WILAYAH.md), [`docs/PANDUAN_TANDAI_SELESAI.md`](docs/PANDUAN_TANDAI_SELESAI.md) | Buka / tandai selesai wilayah |

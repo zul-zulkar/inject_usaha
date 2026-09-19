@@ -1,10 +1,10 @@
 # Panduan Reset Password Mitra (manajemen-mitra)
 
-Reset password **akun PPL** yang terdaftar di `Agenda.xlsx` (tab gabungan) lewat
+Reset password **akun PPL** yang terdaftar di `input_usaha.xlsx` (tab input_usaha) lewat
 [https://manajemen-mitra.bps.go.id/mitra/akun-mitra](https://manajemen-mitra.bps.go.id/mitra/akun-mitra).
 
 - **Cakupan:** hanya kolom **Akun PPL** (371 akun unik). PML tidak disentuh.
-- **Kunci cocok:** alamat gmail di Agenda = username/pencarian di manajemen-mitra.
+- **Kunci cocok:** alamat gmail di sheet input usaha = username/pencarian di manajemen-mitra.
 - **Cara:** DevTools Console Chrome biasa (login sendiri), sama seperti `ganti_moda` —
   manajemen-mitra login-gated & kemungkinan mendeteksi browser otomatis.
 
@@ -39,8 +39,8 @@ Reset password **akun PPL** yang terdaftar di `Agenda.xlsx` (tab gabungan) lewat
 ## Langkah
 
 ```bash
-python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --cek       # daftar email PPL -> target_reset_mitra.csv
-python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --console   # tulis reset_mitra_console.siap.js
+python reset_mitra/reset_mitra.py --sumber input_usaha.xlsx --cek       # daftar email PPL -> target_reset_mitra.csv
+python reset_mitra/reset_mitra.py --sumber input_usaha.xlsx --console   # tulis reset_mitra_console.siap.js
 ```
 
 1. Chrome → login manajemen-mitra → buka `/mitra/akun-mitra`.

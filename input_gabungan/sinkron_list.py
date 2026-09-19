@@ -23,7 +23,7 @@ Yang dilaporkan per baris (pencocokan lewat nama dokumen, di-UPPERCASE form):
   Baris GANDA yang dua-duanya DRAFT tidak ditulis (pilih manual).
 
 Contoh:
-    python input_gabungan/sinkron_list.py --sumber Agenda1-1.xlsx --sumber Agenda.xlsx \
+    python input_gabungan/sinkron_list.py --sumber input_usaha.xlsx --sumber input_usaha_2.xlsx \
         --akun-tunggal ppl.kedua@gmail.com --subsls-tunggal 5108060014000403
     (tambahkan --tulis setelah laporan ditinjau; --dari-json utk memakai hasil unduhan terakhir)
 """

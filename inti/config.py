@@ -191,8 +191,8 @@ KEPEMILIKAN_MODAL_DEFAULT = {
 }
 
 # ---------------------------------------------------------------------------
-# Sumber data "gabungan" (Google Sheet "Agenda", tab gabungan — 2026-09-13).
-# Beda dari backlog LKpenyalinan: tiap kolom sheet ini SUDAH berupa jawaban
+# FORMAT STANDAR input usaha (input_usaha.xlsx, tab input_usaha; nama lama: sheet
+# "Agenda" tab gabungan — 2026-09-13). Beda dari backlog salin dokumen sumber: tiap kolom sheet ini SUDAH berupa jawaban
 # final per rincian form (tidak ada 10%, tidak ada file export). Dipakai
 # gabungan_loader.py / fill_gabungan.py / main_gabungan.py.
 # ---------------------------------------------------------------------------
@@ -233,6 +233,21 @@ GABUNGAN_13F_DARI_13A = True
 # pernah diuji dikosongkan. False = skip baris itu (aman, perilaku lama);
 # True = biarkan kosong & tandai review (uji dulu 1 baris sebelum massal).
 GABUNGAN_IZINKAN_JALAN_KOSONG = False
+
+# MODE MURNI format standar: setiap isian form diambil APA ADANYA dari Excel
+# hasil pendataan lapangan — TANPA aturan/default/koreksi skrip:
+#   - nama dokumen & 8b = kolom sheet apa adanya (bukan "<nama> (<12a>)"),
+#   - Nama Jalan tidak dilengkapi nama wilayah, Blok/Nomor kosong tidak jadi "-",
+#   - 13f tidak disalin dari 13a, 13b4 tidak diturunkan dari kategori KBLI,
+#   - 19/20 & "Pilih UMKM dalam satu SLS" tidak memakai default config,
+#   - koreksi data khusus Buleleng (KOREKSI_NAMA, KOREKSI_PEKERJA, badan usaha
+#     dari awalan PT/CV/UD, BUMDES) TIDAK diterapkan — pelanggaran aturan form
+#     dilaporkan sbg masalah (baris di-skip), bukan diperbaiki diam-diam.
+# Form meminta sesuatu yang kosong di Excel -> baris di-skip (offline kalau bisa
+# diketahui dari data, selain itu SKIP_<kode> saat pengisian), TIDAK ditebak.
+# False = perilaku Buleleng (aturan & koreksi di atas aktif). Disarankan True
+# untuk pengguna baru — set di inti/config_lokal.py.
+GABUNGAN_MODE_MURNI = False
 
 # ---------------------------------------------------------------------------
 # Label / teks yang dicari di halaman (Playwright get_by_label / get_by_text)

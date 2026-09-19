@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 pindah_wilayah.py — Siapkan "Ubah Wilayah" (Change Region) assignment hasil suntik
-mode satu subsls ke idsubsls aslinya (kolom idsubsls sheet Agenda) di fasih-sm.
+mode satu subsls ke idsubsls aslinya (kolom idsubsls sheet input usaha) di fasih-sm.
 
 fasih-sm menolak Playwright, jadi JALUR-nya Console Chrome biasa
-(pindah_wilayah_console.js). File ini hanya membaca sheet Agenda + audit dan
+(pindah_wilayah_console.js). File ini hanya membaca sheet input usaha + audit dan
 menyuntikkan target ke template Console — TIDAK membuka browser, TIDAK butuh VPN.
 
-Per baris Agenda (unik per `kunci`):
+Per baris input usaha (unik per `kunci`):
   - tujuan  = kolom idsubsls (ketetapan user)
   - nama    = nama dokumen di fasih (row.nama_dokumen, dinormalkan huruf besar)
   - ids     = ID dokumen dari dokumen_url audit_log_gabungan.csv (boleh kosong:
@@ -24,8 +24,8 @@ lalu di Console dicari satu per satu lewat nama / kode identitas dan dipindah sa
 
 LANGKAH
 -------
-    python pindah_wilayah/pindah_wilayah.py --sumber Agenda.xlsx --sumber Agenda1-1.xlsx \
-        --sumber Agenda2.xlsx --dari-approve --console
+    python pindah_wilayah/pindah_wilayah.py --sumber input_usaha.xlsx --sumber input_usaha_2.xlsx \
+        --dari-approve --console
 Lalu di Chrome (login fasih-sm, halaman Data survei) -> F12 Console -> tempel
 pindah_wilayah_console.siap.js:
     await pindahWilayah.jalankan({mode: "cari", limit: 10})     // READ-ONLY per dokumen
@@ -71,7 +71,7 @@ POLA_KODE = re.compile(rf"{re.escape(KODE_KAB)}\d{{12}}")
 def approved_per_kunci(audit_approve: list[dict]) -> tuple[dict[str, dict[str, str]], Counter]:
     """audit_approve_pml.csv -> ({kunci: {id dokumen: nama}}, ringkasan).
     Dokumen yang PERNAH APPROVED_TERVERIFIKASI (approve_pml.py tidak menulis ulang dokumen yang sudah
-    APPROVED, dan status segarnya tetap dicek Console). Baris tanpa kunci = dokumen di luar Agenda
+    APPROVED, dan status segarnya tetap dicek Console). Baris tanpa kunci = dokumen di luar sheet input usaha
     (sumber rencana SQL Lab / list) -> tidak dipakai, hanya dihitung."""
     hasil: dict[str, dict[str, str]] = defaultdict(dict)
     ringkasan = Counter()
@@ -126,7 +126,7 @@ def bangun_target(sumber_rows: list[tuple[str, GabunganRow]], audit: list[dict],
         for kunci, per_id in approve.items():
             if kunci not in baris_unik:
                 masalah.append((AUDIT_APPROVE_PATH.name, "", f"kunci {kunci} (id {', '.join(sorted(per_id))}) "
-                                                             "sudah di-approve tapi tidak ada di sheet Agenda"))
+                                                             "sudah di-approve tapi tidak ada di sheet input usaha"))
 
     target = []
     for kunci, (sumber, row) in baris_unik.items():
@@ -172,8 +172,8 @@ def tulis_console(target: list[dict], asal: list[str]) -> Path:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Siapkan pindah wilayah assignment (fasih-sm) dari sheet Agenda")
-    ap.add_argument("--sumber", action="append", required=True, help="xlsx/csv sheet Agenda (boleh berulang)")
+    ap = argparse.ArgumentParser(description="Siapkan pindah wilayah assignment (fasih-sm) dari sheet input usaha")
+    ap.add_argument("--sumber", action="append", required=True, help="xlsx/csv sheet input usaha (boleh berulang)")
     ap.add_argument("--subsls-asal", action="append", default=[],
                     help="subsls tempat dokumen disuntik, selain yang tercatat di audit (boleh berulang)")
     ap.add_argument("--dari-approve", nargs="?", const=str(AUDIT_APPROVE_PATH), default=None, metavar="CSV",
@@ -196,7 +196,7 @@ def main() -> int:
             return 1
         with path_approve.open(newline="", encoding="utf-8-sig") as f:
             approve, ringkas_approve = approved_per_kunci(list(csv.DictReader(f)))
-        print(f"{path_approve}: {sum(len(v) for v in approve.values())} dokumen APPROVED_TERVERIFIKASI ber-kunci Agenda"
+        print(f"{path_approve}: {sum(len(v) for v in approve.values())} dokumen APPROVED_TERVERIFIKASI ber-kunci input usaha"
               + (f", {ringkas_approve['approved_tanpa_kunci']} tanpa kunci (bukan dokumen suntikan, diabaikan)"
                  if ringkas_approve["approved_tanpa_kunci"] else ""))
     target, masalah, ringkasan = bangun_target(sumber_rows, audit, approve)

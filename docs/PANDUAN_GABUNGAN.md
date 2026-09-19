@@ -1,18 +1,26 @@
-# Panduan Input — Sheet "gabungan" (Agenda)
+# Panduan `main_gabungan.py` — inject usaha dari format standar
 
-Sumber: Google Sheet **Agenda**, tab **gabungan** (pangkalan gas LPG + faskes).
-Beda dengan backlog LKpenyalinan: setiap kolom sudah berupa **jawaban final per
-rincian form**. Skrip mengetik apa adanya: tidak ada 10%, tidak ada file export,
-tidak ada aturan pekerja ≤3, dan tidak ada override aset/luas tanah = 0.
+Referensi teknis untuk `input_gabungan/main_gabungan.py`, yang membaca **format standar input
+usaha** (file `input_usaha.xlsx`, tab `input_usaha`): satu baris = satu usaha = satu dokumen, setiap kolom
+sudah berupa **jawaban final per rincian form**, untuk jenis usaha apa pun. Skrip mengetik
+apa adanya: tidak ada 10%, tidak ada file export, tidak ada aturan pekerja ≤3, dan tidak ada
+override aset/luas tanah = 0.
 
-**Templat kosong:** `templates/Agenda.contoh.xlsx` — tab `gabungan` berjudul kolom persis yang dibaca skrip, dengan dropdown opsi form, tab `petunjuk` (penjelasan tiap kolom) dan tab `contoh` (satu baris fiktif). Salin ke root proyek sebagai `Agenda.xlsx`, isi tab `gabungan`, lalu jalankan `--cek`.
+- **Format & kolom:** [`FORMAT_STANDAR_INPUT_USAHA.md`](FORMAT_STANDAR_INPUT_USAHA.md) (kolom per jenis
+  usaha, mode murni, aturan pemeriksaan).
+- **Templat:** `templates/input_usaha.kosong.xlsx` (kosong) & `templates/input_usaha.contoh.xlsx` (petunjuk +
+  contoh). Salin ke root proyek sebagai `input_usaha.xlsx`, isi tab `input_usaha`, lalu jalankan `--cek`.
+- **Tutorial langkah demi langkah:** [`TUTORIAL_INPUT_OTOMATIS.md`](TUTORIAL_INPUT_OTOMATIS.md).
+
+Di Buleleng format ini awalnya dipakai untuk pangkalan gas LPG & faskes (nama lama: file
+`Agenda.xlsx`, tab `gabungan` — tetap diterima) — contoh angka di panduan ini berasal dari data itu.
 
 Aturan keselamatan di `README.md` tetap berlaku penuh: default dry-run, `--submit`
 wajib ketik `YA`, dan Nomor Urut Bangunan tidak disentuh.
 
 ---
 
-## ⚠️ Rencana 2026-09-14 — SATU subsls + SATU akun PPL
+## Mode satu subsls + satu akun PPL (bawaan sejak 2026-09-14)
 
 Sebagian subsls sudah ditandai selesai sehingga tidak bisa ditambah assignment. Karena itu
 **semua dokumen dibuat di satu subsls oleh satu akun PPL**, lalu wilayahnya dipindah
@@ -56,8 +64,8 @@ tujuan perlu punya assignment PAPI dulu (rencana satu subsls: hanya subsls tungg
 biasa**, bukan Playwright. Pakai akun yang berhak "Ganti Mode", login seperti biasa.
 
 ```bash
-python ganti_moda/ubah_moda.py --sumber Agenda.xlsx --cek       # daftar target, tanpa browser
-python ganti_moda/ubah_moda.py --sumber Agenda.xlsx --console   # tulis ubah_moda_console.siap.js
+python ganti_moda/ubah_moda.py --sumber input_usaha.xlsx --cek       # daftar target, tanpa browser
+python ganti_moda/ubah_moda.py --sumber input_usaha.xlsx --console   # tulis ubah_moda_console.siap.js
 ```
 
 1. Chrome → login fasih-sm → buka list dengan `perPage=100` (**wajib** — skrip menolak jalan kalau
@@ -107,19 +115,19 @@ Playwright, login manual, profil di `.profil_fasih_sm/`.
 
 ```bash
 # 0. Sekali: pip install -r requirements.txt && playwright install chromium
-# 1. Download tab gabungan: File > Download > Microsoft Excel (.xlsx) -> Agenda.xlsx
+# 1. Isi templat / download tab input_usaha: File > Download > Microsoft Excel (.xlsx) -> input_usaha.xlsx
 
 # 2. Periksa tanpa browser/VPN (2 detik). Rincian per baris -> cek_gabungan.csv
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --cek
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --cek
 
 # 3. Dry-run SATU baris, lalu tinjau dokumennya di browser
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --baris 2
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2
 
 # 4. Dry-run bertahap (aman dilanjutkan kalau terputus)
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --lewati-selesai --limit 10
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --lewati-selesai --limit 10
 
 # 5. Kirim HANYA baris yang sudah ditinjau (irreversible)
-python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --baris 2,3,4 --submit
+python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2,3,4 --submit
 ```
 
 `--baris` memakai nomor baris seperti yang terlihat di Google Sheets (judul = baris 1).
@@ -137,7 +145,7 @@ atur dengan `--maks-error-beruntun N`. `SKIP_*` tidak dihitung sebagai error.
 
 ---
 
-## Hasil pemeriksaan sheet per 2026-09-13
+## Contoh hasil pemeriksaan (sheet Buleleng, 2026-09-13)
 
 | | baris |
 |---|---|
@@ -162,16 +170,18 @@ Setelah sheet diperbaiki, download ulang lalu jalankan `--cek` lagi.
 
 ---
 
-## Keputusan yang dipakai skrip (ubah di `config.py`)
+## Setelan (timpa di `inti/config_lokal.py`)
 
 | Setelan | Default | Arti |
 |---|---|---|
-| `GABUNGAN_13F_DARI_13A` | `True` | 13f "produk utama" wajib, tapi sheet tidak punya kolomnya → disalin dari 13a. Preseden: record manual 3 (KBLI 47772). Kalau sheet diberi kolom `13. f.`, kolom itu yang dipakai. |
+| `GABUNGAN_MODE_MURNI` | `False` (templat config lokal: `True`) | Isian 100% dari sheet, tanpa aturan penamaan, default 19/20, pelengkap Nama Jalan, atau koreksi `KOREKSI_*`. Form meminta yang kosong di sheet → baris di-skip. Rincian lengkap: [`FORMAT_STANDAR_INPUT_USAHA.md`](FORMAT_STANDAR_INPUT_USAHA.md#dua-mode-pengisian). |
+| `GABUNGAN_13F_DARI_13A` | `True` | (mode normal) 13f "produk utama" wajib; kalau kolom `13. f.` kosong/tidak ada → disalin dari 13a. Preseden: record manual 3 (KBLI 47772). |
 | `GABUNGAN_IZINKAN_JALAN_KOSONG` | `False` | Label Nama Jalan di form **tanpa** tanda wajib, tapi belum pernah diuji dikosongkan. Kalau diubah `True`, uji dulu 1 baris. |
 | `ASSIGNMENT_ID_GABUNGAN` | `fd68e454-…` | Segmen URL list PENDATAAN; konstan di backlog lama (12 PPL). Belum diuji untuk PPL gabungan — kalau `SKIP_DOKUMEN_BELUM_ADA` massal, cek ini dulu (`--assignment-id`). |
 
-Rincian yang tidak punya kolom di sheet memakai default lama **hanya kalau dirender**,
-dan dicatat di kolom `review_disarankan`: 19a/19c dan 20a/20b/20c (BPOM).
+Mode normal: kolom opsional 19a–19c (halal) & 20a–20c (BPOM) yang kosong/tidak ada memakai
+default config **hanya kalau dirender**, dan dicatat di kolom `review_disarankan`. Mode murni:
+tidak ada default — baris di-skip `SKIP_19_20_KOSONG`.
 
 ---
 
@@ -188,8 +198,11 @@ dan dicatat di kolom `review_disarankan`: 19a/19c dan 20a/20b/20c (BPOM).
 | `SKIP_WILAYAH_TIDAK_TERVERIFIKASI` | `--submit`: wilayah dokumen tidak terbaca, sengaja tidak dikirim |
 | `SKIP_GALAT_PERLU_REVIEW` | ada GALAT selain Nomor Urut Bangunan — baca `error_message` |
 | `SKIP_VARIAN_BULANAN` | form minta rincian 30–33 (bulanan); isi manual |
-| `SKIP_26C_TIDAK_DIRENDER` | KBLI tanpa 26c padahal sheet 26c > 0; isi manual |
-| `SKIP_10B_TIDAK_DIRENDER` / `SKIP_13DE_DIRENDER` | form bercabang di luar isi sheet |
+| `SKIP_26C_TIDAK_DIRENDER` | KBLI tanpa 26c padahal sheet 26c > 0 — pindahkan ke 26b di sheet (biasanya sudah tertangkap offline sbg `SKIP_DATA_26C_KATEGORI_TANPA_26C`) |
+| `SKIP_10B_TIDAK_DIRENDER` | 10a = Ya tapi form tidak memunculkan 10b |
+| `SKIP_13DE_KOSONG` / `SKIP_19B_KOSONG` | form memunculkan 13d/13e atau 19b, kolomnya kosong di sheet |
+| `SKIP_19_20_KOSONG` / `SKIP_UMKM_SLS_KOSONG` / `SKIP_13B4_KOSONG` | mode murni: form memunculkan rincian itu, kolomnya kosong/bukan opsi |
+| `SKIP_DATA_<kode>` | ditolak pemeriksaan offline sebelum dokumen dibuat — lihat `cek_gabungan.csv` & daftar aturan di [`FORMAT_STANDAR_INPUT_USAHA.md`](FORMAT_STANDAR_INPUT_USAHA.md#pemeriksaan-offline---cek) |
 | `ERROR_LOGIN` / `ERROR_AKUN_SALAH` | cek VPN/kata sandi; jangan kirim baris akun salah |
 | `ERROR_FIELD_NOT_FOUND` | selector meleset — ulangi dgn `--dump-dom` |
 

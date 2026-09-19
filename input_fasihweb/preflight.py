@@ -6,9 +6,9 @@ preflight.py — Periksa kesiapan baris backlog TANPA membuka browser & TANPA VP
 Jalankan ini SEBELUM main.py. Satu run live yang gagal di baris ke-30 karena
 kodepos/export bermasalah jauh lebih mahal daripada pemeriksaan 2 detik ini.
 
-    python preflight.py --csv LKpenyalinan.csv
-    python preflight.py --csv LKpenyalinan.csv --only-no 2522,2523
-    python preflight.py --csv LKpenyalinan.csv --verbose     # rincian per baris
+    python preflight.py --csv salin_dokumen_sumber.csv
+    python preflight.py --csv salin_dokumen_sumber.csv --only-no 2522,2523
+    python preflight.py --csv salin_dokumen_sumber.csv --verbose     # rincian per baris
 
 Yang diperiksa (persis urutan gerbang di main.process_one_row):
   1. kodepos idsubsls terdaftar di config.KODEPOS_BY_IDSUBSLS

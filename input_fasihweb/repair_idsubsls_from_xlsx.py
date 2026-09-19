@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-repair_idsubsls_from_xlsx.py — Perbaiki kolom idsubsls di LKpenyalinan.csv
+repair_idsubsls_from_xlsx.py — Perbaiki kolom idsubsls di salin_dokumen_sumber.csv
+(nama lama: LKpenyalinan.csv)
 yang rusak jadi notasi ilmiah (mis. "5.10808E+15") akibat export CSV dari
 Google Sheets. Angka idsubsls 16-digit ini MASIH DALAM BATAS presisi exact
 double-precision float (< 2^53), jadi export ke .xlsx (binary, bukan teks)
@@ -9,12 +10,12 @@ utuh dari .xlsx, lalu dipakai utk menimpa HANYA sel idsubsls yang rusak di
 CSV (kolom lain di CSV tidak disentuh).
 
 CARA PAKAI:
-    1. Di Google Sheets "LK Penyalinan": File > Download > Microsoft Excel
+    1. Di Google Sheets backlog salin dokumen sumber: File > Download > Microsoft Excel
        (.xlsx) — simpan di folder yang sama dgn skrip ini (atau path bebas,
        tinggal isi --xlsx).
-    2. python3 repair_idsubsls_from_xlsx.py --xlsx "LK Penyalinan.xlsx"
-       (default --csv=LKpenyalinan.csv, --out=timpa file yg sama, backup
-       otomatis dibuat di LKpenyalinan.csv.bak)
+    2. python3 repair_idsubsls_from_xlsx.py --xlsx "salin_dokumen_sumber.xlsx"
+       (default --csv=salin_dokumen_sumber.csv, --out=timpa file yg sama, backup
+       otomatis dibuat di salin_dokumen_sumber.csv.bak)
 
 Skrip ini HANYA memperbaiki kolom idsubsls yg pola-nya kelihatan rusak
 (mengandung 'E+'/'e+') — kolom lain & baris yg idsubsls-nya sudah normal
@@ -78,9 +79,9 @@ def load_idsubsls_map_from_xlsx(xlsx_path: Path, sheet_name: str | None) -> dict
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--xlsx", required=True, help="Path file .xlsx hasil download Google Sheets 'LK Penyalinan'")
+    ap.add_argument("--xlsx", required=True, help="Path file .xlsx hasil download Google Sheets backlog salin dokumen sumber")
     ap.add_argument("--sheet", default=None, help="Nama sheet/tab di xlsx (default: sheet aktif pertama)")
-    ap.add_argument("--csv", default="LKpenyalinan.csv", help="Path CSV yang mau diperbaiki (default: LKpenyalinan.csv)")
+    ap.add_argument("--csv", default="salin_dokumen_sumber.csv", help="Path CSV yang mau diperbaiki (default: salin_dokumen_sumber.csv)")
     ap.add_argument("--out", default=None, help="Path output (default: timpa --csv, backup otomatis dibuat)")
     args = ap.parse_args()
 

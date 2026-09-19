@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-reset_mitra.py — Siapkan daftar akun PPL dari Agenda.xlsx untuk reset password
+reset_mitra.py — Siapkan daftar akun PPL dari sheet input usaha (input_usaha.xlsx) untuk reset password
 di https://manajemen-mitra.bps.go.id/mitra/akun-mitra.
 
 Seperti ganti_moda: manajemen-mitra ada di balik login & kemungkinan mendeteksi
@@ -12,14 +12,14 @@ supaya password hasil reset sama dgn yang dipakai skrip login fasih-web.
 
 ⚠️ STATUS: struktur halaman akun-mitra BELUM pernah dilihat (login-gated).
 Karena itu langkah pertama WAJIB "petakan"/"cocok" (read-only) di Console untuk
-(1) membuktikan gmail di Agenda memang bisa menemukan mitranya, dan (2) merekam
+(1) membuktikan gmail di sheet input usaha memang bisa menemukan mitranya, dan (2) merekam
 kontrol "Reset Password" + dialog konfirmasinya. Reset sungguhan tetap diklik
 MANUSIA sampai selektornya terverifikasi.
 
 LANGKAH
 -------
-    python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --cek       # daftar email PPL, tanpa browser
-    python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --console   # tulis reset_mitra_console.siap.js
+    python reset_mitra/reset_mitra.py --sumber input_usaha.xlsx --cek       # daftar email PPL, tanpa browser
+    python reset_mitra/reset_mitra.py --sumber input_usaha.xlsx --console   # tulis reset_mitra_console.siap.js
 Lalu di Chrome (login manmanajemen-mitra) -> F12 Console -> tempel file itu:
     await resetMitra.jalankan({mode: "petakan"})   // 1 email: cari & dump struktur, TANPA reset
     await resetMitra.jalankan({mode: "cocok"})      // cek semua email ketemu 1 mitra, TANPA reset
@@ -83,8 +83,8 @@ def tulis_console(target, password_baru: str = FIXED_PASSWORD) -> Path:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Siapkan reset password akun PPL (manajemen-mitra) dari Agenda")
-    ap.add_argument("--sumber", required=True, help="Agenda.xlsx (tab gabungan) atau .csv-nya")
+    ap = argparse.ArgumentParser(description="Siapkan reset password akun PPL (manajemen-mitra) dari sheet input usaha")
+    ap.add_argument("--sumber", required=True, help="input_usaha.xlsx (tab input_usaha) atau .csv-nya")
     ap.add_argument("--cek", action="store_true", help="Cetak daftar email PPL + tulis target_reset_mitra.csv")
     ap.add_argument("--console", action="store_true", help=f"Tulis {KONSOL_SIAP} utk ditempel di Console Chrome")
     ap.add_argument("--email", default=None, help="Batasi ke email tertentu, pisah koma")

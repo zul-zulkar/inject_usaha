@@ -4,8 +4,8 @@
  * (fasih-sm mendeteksi Playwright).
  *
  * FILE INI TEMPLATE. Jangan ditempel langsung — buat versi berisi target:
- *     python pindah_wilayah/pindah_wilayah.py --sumber Agenda.xlsx --sumber Agenda1-1.xlsx \
- *         --sumber Agenda2.xlsx --console
+ *     python pindah_wilayah/pindah_wilayah.py --sumber input_usaha.xlsx --sumber input_usaha_2.xlsx \
+ *         --console
  * -> pindah_wilayah_console.siap.js
  *
  * CARA PAKAI
@@ -67,7 +67,7 @@
  *
  * KESELAMATAN
  * -----------
- * - Hanya dokumen yang cocok dgn baris Agenda (ID audit, atau nama dokumen persis & unik)
+ * - Hanya dokumen yang cocok dgn baris input usaha (ID audit, atau nama dokumen persis & unik)
  *   dan berstatus APPROVED yang dipindah. Assignment prelist (UMK/DTSEN) tidak pernah
  *   dicocokkan lewat nama. >1 dokumen APPROVED utk satu baris -> DOKUMEN_GANDA (dilewati).
  * - Tepat sebelum memindah, detail dicek ulang: masih di subsls asal & masih APPROVED.
@@ -92,7 +92,7 @@
   "use strict";
 
   // [{k: kunci, s: sumber, b: baris, n: nama dokumen (norm), t: idsubsls tujuan,
-  //   p: akun PPL Agenda, ids: [id dokumen dari audit], g: nama dipakai >1 baris}]
+  //   p: akun PPL sheet input usaha, ids: [id dokumen dari audit], g: nama dipakai >1 baris}]
   const TARGET = /*__TARGET__*/[];
   // idsubsls tempat dokumen disuntik (idsubsls_input audit / --subsls-asal)
   const ASAL = /*__ASAL__*/[];
@@ -231,7 +231,7 @@
     return { byId, byNama };
   }
 
-  /** Satu baris Agenda -> {status, item, pesan}. `asal` = Set idsubsls asal. */
+  /** Satu baris input usaha -> {status, item, pesan}. `asal` = Set idsubsls asal. */
   function rencanakan(t, idx, asal) {
     if (!KODE_VALID.test((t && t.t) || "")) return { status: "TUJUAN_TIDAK_VALID", item: null, pesan: `tujuan '${t && t.t}'` };
     const viaId = (t.ids || []).map((id) => idx.byId[id]).filter(Boolean);
@@ -240,7 +240,7 @@
     const ringkas = (arr) => arr.map((it) => `${it.id.slice(0, 8)} ${kodeItem(it)} ${it.assignmentStatusAlias || "?"}`).join("; ");
     if (!kandidat.length) {
       return t.g
-        ? { status: "NAMA_GANDA_DI_AGENDA", item: null, pesan: "nama dokumen dipakai >1 baris Agenda & tidak ada ID audit" }
+        ? { status: "NAMA_GANDA_DI_AGENDA", item: null, pesan: "nama dokumen dipakai >1 baris input usaha & tidak ada ID audit" }
         : { status: "DOKUMEN_TIDAK_DITEMUKAN", item: null, pesan: "tidak ada dokumen dgn ID audit / nama ini" };
     }
     const diTujuan = kandidat.filter((it) => kodeItem(it) === t.t && approved(it.assignmentStatusAlias));
@@ -260,7 +260,7 @@
     return { status: "PERLU_PINDAH", item: it, pesan: `${kodeItem(it)} -> ${t.t}${catatan}` };
   }
 
-  /** Item APPROVED non-prelist di subsls asal yang tidak diklaim baris Agenda mana pun. */
+  /** Item APPROVED non-prelist di subsls asal yang tidak diklaim baris input usaha mana pun. */
   function tidakDikenali(items, rencana, asal) {
     const diklaim = new Set(rencana.filter((r) => r.item).map((r) => r.item.id));
     return (items || []).filter((it) => it && asal.has(kodeItem(it)) && approved(it.assignmentStatusAlias)
@@ -377,7 +377,7 @@
   }
 
   /** Peta -> daftar kerja [{t, r}] utk cek/eksekusi. Hanya entri ber-ID, di subsls asal & tujuan
-   *  masih sama dgn TARGET sekarang (Agenda bisa diekspor ulang). */
+   *  masih sama dgn TARGET sekarang (sheet input usaha bisa diekspor ulang). */
   function kerjaDariPeta(peta, target, sebelumnya, o, asal) {
     const hasil = [];
     for (const t of saringTarget(target, sebelumnya, o)) {
@@ -395,7 +395,7 @@
     return norm(String(teks == null ? "" : teks).replace(/^\s*\d{16}\s*-\s*/, ""));
   }
 
-  /** Nama yang sah utk satu target: nama dokumen Agenda + nama lama di audit (`na`). */
+  /** Nama yang sah utk satu target: nama dokumen sheet input usaha + nama lama di audit (`na`). */
   function namaTarget(t) {
     return [...new Set([t && t.n, ...((t && t.na) || [])].map(norm).filter(Boolean))];
   }
@@ -407,7 +407,7 @@
   const namaDetail = namaItem;
   const namaCocok = (namaServer, namaSah) => (namaServer || []).some((n) => (namaSah || []).includes(n));
 
-  /** Istilah pencarian, dicoba berurutan sampai dokumennya tampil: nama Agenda, nama lama, lalu kode
+  /** Istilah pencarian, dicoba berurutan sampai dokumennya tampil: nama sheet, nama lama, lalu kode
    *  identitas "<subsls asal> - <nama>". */
   function istilahCariDokumen(t) {
     const nama = namaTarget(t);
@@ -809,7 +809,7 @@
     try {
       if (!KODE_VALID.test(t.t || "")) return selesai("TUJUAN_TIDAK_VALID", `tujuan '${t.t}'`);
       if (ids.length > 1) return selesai("DOKUMEN_GANDA", `${ids.length} id dokumen utk satu baris: ${ids.map((i) => i.slice(0, 8)).join(", ")}`);
-      if (!ids.length && t.g) return selesai("NAMA_GANDA_DI_AGENDA", "nama dokumen dipakai >1 baris Agenda & tidak ada ID");
+      if (!ids.length && t.g) return selesai("NAMA_GANDA_DI_AGENDA", "nama dokumen dipakai >1 baris input usaha & tidak ada ID");
 
       // 1. CARI satu per satu
       const istilah = istilahCariDokumen(t);
@@ -852,7 +852,7 @@
       if (d.kode) hasil.asal = d.kode;
       if (d.status === "RESPONS_TIDAK_DIKENAL") return selesai(d.status, d.pesan);
       if (!(temu && temu.namaCocok) && !namaCocok(d.nama, namaTarget(t))) {
-        return selesai("NAMA_TIDAK_COCOK", `nama di server: ${(d.nama || []).join(" / ") || "-"} | Agenda: ${namaTarget(t).join(" / ")}`);
+        return selesai("NAMA_TIDAK_COCOK", `nama di server: ${(d.nama || []).join(" / ") || "-"} | sheet input usaha: ${namaTarget(t).join(" / ")}`);
       }
       if (d.status === "SUDAH_DI_TUJUAN") {
         const beda = bedaLevel(d.level, t.t);
@@ -966,7 +966,7 @@
 
   /** TAHAP 1 (READ-ONLY): pindai subsls asal + cari nama -> peta kunci -> {id, asal, tujuan, status}. */
   async function petakan(ctx, daftar, o, tambah) {
-    log(`Memetakan ${daftar.length} baris Agenda dari ${ASAL.length} subsls asal...`);
+    log(`Memetakan ${daftar.length} baris input usaha dari ${ASAL.length} subsls asal...`);
     const { rencana, asing } = await susunRencana(ctx, daftar, o);
     global.pindahWilayah.rencanaTerakhir = rencana;
     global.pindahWilayah.tidakDikenali = asing;
@@ -986,7 +986,7 @@
     }
     const siap = Object.values(peta.entri).filter((e) => STATUS_PETA_DIKERJAKAN.has(e.status) && e.id).length;
     if (asing.length) {
-      log(`⚠️ ${asing.length} dokumen APPROVED di subsls asal tidak cocok dgn baris Agenda mana pun (TIDAK dipindah): pindahWilayah.tidakDikenali`);
+      log(`⚠️ ${asing.length} dokumen APPROVED di subsls asal tidak cocok dgn baris input usaha mana pun (TIDAK dipindah): pindahWilayah.tidakDikenali`);
     }
     log(`Peta tersimpan: ${Object.keys(peta.entri).length} baris, ${siap} siap dikerjakan (PERLU_PINDAH + BELUM_APPROVED). `
       + 'Lanjut: await pindahWilayah.jalankan({mode: "cek", limit: 20})');
@@ -1028,7 +1028,7 @@
     try {
       if (o.mode === "petakan") {
         const daftar = saringTarget(TARGET, sebelumnya, o);
-        if (!daftar.length) return log("Tidak ada baris Agenda yang perlu dipetakan.");
+        if (!daftar.length) return log("Tidak ada baris input usaha yang perlu dipetakan.");
         await petakan(hal, daftar, o, tambah);
         return hitung;
       }
@@ -1121,6 +1121,6 @@
       log("Cache pencarian nama dihapus.");
     },
   };
-  log(`Siap: ${TARGET.length} baris Agenda (${TARGET.filter((t) => (t.ids || []).length).length} ber-ID), asal ${ASAL.join(", ")}. `
+  log(`Siap: ${TARGET.length} baris input usaha (${TARGET.filter((t) => (t.ids || []).length).length} ber-ID), asal ${ASAL.join(", ")}. `
     + 'Mulai dgn: await pindahWilayah.jalankan({mode: "cari", limit: 10})');
 })(typeof window !== "undefined" ? window : globalThis);

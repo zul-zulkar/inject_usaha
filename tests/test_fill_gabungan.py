@@ -5,6 +5,7 @@ browser/VPN. Membuktikan nilai sheet diketik APA ADANYA ke dataKey yang benar
 field bersyarat dipertahankan.
 Jalankan: python tests/test_fill_gabungan.py
 """
+import re
 import sys
 from pathlib import Path
 
@@ -41,9 +42,10 @@ class FakeSess:
     """Meniru API FasihWebSession yang dipakai fill_gabungan. `dirender` =
     dataKey ASLI yang dianggap ada di DOM."""
 
-    def __init__(self, dirender):
+    def __init__(self, dirender, label=None):
         self.page = FakePage()
         self.dirender = set(dirender)
+        self.label = label or {}   # {dataKey: teks label} utk field yang dicari lewat label
         self.aksi = []
 
     def _log(self, _):
@@ -64,10 +66,13 @@ class FakeSess:
         self.aksi.append(("combo", DK.get(key, key), kandidat[0]))
 
     def datakey_by_label(self, pola):
-        return ""
+        return next((dk for dk, teks in self.label.items() if re.match(pola, teks, re.I)), "")
 
     def isi_bersyarat_by_label(self, pola, nilai, nama=""):
-        return False
+        dk = self.datakey_by_label(pola)
+        if dk:
+            self.aksi.append(("label", dk, nilai))
+        return bool(dk)
 
     def fill_kbli_master(self, kode, search_phrase_fallback=""):
         self.aksi.append(("kbli", "kbli", kode))
@@ -114,10 +119,18 @@ DIRENDER_LPG = {
 }
 
 
-def jalankan(ubah=None, dirender=DIRENDER_LPG):
-    sess = FakeSess(dirender)
-    row = GabunganRow(2, {**BARIS_LPG, **(ubah or {})})
+def jalankan(ubah=None, dirender=DIRENDER_LPG, label=None, murni=False):
+    sess = FakeSess(dirender, label)
+    row = GabunganRow(2, {**BARIS_LPG, **(ubah or {})}, murni=murni)
     return sess, fill_blok2_gabungan(sess, row)
+
+
+def berhenti(judul, kode, *a, **k):
+    try:
+        jalankan(*a, **k)
+        check(judul, "tidak berhenti", kode)
+    except BarisPerluManual as e:
+        check(judul, e.kode, kode)
 
 
 sess, asumsi = jalankan()
@@ -180,6 +193,52 @@ for label, dirender, ubah, kode in (
 
 sess, _ = jalankan({"biaya_pembelian": "0"}, DIRENDER_LPG - {"biaya_pembelian"})
 check("26c tidak dirender & sheet 0 -> dilewati tanpa berhenti", sess.nilai("biaya_pembelian"), [])
+
+# --- format standar: 13d/13e, 19 (halal), 20 (BPOM) dari kolom opsional ---
+LABEL_13DE = {"input": "13. d. Apa input yang digunakan?", "proses": "13. e. Proses produksi"}
+sess, asumsi = jalankan({"produk_sendiri": "1. Ya", "input_produksi": "Singkong", "proses_produksi": "Menggoreng"},
+                        label=LABEL_13DE)
+check("13d/13e dari sheet", (sess.nilai("input"), sess.nilai("proses")), (["Singkong"], ["Menggoreng"]))
+berhenti("13d dirender tapi kolom kosong -> berhenti", "13DE_KOSONG", {"produk_sendiri": "1. Ya"}, label=LABEL_13DE)
+
+LABEL_19 = {"halal": "19. a. Apakah ... halal?", "belum_halal": "19. c. Berapa jumlah varian ... belum ..."}
+sess, asumsi = jalankan(label=LABEL_19)
+check("19 kosong di sheet -> default config + ASUMSI",
+      (sess.nilai("halal"), sess.nilai("belum_halal"), [a for a in asumsi if a.startswith("19")]),
+      (["3. Tidak/Belum"], ["1"], ["19a default '3. Tidak/Belum'", "19c default '1'"]))
+sess, asumsi = jalankan({"halal": "4. Dalam proses", "belum_halal": "5"}, label=LABEL_19)
+check("19 dari sheet, tanpa ASUMSI",
+      (sess.nilai("halal"), sess.nilai("belum_halal"), [a for a in asumsi if a.startswith("19")]),
+      (["4. Dalam proses"], ["5"], []))
+berhenti("19b dirender tapi kolom kosong -> berhenti", "19B_KOSONG", {"halal": "1. Ya, oleh BPJPH"},
+         label={**LABEL_19, "sudah_halal": "19. b. Berapa jumlah varian ... sudah ..."})
+
+DIRENDER_20 = DIRENDER_LPG | {"izin_edar", "belum_bpom"}
+sess, asumsi = jalankan({"izin_edar": "2. Ya, bukan oleh BPOM", "belum_bpom": "3"}, DIRENDER_20)
+check("20a/20c dari sheet, tanpa ASUMSI",
+      (sess.nilai("izin_edar"), sess.nilai("belum_bpom"), [a for a in asumsi if a.startswith("20")]),
+      (["2. Ya, bukan oleh BPOM"], ["3"], []))
+sess, asumsi = jalankan(None, DIRENDER_20)
+check("20 kosong di sheet -> default + ASUMSI (perilaku lama)",
+      (sess.nilai("izin_edar"), sess.nilai("belum_bpom"), len([a for a in asumsi if a.startswith("20")])),
+      (["3. Tidak"], ["1"], 2))
+
+# --- MODE MURNI: tanpa default/aturan skrip ---
+LENGKAP = {"produk": "Gas LPG 3 kg"}
+sess, asumsi = jalankan(LENGKAP, murni=True)
+check("murni: 8b apa adanya & tanpa ASUMSI", (sess.nilai("nama_komersial"), asumsi), (["PANGKALAN GAS X"], []))
+check("murni: combobox UMKM hanya nilai sheet", sess.nilai("pilih_umkm_sls"), ["Tidak Ada"])
+berhenti("murni: UMKM dirender tapi kolom kosong -> berhenti", "UMKM_SLS_KOSONG",
+         {**LENGKAP, "pilih_umkm_sls": ""}, murni=True)
+berhenti("murni: 13b4 bukan opsi -> berhenti (tidak diturunkan dari kategori)", "13B4_KOSONG",
+         {**LENGKAP, "keg_penjualan": "2. Tidak"}, DIRENDER_LPG | {"keg_jasa"}, murni=True)
+berhenti("murni: 19 dirender tapi kolom kosong -> berhenti", "19_20_KOSONG", LENGKAP, label=LABEL_19, murni=True)
+berhenti("murni: 20 dirender tapi kolom kosong -> berhenti", "19_20_KOSONG", LENGKAP, DIRENDER_20, murni=True)
+sess, asumsi = jalankan({**LENGKAP, "halal": "3. Tidak/Belum", "belum_halal": "2", "izin_edar": "3. Tidak",
+                         "belum_bpom": "1"}, DIRENDER_20, label=LABEL_19, murni=True)
+check("murni: 19/20 lengkap di sheet -> terisi, tanpa ASUMSI",
+      (sess.nilai("halal"), sess.nilai("belum_halal"), sess.nilai("izin_edar"), sess.nilai("belum_bpom"), asumsi),
+      (["3. Tidak/Belum"], ["2"], ["3. Tidak"], ["1"], []))
 
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

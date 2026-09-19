@@ -1,7 +1,7 @@
 # Panduan Pindah Wilayah (fasih-sm)
 
 Memindahkan dokumen hasil suntik (semua dibuat di satu subsls) ke **subsls aslinya** —
-kolom `idsubsls` di `Agenda.xlsx`, `Agenda1-1.xlsx`, `Agenda2.xlsx`. Kode 16 digit itu adalah
+kolom `idsubsls` di file input usaha (mis. `input_usaha.xlsx`, `input_usaha_2.xlsx`). Kode 16 digit itu adalah
 wilayah dari provinsi sampai subsls:
 
 ```text
@@ -44,7 +44,7 @@ Sama dengan menu **Aksi Lainnya → Change Region by Selection** di halaman Data
 
 - VPN kantor aktif.
 - Akun fasih-sm yang punya menu **Change Region by Selection** (Admin Kabupaten).
-- `Agenda.xlsx`, `Agenda1-1.xlsx`, `Agenda2.xlsx`, `audit_log_gabungan.csv` dan
+- file input usaha (mis. `input_usaha.xlsx`, `input_usaha_2.xlsx`), `audit_log_gabungan.csv` dan
   **`audit_approve_pml.csv`** di root proyek.
 - Python terpasang, jalankan perintah **dari root proyek**.
 - **Jangan jalankan bersamaan dengan buka wilayah** — kuota request akun sama, hasilnya HTTP 429.
@@ -52,13 +52,13 @@ Sama dengan menu **Aksi Lainnya → Change Region by Selection** di halaman Data
 ## 1. Buat file siap-tempel
 
 ```bash
-python pindah_wilayah/pindah_wilayah.py --sumber Agenda.xlsx --sumber Agenda1-1.xlsx --sumber Agenda2.xlsx --dari-approve --console
+python pindah_wilayah/pindah_wilayah.py --sumber input_usaha.xlsx --sumber input_usaha_2.xlsx --dari-approve --console
 ```
 
 Hasilnya (contoh 2026-09-15):
 
 ```text
-audit_approve_pml.csv: 457 dokumen APPROVED_TERVERIFIKASI ber-kunci Agenda
+audit_approve_pml.csv: 457 dokumen APPROVED_TERVERIFIKASI ber-kunci input usaha
 
 457 baris unik jadi target | dgn ID audit: 457, tanpa ID audit (dicocokkan lewat nama): 0
   alur SATUAN: 457 dokumen sudah di-approve -> mode "cari" / "pindah" di Console
@@ -82,7 +82,7 @@ di tab yang sama ikut berhenti menunggu.
 F12 → Console → tempel seluruh isi `pindah_wilayah_console.siap.js` → Enter. Harus muncul:
 
 ```text
-[pindahWilayah] Siap: 457 baris Agenda (457 ber-ID), asal 5108010010000105, 5108060014000403. Mulai dgn: ...
+[pindahWilayah] Siap: 457 baris input usaha (457 ber-ID), asal 5108010010000105, 5108060014000403. Mulai dgn: ...
 ```
 
 Menempel ulang (file baru) di tab yang sudah dipakai tidak masalah — hasil tersimpan di browser.
@@ -98,7 +98,7 @@ await pindahWilayah.jalankan({mode: "cari", tujuan: ["5108060002000203"]})    //
 Contoh baris di Console:
 
 ```text
-[3/457] Agenda.xlsx:4 f1acecae 5108010010000105 -> 5108060002000203 -> CEK_SIAP_PINDAH (cari: PANGKALAN GAS (I PUTU CONTOH))
+[3/457] input_usaha.xlsx:4 f1acecae 5108010010000105 -> 5108060002000203 -> CEK_SIAP_PINDAH (cari: PANGKALAN GAS (I PUTU CONTOH))
 ```
 
 - Yang ideal: `CEK_SIAP_PINDAH`. Yang lain → lihat [Arti status](#arti-status).
@@ -158,7 +158,7 @@ Opsi tambahan (gabungkan di dalam `{...}`):
 
 ## Alur lama: dua tahap (petakan → cek → eksekusi)
 
-Untuk **semua** baris Agenda (termasuk yang tidak tercatat di audit approve). Buat file siap-tempel
+Untuk **semua** baris input usaha (termasuk yang tidak tercatat di audit approve). Buat file siap-tempel
 **tanpa** `--dari-approve`, lalu:
 
 ```js
@@ -188,11 +188,11 @@ await pindahWilayah.jalankan({mode: "eksekusi"})            // sisanya
 | `SUDAH_DI_TUJUAN`                                              | Dokumen memang sudah di subsls tujuan                                                          | Selesai                                                                             |
 | `TUJUAN_BELUM_DIBUKA`                                          | Subsls tujuan masih Listing Selesai                                                            | Buka wilayah, lalu jalankan lagi                                                    |
 | `BELUM_APPROVED`                                               | Dokumen belum di-approve (atau statusnya berubah)                                              | Approve dulu, jalankan lagi                                                         |
-| `NAMA_TIDAK_COCOK`                                             | ID approve ada, tapi nama dokumen di server beda dengan Agenda & nama lama audit               | Cek manual dokumen itu; tidak dipindah                                              |
+| `NAMA_TIDAK_COCOK`                                             | ID approve ada, tapi nama dokumen di server beda dengan sheet input usaha & nama lama audit               | Cek manual dokumen itu; tidak dipindah                                              |
 | `DOKUMEN_TIDAK_DITEMUKAN`                                      | Dokumen tidak tampil di pencarian & tidak ada ID                                               | Baris memang belum diinput?                                                         |
 | `PENCARIAN_GAGAL`                                              | Pencarian server gagal (429/504) & tidak ada ID untuk dilanjutkan                              | Jalankan lagi nanti                                                                 |
 | `DOKUMEN_GANDA`                                                | >1 dokumen APPROVED / >1 ID untuk satu baris                                                   | Pilih manual / minta admin hapus duplikat                                           |
-| `NAMA_GANDA_DI_AGENDA`                                         | Nama dokumen dipakai >1 baris & tidak ada ID                                                   | Pindah manual                                                                       |
+| `NAMA_GANDA_DI_AGENDA`                                         | Nama dokumen dipakai >1 baris sheet input usaha & tidak ada ID                                                   | Pindah manual                                                                       |
 | `DI_SUBSLS_LAIN` / `ASAL_BERUBAH`                            | Dokumen ada di subsls yang bukan asal & bukan tujuan                                           | Cek siapa yang memindah; kalau memang asal, tambahkan`--subsls-asal`              |
 | `PETUGAS_TUJUAN_TIDAK_ADA` / `PETUGAS_TUJUAN_GANDA`          | Pengawas/Pencacah tujuan bukan tepat 1                                                         | Perbaiki alokasi petugas, jalankan lagi                                             |
 | `TUJUAN_TIDAK_ADA` / `TUJUAN_GANDA` / `TUJUAN_TIDAK_VALID` | Kode tujuan tidak dikenal fasih-sm                                                             | Periksa kolom idsubsls Agenda                                                       |
