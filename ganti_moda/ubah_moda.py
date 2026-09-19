@@ -182,8 +182,8 @@ class Target:
         return normalisasi_kode(b.kode) == self.kode if self.kode else b.idsubsls == self.idsubsls
 
 
-# "5108060003000402 - UMK - 4". Bagian tengah bisa berupa nama ("I KETUT REDIKA /
-# I KOMANG AGUS SETIAWAN", "WAYAN DERAWA /") dan boleh memuat "-" yang TIDAK diikuti
+# "5108060003000402 - UMK - 4". Bagian tengah bisa berupa nama ("I KETUT CONTOH /
+# I KOMANG AGUS CONTOH", "WAYAN CONTOH /") dan boleh memuat "-" yang TIDAK diikuti
 # spasi ("NON-UMK"); " - " di tengah nama tidak dikenali -> dilaporkan, bukan ditebak.
 # Nol di depan nomor dibuang. Sel tabel bisa berakhiran lain ("… - 6 / - 81119"):
 # yang diambil hanya kode di depannya. HARUS sama dgn ubah_moda_console.js.

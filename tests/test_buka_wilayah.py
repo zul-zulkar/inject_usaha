@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 import subprocess
 
@@ -40,6 +42,7 @@ daftar = isi_template(template, kode[:2], semua=False)
 check("daftar: target tersuntik",
       'const TARGET = [{"idsubsls": "5108010001000203"}, {"idsubsls": "5108010001000302"}];' in daftar, True)
 check("daftar: cakupan daftar", 'const CAKUPAN = "daftar";' in daftar, True)
+check("daftar: kode kabupaten dari config tersuntik", 'const KODE_KAB = "5108";' in daftar, True)
 
 semua = isi_template(template, kode, semua=True)
 check("semua: target kosong", "const TARGET = [];" in semua, True)

@@ -74,8 +74,10 @@
   };
 
   // Password baru yang di-set ke SEMUA mitra (ketetapan user 2026-09-14; sama
-  // dgn FIXED_PASSWORD fasih-web). Bisa ditimpa: jalankan({passwordBaru: "..."}).
-  const PASSWORD_BARU = "Mitra5108";
+  // dgn FIXED_PASSWORD fasih-web). Disuntikkan reset_mitra.py --console dari
+  // inti/config_lokal.py — template ini SENGAJA kosong (ikut git). Bisa ditimpa:
+  // jalankan({passwordBaru: "..."}). Kosong -> mode manual/otomatis menolak jalan.
+  const PASSWORD_BARU = /*__PASSWORD_BARU__*/"";
 
   // Klik "Reset PW" TIDAK langsung mereset — membuka dialog berisi FIELD isian
   // password baru, lalu tombol simpan. (Temuan user 2026-09-14: "toast sukses"
@@ -144,7 +146,7 @@
 
   /** Dari daftar input dialog "Reset PW" (deskriptor {type,name,placeholder,aria,
    *  value}), pilih field PASSWORD BARU yang harus diisi. Struktur asli (dump user
-   *  2026-09-14, akun LUH PUTU SUKMAYANTI): DUA input `type="text"`
+   *  2026-09-14, akun NAMA MITRA CONTOH): DUA input `type="text"`
    *  `placeholder="Password"` — pembeda satu-satunya = field EMAIL sudah terisi
    *  value ber-'@' (JANGAN disentuh), field password baru masih kosong.
    *  Field email dikecualikan (type email / bertanda email / value ber-'@'). -> {status, indeks}:
@@ -467,6 +469,11 @@
     if (live && (!SELEKTOR_RESET || typeof SELEKTOR_RESET.cariReset !== "function")) {
       log("⛔ SELEKTOR_RESET belum diisi. Jalankan mode 'petakan' dulu, kirim resetMitra.unduhDump() ke pengembang, "
         + "baru mode manual/otomatis bisa dipakai. (Reset password tidak ditebak.)");
+      return;
+    }
+    if (live && !String(o.passwordBaru || "").trim()) {
+      log("⛔ Password baru kosong. Isi FIXED_PASSWORD di inti/config_lokal.py lalu jalankan ulang "
+        + "reset_mitra.py --console, atau beri jalankan({passwordBaru: \"...\"}).");
       return;
     }
     if (o.mode === "otomatis" && o.sayaSudahMelihatDialog !== true) {

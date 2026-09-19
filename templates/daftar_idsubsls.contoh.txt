@@ -1,0 +1,6 @@
+# Daftar idsubsls untuk buka_wilayah.py / tandai_selesai.py (--daftar).
+# Satu idsubsls 16 digit per baris (koma/spasi/titik-koma juga boleh).
+# Harus berawalan KODE_KAB (inti/config_lokal.py). Baris diawali '#' = komentar.
+# Kode tidak valid (mis. notasi ilmiah 5.10808E+15) dilaporkan, TIDAK ditebak.
+5108010001000203
+5108010001000302

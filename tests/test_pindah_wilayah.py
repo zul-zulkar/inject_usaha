@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 import pindah_wilayah.pindah_wilayah as pw
 from input_gabungan.sinkron_list import url_entry

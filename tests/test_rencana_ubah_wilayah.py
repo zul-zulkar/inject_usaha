@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 from input_gabungan.rencana_ubah_wilayah import (
     _akun_dari_nama_file, peta_dari_fitur, perubahan_nama, rencana_ubah_wilayah,
@@ -60,7 +62,7 @@ def row(baris, nama, pemilik="I MADE", tujuan=A, pilih=None, titik=(0.2, 0.2), *
     return GabunganRow(baris, v)
 
 
-check("12a sudah di nama", perubahan_nama(row(1, "PANGKALAN GAS JAMALUDIN", "JAMALUDIN")),
+check("12a sudah di nama", perubahan_nama(row(1, "PANGKALAN GAS BUDIMAN", "BUDIMAN")),
       ["nama 12a yang sudah tertulis di nama dipindah ke dalam kurung"])
 check("12a bagian kata lain = ditambahkan", perubahan_nama(row(1, "APOTEK MADEWI", "MADE")),
       ["nama 12a ditambahkan dalam kurung"])

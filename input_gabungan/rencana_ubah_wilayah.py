@@ -28,7 +28,7 @@ status_rencana per dokumen (urutan = prioritas kalau kena lebih dari satu):
   SIAP_PINDAH       terkirim di server & titik koordinat di dalam subsls tujuan
 
 Contoh:
-    python input_gabungan/sinkron_list.py --sumber Agenda.xlsx --akun-tunggal wisada9@mail.com \
+    python input_gabungan/sinkron_list.py --sumber Agenda.xlsx --akun-tunggal ppl.contoh@mail.com \
         --subsls-tunggal 5108010010000105          # (sekali per akun) unduh list server
     python input_gabungan/rencana_ubah_wilayah.py --sumber Agenda.xlsx --sumber Agenda1-1.xlsx
 """
@@ -366,8 +366,9 @@ def main() -> int:
 
     peta = None
     if not args.tanpa_peta:
-        if not Path(args.peta).exists():
-            print(f"❌ Peta SLS tidak ditemukan: {args.peta} (pakai --peta atau --tanpa-peta)", file=sys.stderr)
+        if not args.peta or not Path(args.peta).is_file():
+            print(f"❌ Peta SLS tidak ditemukan: '{args.peta}' (isi PETA_SLS_PATH di inti/config_lokal.py, "
+                  "atau pakai --peta / --tanpa-peta)", file=sys.stderr)
             return 2
         peta = muat_peta(args.peta)
         print(f"Peta SLS: {len(peta.sls)} subsls ({Path(args.peta).name})")

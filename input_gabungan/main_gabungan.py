@@ -191,7 +191,7 @@ def _pid_hidup(pid: int) -> bool:
 
 def kunci_proses_akun(akun: str) -> Path | None:
     """Klaim akun ini utk proses sekarang. None = sudah dipakai proses lain yang MASIH hidup.
-    Run 2026-09-14: dua proses (Agenda.xlsx & Agenda1-1.xlsx) memakai akun megakartika
+    Run 2026-09-14: dua proses (Agenda.xlsx & Agenda1-1.xlsx) memakai akun ppl.kedua
     bersamaan -> logout proses satu memutus sesi proses lain (halaman login di tengah
     'Buat Dokumen') & jumlah dokumen yang dinaikkan proses lain memicu
     STOP_DOKUMEN_TANPA_URL palsu. Paralel = akun BERBEDA per proses."""
@@ -537,7 +537,7 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
 
         submitted = sess.submit_final()
         if not submitted and "/entry" in sess.page.url:
-            # Run 2026-09-14 (NI LUH SEKAR): "Konfirmasi" diklik, dialog tertutup,
+            # Run 2026-09-14 (satu baris Agenda): "Konfirmasi" diklik, dialog tertutup,
             # tapi tidak ada toast/redirect & status tetap DRAFT — server sibuk.
             # Mengirim ulang DOKUMEN YANG SAMA tidak membuat duplikat; kalau
             # ternyata sudah terkirim, tombol Kirim/ringkasan tidak ada lagi.

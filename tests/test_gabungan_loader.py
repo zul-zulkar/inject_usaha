@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 from inti.gabungan_loader import (
     cocokkan_wilayah_dokumen, format_nama_usaha, load_gabungan, parse_pilihan_baris, periksa_semua,
@@ -140,18 +142,18 @@ for label, nama, pemilik, want in (
     ("nyata: 55 karakter jadi 35", "PANGKALAN GAS PUTU MILA WIRAYANTI", "PUTU MILA WIRAYANTI",
      "PANGKALAN GAS (PUTU MILA WIRAYANTI)"),
     ("beda huruf besar", "PRAKTIK BIDAN GST AYU ANIK ARIANI", "Gst Ayu Anik Ariani", "PRAKTIK BIDAN (Gst Ayu Anik Ariani)"),
-    ("gelar ikut", "PANGKALAN GAS NI NYOMAN MURTINI, SE. MM", "NI NYOMAN MURTINI, SE. MM",
-     "PANGKALAN GAS (NI NYOMAN MURTINI, SE. MM)"),
+    ("gelar ikut", "PANGKALAN GAS NI NYOMAN CONTOH, SE. MM", "NI NYOMAN CONTOH, SE. MM",
+     "PANGKALAN GAS (NI NYOMAN CONTOH, SE. MM)"),
     ("pemisah di tepi dibuang", "UD. WIDE/ SUARDANTI", "SUARDANTI", "UD. WIDE (SUARDANTI)"),
     ("pemilik di tengah", "WARUNG KETUT TOYA JAYA", "KETUT TOYA", "WARUNG JAYA (KETUT TOYA)"),
     ("bukan kata utuh -> tidak dihapus", "TOKO MADELINE", "MADE", "TOKO MADELINE (MADE)"),
     ("nama pemilik tidak utuh -> format biasa", "PANGKALAN GAS DHARMA HADI", "DHARMA HADI KUSUMA",
      "PANGKALAN GAS DHARMA HADI (DHARMA HADI KUSUMA)"),
     ("nama = pemilik", "KETUT TOYA", "KETUT TOYA", "(KETUT TOYA)"),
-    ("idempoten", "PANGKALAN GAS (JAMALUDIN)", "JAMALUDIN", "PANGKALAN GAS (JAMALUDIN)"),
+    ("idempoten", "PANGKALAN GAS (BUDIMAN)", "BUDIMAN", "PANGKALAN GAS (BUDIMAN)"),
     ("nyata baris 393: kurung tak tertutup -> satu kurung saja",
-     "PRAKTIK DOKTER I NYOMAN NAMA PUTRA SP.P (K)", "I Nyoman Nama Putra Sp.P (K",
-     "PRAKTIK DOKTER (I Nyoman Nama Putra Sp.P K)"),
+     "PRAKTIK DOKTER I NYOMAN CONTOH PUTRA SP.P (K)", "I Nyoman Contoh Putra Sp.P (K",
+     "PRAKTIK DOKTER (I Nyoman Contoh Putra Sp.P K)"),
     ("kurung lain di nama dibuang", "APOTEK SEHAT (CABANG 2)", "I MADE", "APOTEK SEHAT CABANG 2 (I MADE)"),
 ):
     check(f"format nama: {label}", format_nama_usaha(nama, pemilik), want)

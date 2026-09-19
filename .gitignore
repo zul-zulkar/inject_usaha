@@ -1,55 +1,49 @@
-# Runtime artifacts — jangan commit
+# =============================================================================
+# Repo ini PUBLIK. Semua data sensus (data pribadi responden & akun petugas),
+# rahasia (password), sesi login, dan artefak runtime JANGAN PERNAH di-commit.
+# Satu-satunya pengecualian: folder templates/ (templat KOSONG / data fiktif).
+# =============================================================================
+
+# --- Konfigurasi lokal (password, akun, kode & data wilayah kabupaten Anda) ---
+inti/config_lokal.py
+.env
+
+# --- Runtime Python / lingkungan ---
 __pycache__/
 *.pyc
-log_screenshots/
-audit_log.csv
-.proses_*.lock
-nul
-
-# Virtual environment (kalau dipakai)
 .venv/
 venv/
+nul
 
-# Data sumber/backlog sensus — JANGAN PERNAH commit (data pribadi responden: nama, NIK, dll)
+# --- Data sumber & hasil (data pribadi responden: nama, NIK, HP, dll) ---
 *.csv
-
-# Sumber sheet gabungan & hasil pemeriksaannya (data pribadi responden)
 *.xlsx
-audit_log_gabungan.csv
-cek_gabungan.csv
-
-# ubah_moda.py: profil login fasih-sm (berisi sesi!), rekaman API & audit
-.profil_fasih_sm/
-log_fasih_sm/
-audit_ubah_moda.csv
-target_ubah_moda.csv
-ubah_moda_console.siap.js
-
-# reset_mitra: file siap-tempel (berisi email mitra), target & audit
-reset_mitra_console.siap.js
-target_reset_mitra.csv
-audit_reset_mitra*.csv
-dump_akun_mitra*.json
+*.xlsm
+*.xls
 export/
-
-# buka_wilayah: file siap-tempel, daftar target & audit
-buka_wilayah_console.siap.js
-daftar_buka_wilayah*.txt
-audit_buka_wilayah*.csv
-
-# tandai_selesai: file siap-tempel, daftar target & audit
-tandai_selesai_console.siap.js
-daftar_tandai_selesai*.txt
-audit_tandai_selesai*.csv
-
-# pindah_wilayah: file siap-tempel (nama usaha & akun PPL) & audit
-pindah_wilayah_console.siap.js
-audit_pindah_wilayah*.csv
-
-# sinkron_list: daftar dokumen server (nama usaha, akun petugas)
 list_api_*.json
+dump_akun_mitra*.json
 
-# approve_pml: profil login fasih-web (berisi sesi!) & rekaman halaman
+# --- Daftar kode wilayah/identitas milik Anda (hasil kerja lokal) ---
+daftar*.txt
+list*.txt
+
+# --- File siap-tempel Console (berisi email petugas, nama usaha, password baru) ---
+*.siap.js
+
+# --- Log, screenshot, rekaman halaman & audit ---
+log_screenshots/
+log_fasih_sm/
+log_approve/
+audit_*.csv
+
+# --- Profil & sesi browser (berisi cookie login!) ---
+.profil_fasih_sm/
 .profil_fasih_web_*/
 .sesi_fasih_web_*.json
-log_approve/
+.proses_*.lock
+
+# --- Pengecualian: templat kosong/fiktif untuk pengguna baru ---
+!templates/
+!templates/**
+templates/**/__pycache__/

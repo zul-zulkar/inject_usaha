@@ -43,7 +43,7 @@ check("dua kandidat -> ambigu", m.pilihTombolKonfirmasi(["Reset", "Simpan"]), nu
 //     SUKMAYANTI): DUA input type=text placeholder "Password"; pembeda = value email ---
 const inp = (type, placeholder, value) => ({ type, name: "", placeholder, aria: null, value });
 check("dialog asli: field kosong=password (idx0), field ber-@=email (idx1) -> PILIH 0",
-  m.pilihFieldPassword([inp("text", "Password", ""), inp("text", "Password", "ptsukma78@gmail.com")]),
+  m.pilihFieldPassword([inp("text", "Password", ""), inp("text", "Password", "mitra.contoh@gmail.com")]),
   { status: "PILIH", indeks: 0 });
 check("email di field pertama -> PILIH field kedua",
   m.pilihFieldPassword([inp("text", "Password", "a@b.com"), inp("text", "Password", "")]),

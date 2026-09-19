@@ -46,6 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from inti.config import KODE_KAB
 from inti.gabungan_loader import GabunganRow, load_gabungan
 import input_gabungan.main_gabungan as mg
 from input_gabungan.sinkron_list import id_dari_url, norm
@@ -63,7 +64,8 @@ AUDIT_APPROVE_PATH = Path("./audit_approve_pml.csv")
 STATUS_APPROVED = "APPROVED_TERVERIFIKASI"  # = approve_pml.ST_OK
 PENANDA_TARGET = "/*__TARGET__*/[]"
 PENANDA_ASAL = "/*__ASAL__*/[]"
-POLA_KODE = re.compile(r"5108\d{12}")
+PENANDA_KODE_KAB = '/*__KODE_KAB__*/"5108"'
+POLA_KODE = re.compile(rf"{re.escape(KODE_KAB)}\d{{12}}")
 
 
 def approved_per_kunci(audit_approve: list[dict]) -> tuple[dict[str, dict[str, str]], Counter]:
@@ -109,7 +111,7 @@ def bangun_target(sumber_rows: list[tuple[str, GabunganRow]], audit: list[dict],
     baris_unik: dict[str, tuple[str, GabunganRow]] = {}
     for sumber, row in sumber_rows:
         if not POLA_KODE.fullmatch(row.idsubsls or ""):
-            masalah.append((sumber, row.baris, f"idsubsls tujuan '{row.idsubsls}' bukan 16 digit berawalan 5108"))
+            masalah.append((sumber, row.baris, f"idsubsls tujuan '{row.idsubsls}' bukan 16 digit berawalan {KODE_KAB}"))
             continue
         if row.kunci in baris_unik:
             ringkasan["baris_kembar_digabung"] += 1
@@ -159,11 +161,12 @@ def subsls_asal(audit: list[dict], tambahan: list[str]) -> tuple[list[str], list
 
 def tulis_console(target: list[dict], asal: list[str]) -> Path:
     teks = KONSOL_TEMPLATE.read_text(encoding="utf-8")
-    for penanda in (PENANDA_TARGET, PENANDA_ASAL):
+    for penanda in (PENANDA_TARGET, PENANDA_ASAL, PENANDA_KODE_KAB):
         if teks.count(penanda) != 1:
             raise ValueError(f"Penanda {penanda} harus muncul tepat 1x di {KONSOL_TEMPLATE.name}")
     teks = teks.replace(PENANDA_TARGET, json.dumps(target, ensure_ascii=False, separators=(",", ":")))
     teks = teks.replace(PENANDA_ASAL, json.dumps(asal))
+    teks = teks.replace(PENANDA_KODE_KAB, json.dumps(KODE_KAB))
     KONSOL_SIAP.write_text(teks, encoding="utf-8")
     return KONSOL_SIAP
 

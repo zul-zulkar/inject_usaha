@@ -217,8 +217,8 @@ check("detail: nama dari code_identity & level", [detNama.nama, detNama.level[2]
 // --- nama & istilah pencarian ---
 check("nama dari kode identitas", m.namaDariKode(`${ASAL} -  Praktek Dokter (Made)`), "PRAKTEK DOKTER (MADE)");
 check("nama tanpa awalan kode tetap", m.namaDariKode("apotek sehat"), "APOTEK SEHAT");
-check("nama target + nama lama (unik)", m.namaTarget({ n: "PANGKALAN GAS (I PUTU ARYA)", na: ["pangkalan gas i putu arya (i putu arya)", "PANGKALAN GAS (I PUTU ARYA)"] }),
-  ["PANGKALAN GAS (I PUTU ARYA)", "PANGKALAN GAS I PUTU ARYA (I PUTU ARYA)"]);
+check("nama target + nama lama (unik)", m.namaTarget({ n: "PANGKALAN GAS (I PUTU CONTOH)", na: ["pangkalan gas i putu contoh (i putu contoh)", "PANGKALAN GAS (I PUTU CONTOH)"] }),
+  ["PANGKALAN GAS (I PUTU CONTOH)", "PANGKALAN GAS I PUTU CONTOH (I PUTU CONTOH)"]);
 check("istilah cari: nama, nama lama, lalu kode identitas per asal",
   m.istilahCariDokumen({ n: "BARU", na: ["LAMA"], a: [ASAL, "123"] }),
   ["BARU", "LAMA", `${ASAL} - BARU`, `${ASAL} - LAMA`]);

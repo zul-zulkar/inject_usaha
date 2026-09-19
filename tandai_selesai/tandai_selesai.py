@@ -30,7 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from buka_wilayah.buka_wilayah import baca_daftar  # noqa: E402 — format daftar sama persis
+from buka_wilayah.buka_wilayah import PENANDA_KODE_KAB, baca_daftar  # noqa: E402 — format daftar sama persis
+from inti.config import KODE_KAB  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -48,12 +49,13 @@ PENANDA_CAKUPAN = '/*__CAKUPAN__*/"daftar"'
 def isi_template(teks: str, kode, semua: bool) -> str:
     """Suntikkan target ke template. Cakupan semua -> TARGET tetap [] (dibaca dari
     pindai massal di browser), daftar -> TARGET berisi kode."""
-    for penanda in (PENANDA_TARGET, PENANDA_CAKUPAN):
+    for penanda in (PENANDA_TARGET, PENANDA_CAKUPAN, PENANDA_KODE_KAB):
         if teks.count(penanda) != 1:
             raise ValueError(f"Penanda {penanda} harus muncul tepat 1x di {KONSOL_TEMPLATE.name}")
     data = [] if semua else [{"idsubsls": k} for k in kode]
     return (teks.replace(PENANDA_TARGET, json.dumps(data))
-                .replace(PENANDA_CAKUPAN, json.dumps("semua" if semua else "daftar")))
+                .replace(PENANDA_CAKUPAN, json.dumps("semua" if semua else "daftar"))
+                .replace(PENANDA_KODE_KAB, json.dumps(KODE_KAB)))
 
 
 def tulis_console(kode, semua: bool) -> Path:

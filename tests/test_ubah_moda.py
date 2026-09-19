@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 from inti.gabungan_loader import GabunganRow, Pemeriksaan
 from ganti_moda.ubah_moda import (
@@ -37,13 +39,13 @@ def b(no, mode="CAPI", petugas=PPL, sub=S, indeks=0):
 HEAD = ["", "Kode Identitas", "Nama Keluarga/Bangunan/Usaha", "Alamat Prelist", "Nomor Urut Bangunan / IDSBR",
         "NIB / No. KK", "Email", "Skala Usaha / Jenis Prelist", "Jumlah Usaha", "Kode Pos", "Perubahan SLS",
         "IDSBR UMKM SLS Sama", "Status", "Mode", "Petugas Saat Ini", "Keterangan", ""]
-ROW = ["", "5108060003000402 - UMK - 4", "MUJIANTI HARDSTONE", "DSN DHARMAKERTI", "58 / 30300442",
-       "2210220006818", "mujiantihardstone468@gmail.com", "UMK / OSS PERORANGAN", "", "81119", "", "",
-       "approved by pengawas", "CAPI", "erlinaw26@gmail.com", "Pengawas", ""]
+ROW = ["", "5108060003000402 - UMK - 4", "USAHA CONTOH", "DSN CONTOH", "58 / 00000000",
+       "0000000000000", "usaha.contoh@gmail.com", "UMK / OSS PERORANGAN", "", "81119", "", "",
+       "approved by pengawas", "CAPI", "pml.contoh@gmail.com", "Pengawas", ""]
 hasil = baris_dari_tabel({"head": HEAD, "rows": [ROW, ["Tidak ada data"]]})
 check("parse tabel: 1 baris, baris pesan dilewati", len(hasil), 1)
 check("parse kolom lewat judul", (hasil[0].idsubsls, hasil[0].mode, hasil[0].petugas, hasil[0].keterangan),
-      ("5108060003000402", "CAPI", "erlinaw26@gmail.com", "Pengawas"))
+      ("5108060003000402", "CAPI", "pml.contoh@gmail.com", "Pengawas"))
 try:
     baris_dari_tabel({"head": [h for h in HEAD if h != "Mode"], "rows": []})
     check("kolom Mode disembunyikan -> berhenti", "tidak berhenti", "KOLOM_TIDAK_ADA")
@@ -113,17 +115,17 @@ check("daftar kode: SATU target per kode, urutan list dipertahankan",
 check("daftar kode: ganda dilaporkan", dk_ganda, [(4, f"{S} - UMK - 4")])
 check("daftar kode: 16 digit tanpa pola kode dilaporkan", [x[0] for x in dk_tidak], [5, 6])
 # Bentuk nyata dari list user & tabel fasih-sm (2026-09-15)
-check("kode nama keluarga dgn '/'", normalisasi_kode("5108060029000102 - I KETUT REDIKA / I KOMANG AGUS SETIAWAN - 46"),
-      "5108060029000102 - I KETUT REDIKA / I KOMANG AGUS SETIAWAN - 46")
-check("kode nama diakhiri '/'", normalisasi_kode("5108070005000601 - WAYAN DERAWA / - 21"),
-      "5108070005000601 - WAYAN DERAWA / - 21")
+check("kode nama keluarga dgn '/'", normalisasi_kode("5108060029000102 - I KETUT CONTOH / I KOMANG AGUS CONTOH - 46"),
+      "5108060029000102 - I KETUT CONTOH / I KOMANG AGUS CONTOH - 46")
+check("kode nama diakhiri '/'", normalisasi_kode("5108070005000601 - WAYAN CONTOH / - 21"),
+      "5108070005000601 - WAYAN CONTOH / - 21")
 check("kode nama berangka", normalisasi_kode("5108020014000104 - MUH UMAR FARIDL / 1 - 48"),
       "5108020014000104 - MUH UMAR FARIDL / 1 - 48")
 check("kode nama ber-apostrof & titik", normalisasi_kode(f"{S} - WR. MAK'E (BU TUT) - 9"), f"{S} - WR. MAK'E (BU TUT) - 9")
 check("sel tabel berakhiran '/ - 81119'", normalisasi_kode("5108060029000102 - BANGUNAN KOSONG - 6 / - 81119"),
       "5108060029000102 - BANGUNAN KOSONG - 6")
-check("sel tabel berakhiran '/ - 0'", normalisasi_kode("5108060029000102 - I KADEK RIKI SAPUTRA / KETUT ARINI - 46 / - 0"),
-      "5108060029000102 - I KADEK RIKI SAPUTRA / KETUT ARINI - 46")
+check("sel tabel berakhiran '/ - 0'", normalisasi_kode("5108060029000102 - I KADEK RIKI CONTOH / KETUT CONTOH - 46 / - 0"),
+      "5108060029000102 - I KADEK RIKI CONTOH / KETUT CONTOH - 46")
 check("kode dari xlsx (tab + nama)", normalisasi_kode(f"{S} - DTSEN - 44\tNAMA"), f"{S} - DTSEN - 44")
 
 # Pencarian memakai KODE itu sendiri; hasil pencarian "…- UMK - 4" bisa ikut memuat "- 41", "- 40", dst.

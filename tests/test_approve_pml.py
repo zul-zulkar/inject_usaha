@@ -5,6 +5,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 import tempfile
 from pathlib import Path
 
@@ -17,31 +18,31 @@ from approve_pml.approve_pml import (ST_OK, ST_SIAP, ST_SUDAH, ST_TANPA_AKSES, a
 U = "https://fasih-web.bps.go.id/survey/s/p/{}/entry"
 
 
-def detail(alias, created="wisada9@mail.com", updated="wisada9@mail.com"):
+def detail(alias, created="ppl.contoh@mail.com", updated="ppl.contoh@mail.com"):
     # Bentuk nyata: data.data adalah JSON STRING (respons get-by-id-with-data 2026-09-15).
     return {"assignment_status_alias": alias, "data1": "X",
             "data": json.dumps({"createdBy": created, "updatedBy": updated, "answers": []})}
 
 
 def test_nilai_dokumen():
-    assert nilai_dokumen(detail("SUBMITTED BY Pencacah"), "wisada9@mail.com") == (ST_SIAP, "SUBMITTED BY Pencacah")
-    assert nilai_dokumen(detail("SUBMITTED BY Pencacah"), "WISADA9@mail.com")[0] == ST_SIAP
-    assert nilai_dokumen(detail("APPROVED BY Pengawas"), "wisada9@mail.com")[0] == ST_SUDAH
-    assert nilai_dokumen(detail("DRAFT"), "wisada9@mail.com")[0] == "SKIP_STATUS_DRAFT"
-    assert nilai_dokumen(detail("REJECTED BY Pengawas"), "wisada9@mail.com")[0] == "SKIP_STATUS_REJECTED_BY_PENGAWAS"
+    assert nilai_dokumen(detail("SUBMITTED BY Pencacah"), "ppl.contoh@mail.com") == (ST_SIAP, "SUBMITTED BY Pencacah")
+    assert nilai_dokumen(detail("SUBMITTED BY Pencacah"), "PPL.CONTOH@mail.com")[0] == ST_SIAP
+    assert nilai_dokumen(detail("APPROVED BY Pengawas"), "ppl.contoh@mail.com")[0] == ST_SUDAH
+    assert nilai_dokumen(detail("DRAFT"), "ppl.contoh@mail.com")[0] == "SKIP_STATUS_DRAFT"
+    assert nilai_dokumen(detail("REJECTED BY Pengawas"), "ppl.contoh@mail.com")[0] == "SKIP_STATUS_REJECTED_BY_PENGAWAS"
     # Dokumen PPL lain di subsls yang sama TIDAK boleh ikut di-approve.
-    k, pesan = nilai_dokumen(detail("SUBMITTED BY Pencacah", "lain@gmail.com", "lain@gmail.com"), "wisada9@mail.com")
+    k, pesan = nilai_dokumen(detail("SUBMITTED BY Pencacah", "lain@gmail.com", "lain@gmail.com"), "ppl.contoh@mail.com")
     assert k == "SKIP_BUKAN_PPL" and "lain@gmail.com" in pesan
     # updatedBy saja cukup (createdBy bisa akun lain kalau dokumen dibuat ulang).
-    assert nilai_dokumen(detail("SUBMITTED BY Pencacah", "x@y.z", "wisada9@mail.com"), "wisada9@mail.com")[0] == ST_SIAP
-    assert nilai_dokumen(None, "wisada9@mail.com")[0] == "SKIP_DETAIL_TIDAK_TERBACA"
+    assert nilai_dokumen(detail("SUBMITTED BY Pencacah", "x@y.z", "ppl.contoh@mail.com"), "ppl.contoh@mail.com")[0] == ST_SIAP
+    assert nilai_dokumen(None, "ppl.contoh@mail.com")[0] == "SKIP_DETAIL_TIDAK_TERBACA"
     # data rusak -> tidak ada petugas -> bukan PPL
     assert nilai_dokumen({"assignment_status_alias": "SUBMITTED BY Pencacah", "data": "{rusak"},
-                         "wisada9@mail.com")[0] == "SKIP_BUKAN_PPL"
+                         "ppl.contoh@mail.com")[0] == "SKIP_BUKAN_PPL"
 
 
 def test_penolakan_akses():
-    # Bentuk nyata 2026-09-15 (akun munimaha, dokumen DTSEN) & 403 kosong (akun dicky).
+    # Bentuk nyata 2026-09-15 (akun pml.satu, dokumen DTSEN) & 403 kosong (akun pml.delapan).
     t23 = '{"success":false,"message":"Anda tidak memiliki akses ke dalam survey","data":null,"errorCode":23}'
     assert "tidak memiliki akses" in penolakan_akses(200, t23)
     assert penolakan_akses(403, "").startswith("HTTP 403")
@@ -58,23 +59,23 @@ def test_petugas_dokumen_dict():
 
 def test_dokumen_audit_ppl():
     audit = [
-        {"akun_login": "wisada9@mail.com", "dokumen_url": U.format("d1"), "status": "DOKUMEN_DIBUAT", "baris": "1"},
-        {"akun_login": "wisada9@mail.com", "dokumen_url": U.format("d1"), "status": "TERKIRIM_TERVERIFIKASI", "baris": "1"},
-        {"akun_login": "megakartika@gmail.com", "dokumen_url": U.format("d2"), "status": "TERKIRIM_TERVERIFIKASI"},
-        {"akun_login": "wisada9@mail.com", "dokumen_url": U.format("d3"), "status": "DOKUMEN_DIBUAT"},
-        {"akun_login": "wisada9@mail.com", "dokumen_url": U.format("d3"), "status": "DOKUMEN_DIHAPUS"},
-        {"akun_login": "wisada9@mail.com", "dokumen_url": "", "status": "ERROR_LOGIN"},
+        {"akun_login": "ppl.contoh@mail.com", "dokumen_url": U.format("d1"), "status": "DOKUMEN_DIBUAT", "baris": "1"},
+        {"akun_login": "ppl.contoh@mail.com", "dokumen_url": U.format("d1"), "status": "TERKIRIM_TERVERIFIKASI", "baris": "1"},
+        {"akun_login": "ppl.kedua@gmail.com", "dokumen_url": U.format("d2"), "status": "TERKIRIM_TERVERIFIKASI"},
+        {"akun_login": "ppl.contoh@mail.com", "dokumen_url": U.format("d3"), "status": "DOKUMEN_DIBUAT"},
+        {"akun_login": "ppl.contoh@mail.com", "dokumen_url": U.format("d3"), "status": "DOKUMEN_DIHAPUS"},
+        {"akun_login": "ppl.contoh@mail.com", "dokumen_url": "", "status": "ERROR_LOGIN"},
     ]
-    hasil = dokumen_audit_ppl(audit, "WISADA9@mail.com")
+    hasil = dokumen_audit_ppl(audit, "PPL.CONTOH@mail.com")
     assert list(hasil) == ["d1"]
     assert hasil["d1"]["status"] == "TERKIRIM_TERVERIFIKASI"
 
 
 def test_subsls_audit_ppl():
-    audit = [{"akun_login": "wisada9@mail.com", "idsubsls_input": "5108010010000105"},
-             {"akun_login": "wisada9@mail.com", "idsubsls_input": ""},
+    audit = [{"akun_login": "ppl.contoh@mail.com", "idsubsls_input": "5108010010000105"},
+             {"akun_login": "ppl.contoh@mail.com", "idsubsls_input": ""},
              {"akun_login": "lain@mail.com", "idsubsls_input": "5108060014000403"}]
-    assert subsls_audit_ppl(audit, "wisada9@mail.com") == ["5108010010000105"]
+    assert subsls_audit_ppl(audit, "ppl.contoh@mail.com") == ["5108010010000105"]
 
 
 def test_gabung_target():
@@ -152,7 +153,7 @@ def test_nilai_dokumen_tanpa_cek_ppl():
     assert nilai_dokumen(detail("REJECTED BY Pengawas"), None)[0] == "SKIP_STATUS_REJECTED_BY_PENGAWAS"
 
 
-def sel_sm(kode, nama="USAHA X", status="submitted by pencacah", mode="PAPI", pml="munimaha234@gmail.com",
+def sel_sm(kode, nama="USAHA X", status="submitted by pencacah", mode="PAPI", pml="pml.satu@gmail.com",
            email_usaha="-"):
     # Bentuk nyata baris submit.xlsx 2026-09-15 (16 sel; header bergeser): kolom 6 = Email USAHA.
     return [None, kode, nama, "-", "36 /", "-", email_usaha, "-", 1, 81119, "-", "-", status, mode, pml, "-"]
@@ -166,7 +167,7 @@ HEADER_SM = [None, "Nama Keluarga/Bangunan/Usaha", "Alamat Prelist", "Nomor Urut
 def test_target_dari_daftar():
     rows = [
         HEADER_SM,
-        sel_sm("5108060005000103 - BAGJA GORDEN - 36 / - - - 1 - 81119", pml="GustiNgurah@gmail.com"),
+        sel_sm("5108060005000103 - BAGJA GORDEN - 36 / - - - 1 - 81119", pml="Pml.Tiga@gmail.com"),
         sel_sm("5108070005000602 - UMK - 8", email_usaha="usaha@gmail.com"),   # email usaha BUKAN petugas
         [None] * 16,                                                           # baris kosong: diam
         sel_sm("5108060005000405 - UMK - 20", status="rejected by pengawas", pml="arya@gmail.com"),
@@ -179,8 +180,8 @@ def test_target_dari_daftar():
     target, masalah = target_dari_daftar(rows)
     assert [t["kode"] for t in target] == ["5108060005000103 - BAGJA GORDEN - 36 / - - - 1 - 81119",
                                            "5108070005000602 - UMK - 8"]
-    assert target[0]["akun_pml"] == "gustingurah@gmail.com" and target[0]["baris"] == "2"
-    assert target[1]["akun_pml"] == "munimaha234@gmail.com" and target[1]["nama"] == "USAHA X"
+    assert target[0]["akun_pml"] == "pml.tiga@gmail.com" and target[0]["baris"] == "2"
+    assert target[1]["akun_pml"] == "pml.satu@gmail.com" and target[1]["nama"] == "USAHA X"
     assert target[0]["akun_ppl"] is None and target[0]["id"] == "" and target[0]["kunci"] == target[0]["kode"]
     assert len(masalah) == 4, masalah
     assert "rejected" in masalah[0] and "CAPI" in masalah[1] and "bukan email" in masalah[2] and "UMK - 32" in masalah[3]
@@ -190,7 +191,7 @@ def test_cocokkan_list():
     target, _ = target_dari_daftar([sel_sm("5108070005000602 - UMK - 8"), sel_sm("5108070005000602 - UMK - 9"),
                                     sel_sm("5108070005000602 - UMK - 10"), sel_sm("5108070005000602 - UMK - 11"),
                                     sel_sm("5108070005000602 - UMK - 12"), sel_sm("5108070005000602 - UMK - 13")])
-    pml = "munimaha234@gmail.com"
+    pml = "pml.satu@gmail.com"
 
     def item(i, kode, pemegang=pml, mode=("PAPI",), alias="SUBMITTED BY Pencacah"):
         return {"id": i, "codeIdentity": kode, "currentUserUsername": pemegang, "mode": list(mode),
@@ -276,18 +277,18 @@ def _ok(d):
 def test_approve_satu_tanpa_membuka_dokumen():
     # Regresi merge 6338cad: `info` hilang -> NameError di SETIAP dokumen.
     t = {"id": "d1", "baris": "2", "kunci": "", "nama": "", "sumber": "rencana", "akun_pml": "p@x.com",
-         "akun_ppl": "wisada9@mail.com"}
+         "akun_ppl": "ppl.contoh@mail.com"}
     t23 = '{"success":false,"message":"Anda tidak memiliki akses ke dalam survey","data":null,"errorCode":23}'
     s = _SesiTiruan([{"status": 200, "text": t23}])
-    r = approve_satu(s, t, "periode", "wisada9@mail.com", eksekusi=False)
+    r = approve_satu(s, t, "periode", "ppl.contoh@mail.com", eksekusi=False)
     assert r["status"] == ST_TANPA_AKSES and "tidak memiliki akses" in r["pesan"]
     assert s.page.goto_ke == []                                   # penolakan: dokumen tidak dibuka
     s = _SesiTiruan([_ok(detail("APPROVED BY Pengawas"))])
-    r = approve_satu(s, t, "periode", "wisada9@mail.com", eksekusi=False)
+    r = approve_satu(s, t, "periode", "ppl.contoh@mail.com", eksekusi=False)
     assert r["status"] == ST_SUDAH and r["nama"] == "X"
     # Detail kosong 4x (halaman redirect) -> dokumen dibuka SEKALI lalu dibaca ulang (8565f61).
     s = _SesiTiruan([{"status": 0, "text": "evaluate gagal"}] * 4 + [_ok(detail("SUBMITTED BY Pencacah", "l@x.com", "l@x.com"))])
-    r = approve_satu(s, t, "periode", "wisada9@mail.com", eksekusi=False)
+    r = approve_satu(s, t, "periode", "ppl.contoh@mail.com", eksekusi=False)
     assert r["status"] == "SKIP_BUKAN_PPL" and len(s.page.goto_ke) == 1
     # --daftar (akun_ppl None): petugas dokumen dicatat di kolom akun_ppl audit.
     s = _SesiTiruan([_ok(detail("REJECTED BY Pengawas", "a@x.com", "b@x.com"))])

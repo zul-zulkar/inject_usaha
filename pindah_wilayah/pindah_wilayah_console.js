@@ -96,6 +96,8 @@
   const TARGET = /*__TARGET__*/[];
   // idsubsls tempat dokumen disuntik (idsubsls_input audit / --subsls-asal)
   const ASAL = /*__ASAL__*/[];
+  // Kode kabupaten 4 digit (awalan idsubsls) — disuntik dari inti/config.py (KODE_KAB).
+  const KODE_KAB = /*__KODE_KAB__*/"5108";
 
   // -------------------------------------------------------------------------
   // Logika murni — diuji: node tests/test_pindah_wilayah_console.js
@@ -112,7 +114,7 @@
   // analytic tepat setelah 429 (run user 2026-09-15) — dulu dianggap RESPONS_TIDAK_DIKENAL & menghentikan petakan.
   const STATUS_SEMENTARA = new Set(["RATE_LIMIT", "SERVER_SIBUK"]);
   const HTTP_SIBUK = new Set([0, 502, 503, 504]); // 0 = fetch gagal (jaringan/VPN putus sesaat)
-  const KODE_VALID = /^5108\d{12}$/;
+  const KODE_VALID = new RegExp(`^${KODE_KAB}\\d{12}$`);
   const POLA_PRELIST = / - [A-Z]+ - \d+$/;
   // Panjang kode wilayah kumulatif per level (region.level_1..level_6.full_code detail asli):
   // provinsi 51 | kabupaten 5108 | kecamatan 5108060 | desa 5108060002 | SLS 51080600020002 | subsls 5108060002000203

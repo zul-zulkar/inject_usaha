@@ -24,7 +24,7 @@ Yang dilaporkan per baris (pencocokan lewat nama dokumen, di-UPPERCASE form):
 
 Contoh:
     python input_gabungan/sinkron_list.py --sumber Agenda1-1.xlsx --sumber Agenda.xlsx \
-        --akun-tunggal megakartika.susila78@gmail.com --subsls-tunggal 5108060014000403
+        --akun-tunggal ppl.kedua@gmail.com --subsls-tunggal 5108060014000403
     (tambahkan --tulis setelah laporan ditinjau; --dari-json utk memakai hasil unduhan terakhir)
 """
 from __future__ import annotations

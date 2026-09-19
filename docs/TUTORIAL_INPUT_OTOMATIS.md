@@ -6,7 +6,7 @@ Panduan langkah-demi-langkah untuk mengisi & mengirim dokumen SE2026-P dari shee
 > Ini versi **sekarang** (sumber `Agenda.xlsx`). Untuk backlog lama (LKpenyalinan)
 > lihat `docs/PANDUAN_INPUT_OTOMATIS.md`. Referensi padat alur ini: `docs/PANDUAN_GABUNGAN.md`.
 
-Semua perintah **dijalankan DARI ROOT proyek** (`D:\innovations\split_usaha`),
+Semua perintah **dijalankan DARI ROOT proyek** (folder hasil clone, mis. `D:\innovations\split_usaha`),
 bukan dari dalam folder. Contoh benar: `python input_gabungan/main_gabungan.py ...`.
 
 ---
@@ -14,7 +14,7 @@ bukan dari dalam folder. Contoh benar: `python input_gabungan/main_gabungan.py .
 ## Gambaran besar — 4 tahap
 
 ```
-[A] Reset password mitra     -> semua PPL berpassword "Mitra5108" = FIXED_PASSWORD
+[A] Reset password mitra     -> semua PPL berpassword sama = FIXED_PASSWORD
         |                         (supaya skrip bisa login sbg tiap PPL)
 [B] Ganti moda CAPI -> PAPI  -> tiap subsls punya assignment, fasih-web bisa "+Dokumen Baru"
         |
@@ -38,17 +38,22 @@ sesi sebelumnya, langsung ke tahap **C**.
    playwright install chromium
    ```
 3. **Google Chrome biasa** (untuk tahap A & B yang lewat DevTools Console).
-4. **Download sheet**: buka Google Sheet **Agenda** → tab **gabungan** →
+4. **Konfigurasi lokal** (sekali): salin `templates/config_lokal.contoh.py` ke `inti/config_lokal.py`,
+   lalu isi `FIXED_PASSWORD`, `KODE_KAB`, dan (alur satu subsls) `GABUNGAN_SUBSLS_TUNGGAL` /
+   `GABUNGAN_AKUN_TUNGGAL`. File itu tidak ikut git — aman untuk password.
+5. **Download sheet**: buka Google Sheet **Agenda** → tab **gabungan** →
    `File > Download > Microsoft Excel (.xlsx)` → simpan sebagai **`Agenda.xlsx`** di root proyek.
+   Belum punya sheet? Mulai dari templat `templates/Agenda.contoh.xlsx` (judul kolom persis, dropdown opsi,
+   tab `petunjuk`); unggah ke Google Sheets kalau ingin diisi bersama.
    > Setiap kali sheet diperbaiki, **download ulang** dan timpa `Agenda.xlsx`.
    >
 
 ---
 
-## Tahap A — Reset password mitra jadi `Mitra5108`
+## Tahap A — Reset password mitra jadi `FIXED_PASSWORD`
 
 **Kenapa perlu:** skrip input login ke fasih-web sebagai tiap PPL memakai satu
-password tetap `FIXED_PASSWORD = "Mitra5108"` (lihat `inti/config.py`). Reset ini
+password tetap `FIXED_PASSWORD` (isi di `inti/config_lokal.py`, lihat `templates/config_lokal.contoh.py`). Reset ini
 menyeragamkan password semua PPL ke nilai itu. **Lewati kalau sudah dilakukan.**
 
 manajemen-mitra mendeteksi browser otomatis → jalurnya **Console Chrome biasa**.
@@ -60,7 +65,7 @@ python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --console
 1. Chrome → login manajemen-mitra → buka **`/mitra/akun-mitra`** (JANGAN dashboard).
 2. F12 → **Console** → tempel **seluruh** isi `reset_mitra_console.siap.js` → Enter
    (pertama kali Chrome minta ketik: `allow pasting`).
-3. Uji dulu 1 akun, verifikasi mitra itu bisa login dengan `Mitra5108`:
+3. Uji dulu 1 akun, verifikasi mitra itu bisa login dengan password baru:
    ```js
    await resetMitra.jalankan({mode: "otomatis", limit: 1, sayaSudahMelihatDialog: true})
    ```
@@ -129,7 +134,7 @@ opsi 11a yang tidak ada di form). Setelah memperbaiki sheet: download ulang → 
 ## Tahap D — Input ke fasih-web
 
 > **Butuh VPN aktif.** Skrip membuka Chrome (Playwright), login sebagai PPL baris
-> itu (password `Mitra5108`), membuat/menemukan dokumen, mengisi, dan **berhenti
+> itu (password `FIXED_PASSWORD`), membuat/menemukan dokumen, mengisi, dan **berhenti
 > sebelum Kirim** kecuali kamu memberi `--submit`.
 
 ### D1. Dry-run SATU baris, lalu tinjau di browser
@@ -191,7 +196,7 @@ di D1/D2 dan yakin benar.
 | `SKIP_GALAT_PERLU_REVIEW`                                                        | ada GALAT selain Nomor Urut Bangunan → baca`error_message`                         |
 | `SKIP_VARIAN_BULANAN`                                                            | form minta rincian 30–33 (usaha baru beroperasi) → isi manual                       |
 | `SKIP_26C_TIDAK_DIRENDER` / `SKIP_10B_TIDAK_DIRENDER` / `SKIP_13DE_DIRENDER` | percabangan form di luar isi sheet → isi manual                                      |
-| `ERROR_LOGIN`                                                                    | cek VPN & password (harus`Mitra5108` → ulang **Tahap A**)                    |
+| `ERROR_LOGIN`                                                                    | cek VPN & password (harus = `FIXED_PASSWORD` → ulang **Tahap A**)                    |
 | `ERROR_AKUN_SALAH`                                                               | sesi login nyangkut ke akun lain —**jangan kirim** baris ini                   |
 | `ERROR_FIELD_NOT_FOUND`                                                          | selector meleset → ulangi dengan`--dump-dom`, lapor                                |
 

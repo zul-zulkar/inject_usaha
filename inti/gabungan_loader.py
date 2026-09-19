@@ -273,19 +273,19 @@ NILAI_TETAP: dict[str, tuple] = {
 def format_nama_usaha(nama: str, pemilik: str) -> str:
     """Penamaan usaha alur Agenda: "<nama_usaha> (<nama_pemilik>)" —
     ketetapan user 2026-09-14, sama dgn pola 3 record manual backlog lama
-    (mis. "WARUNG SEMBAKO (KETUT SUDANING)"). Pemilik = kolom 12a.
+    (mis. "WARUNG SEMBAKO (KETUT CONTOH)"). Pemilik = kolom 12a.
 
     Kalau nama pemilik SUDAH tertulis di nama usaha, yang di luar kurung
     dihapus & hanya yang di dalam kurung dicetak (ketetapan user 2026-09-14,
-    supaya muat batas 50 karakter 8b): "PANGKALAN GAS JAMALUDIN" + "JAMALUDIN"
-    -> "PANGKALAN GAS (JAMALUDIN)". Cocok = nama pemilik UTUH sbg kata
+    supaya muat batas 50 karakter 8b): "PANGKALAN GAS BUDIMAN" + "BUDIMAN"
+    -> "PANGKALAN GAS (BUDIMAN)". Cocok = nama pemilik UTUH sbg kata
     (bukan bagian kata lain), tanpa beda huruf besar.
 
     Hasilnya SELALU tepat satu pasang kurung, di belakang (ketetapan user
     2026-09-14): kurung di dalam nama/pemilik dibuang, isinya dipertahankan.
-    Kasus nyata baris 393 — 12a "I Nyoman Nama Putra Sp.P (K" (kurung tak
-    tertutup) — dulu jadi "PRAKTIK DOKTER ) (I Nyoman Nama Putra Sp.P (K)",
-    kini "PRAKTIK DOKTER (I Nyoman Nama Putra Sp.P K)".
+    Kasus nyata baris 393 — 12a "I Nyoman Contoh Putra Sp.P (K" (kurung tak
+    tertutup) — dulu jadi "PRAKTIK DOKTER ) (I Nyoman Contoh Putra Sp.P (K)",
+    kini "PRAKTIK DOKTER (I Nyoman Contoh Putra Sp.P K)".
 
     Dikembalikan apa adanya kalau 12a kosong (baris itu sudah di-skip)."""
     nama = " ".join(nama.split())

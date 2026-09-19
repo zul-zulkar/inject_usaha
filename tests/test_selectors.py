@@ -18,6 +18,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 from playwright.sync_api import sync_playwright
 from inti.config import L, SEL
 
@@ -39,7 +41,7 @@ with sync_playwright() as p:
     vis = lambda loc: loc.locator("visible=true")
 
     # --- inti bug: teks dirender 2x, satu hidden ---
-    all_txt = page.get_by_text("Toko Kembarsari Keperluan Rumah", exact=False)
+    all_txt = page.get_by_text("Toko Contoh Keperluan Rumah", exact=False)
     check("get_by_text tanpa filter (count termasuk hidden)", all_txt.count() >= 2, True)
     check("first tanpa filter -> elemen HIDDEN (inilah penyebab timeout)",
           all_txt.first.is_visible(), False)

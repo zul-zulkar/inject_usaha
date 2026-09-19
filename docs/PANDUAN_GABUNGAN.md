@@ -5,6 +5,8 @@ Beda dengan backlog LKpenyalinan: setiap kolom sudah berupa **jawaban final per
 rincian form**. Skrip mengetik apa adanya: tidak ada 10%, tidak ada file export,
 tidak ada aturan pekerja ≤3, dan tidak ada override aset/luas tanah = 0.
 
+**Templat kosong:** `templates/Agenda.contoh.xlsx` — tab `gabungan` berjudul kolom persis yang dibaca skrip, dengan dropdown opsi form, tab `petunjuk` (penjelasan tiap kolom) dan tab `contoh` (satu baris fiktif). Salin ke root proyek sebagai `Agenda.xlsx`, isi tab `gabungan`, lalu jalankan `--cek`.
+
 Aturan keselamatan di `CLAUDE.md` tetap berlaku penuh: default dry-run, `--submit`
 wajib ketik `YA`, dan Nomor Urut Bangunan tidak disentuh.
 
@@ -16,7 +18,7 @@ Sebagian subsls sudah ditandai selesai sehingga tidak bisa ditambah assignment. 
 **semua dokumen dibuat di satu subsls oleh satu akun PPL**, lalu wilayahnya dipindah
 belakangan lewat *ubah alokasi wilayah* (otomatisasinya dibuat setelah semua terinput).
 
-- Isi `GABUNGAN_SUBSLS_TUNGGAL` & `GABUNGAN_AKUN_TUNGGAL` di `inti/config.py`, atau beri
+- Isi `GABUNGAN_SUBSLS_TUNGGAL` & `GABUNGAN_AKUN_TUNGGAL` di `inti/config_lokal.py` (salin dari `templates/config_lokal.contoh.py`), atau beri
   `--subsls-tunggal 51080… --akun-tunggal ppl@gmail.com` di setiap perintah. Tanpa keduanya skrip
   menolak jalan (alur lama: `--per-baris`).
 - Langkah 0 di bawah cukup untuk **subsls tunggal itu saja**, dan assignment PAPI-nya harus
@@ -126,7 +128,7 @@ tetap benar walaupun sheet diurutkan ulang.
 
 **Penamaan usaha** (ketetapan 2026-09-14): nama dokumen ("+ Dokumen Baru"), nama di
 SE2026-P, dan 8b diketik sebagai `<nama usaha> (<12a nama pengusaha>)`, mis.
-`PANGKALAN GAS I NYOMAN SETIAWAN (I NYOMAN SETIAWAN)`. Kalau membuat dokumen manual,
+`PANGKALAN GAS I NYOMAN CONTOH (I NYOMAN CONTOH)`. Kalau membuat dokumen manual,
 pakai nama persis kolom `nama_dokumen` di `cek_gabungan.csv`. `kunci` tetap dihitung
 dari nama mentah sheet.
 

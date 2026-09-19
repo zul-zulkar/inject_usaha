@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 from inti.data_loader import (
     BacklogRow, rencana_pekerja, rencana_pendapatan, rencana_pengeluaran,

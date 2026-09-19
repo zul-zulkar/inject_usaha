@@ -23,7 +23,7 @@ from playwright.sync_api import Page, TimeoutError as PWTimeout
 
 from inti.config import (
     DEFAULT_TIMEOUT_MS, FASIH_WEB_BASE, FASIH_WEB_LOGIN_URL, FIXED_PASSWORD,
-    DK, L, NAV_RETRY_ON_TRANSIENT_ERROR, SEL, SURVEY_ID, WILAYAH_BY_IDSUBSLS,
+    DK, L, NAV_RETRY_ON_TRANSIENT_ERROR, PESAN_PASSWORD_KOSONG, SEL, SURVEY_ID, WILAYAH_BY_IDSUBSLS,
 )
 
 SCREENSHOT_DIR = Path("./log_screenshots")
@@ -492,7 +492,11 @@ class FasihWebSession:
         Kalau sesi SSO lama ternyata masih hidup sbg akun lain, sesi itu
         diputus otomatis lalu login diulang sekali dgn kredensial penuh.
         Kalau tetap tidak cocok -> RuntimeError (BUKAN lanjut diam-diam).
+        Password kosong (belum diisi di inti/config_lokal.py) -> SystemExit:
+        seluruh run berhenti, bukan dicatat sbg gagal login per baris.
         """
+        if not password:
+            raise SystemExit(PESAN_PASSWORD_KOSONG)
         self._log(f"Login sbg {email} (percobaan {_percobaan}) ...")
         self.page.goto(FASIH_WEB_LOGIN_URL, wait_until="domcontentloaded")
         sso_loc = self.page.get_by_text(L["sso_eksternal_btn"], exact=False)

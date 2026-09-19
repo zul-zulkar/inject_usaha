@@ -133,7 +133,7 @@
   }
 
   // Kode identitas = teks kolom "Kode Identitas" APA ADANYA: 16 digit idsubsls, "-",
-  // lalu apa pun ("5108060029000101 - I KADEK WIRIANA / NI KADEK SUTAMI - 19 / - 0 - 2. Tidak").
+  // lalu apa pun ("5108060029000101 - I KADEK CONTOH / NI KADEK CONTOH - 19 / - 0 - 2. Tidak").
   // Terbukti 2026-09-15: kolom code_identity list user = teks sel tabel fasih-sm
   // (10/10 cocok). Jadi TIDAK diurai/dipotong — dicari & dicocokkan utuh
   // (spasi dirapikan, huruf besar/kecil diabaikan).

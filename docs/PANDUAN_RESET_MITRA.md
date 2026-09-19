@@ -16,7 +16,7 @@ Reset password **akun PPL** yang terdaftar di `Agenda.xlsx` (tab gabungan) lewat
 > **"Reset PW" per baris**. Klik "Reset PW" membuka panel **2 field** (temuan user
 > 2026-09-14): **field 1 = password baru**, **field 2 = email yang SUDAH terisi (jangan
 > disentuh)**, lalu tombol **"Reset Password"**. Skrip mengisi HANYA field non-email
-> dengan **`Mitra5108`** (ketetapan user; sama dgn `FIXED_PASSWORD` — jadi semua mitra
+> dengan **password baru = `FIXED_PASSWORD`** (dari `inti/config_lokal.py`, disuntik `--console` — jadi semua mitra
 > tahu passwordnya, tidak terkunci), lalu klik "Reset Password". Ubah nilai lewat
 > `jalankan({passwordBaru: "..."})` atau `PASSWORD_BARU` di skrip.
 >
@@ -24,7 +24,7 @@ Reset password **akun PPL** yang terdaftar di `Agenda.xlsx` (tab gabungan) lewat
 > modal "Pilih Akun"). Skrip mengisi field non-email & menekan "Reset Password"; kalau
 > bentuknya di luar dugaan ia BERHENTI (`FIELD_PASSWORD_TIDAK_ADA`/`TOMBOL_KONFIRMASI_AMBIGU`)
 > daripada mengisi field salah. Karena itu **WAJIB mulai `otomatis` dengan `limit: 1`**,
-> lalu pastikan mitra itu bisa login dengan `Mitra5108`, baru dibesarkan. Kalau berhenti,
+> lalu pastikan mitra itu bisa login dengan password baru itu, baru dibesarkan. Kalau berhenti,
 > buka satu dialog Reset PW lalu jalankan `resetMitra.petakanDialog()` dan kirim outputnya.
 >
 > Terverifikasi 2026-09-14 (limit:1 → `DIRESET_TERVERIFIKASI`): tombol "Reset Password"
@@ -62,13 +62,13 @@ python reset_mitra/reset_mitra.py --sumber Agenda.xlsx --console   # tulis reset
 
    Tinjau statusnya: `COCOK` (aman), `COCOK_TEKS` (email cuma muncul di teks — periksa),
    `GANDA`/`TIDAK_KETEMU` (jangan direset; cek manual).
-5. **Otomatis SATU akun dulu** (wajib) — skrip klik "Reset PW", isi `Mitra5108`, simpan:
+5. **Otomatis SATU akun dulu** (wajib) — skrip klik "Reset PW", isi password baru (`FIXED_PASSWORD`), simpan:
 
    ```js
    await resetMitra.jalankan({mode: "otomatis", limit: 1, sayaSudahMelihatDialog: true})
    ```
 
-   Lalu **buka login mitra & pastikan `Mitra5108` bisa masuk** untuk akun itu. Kalau ya:
+   Lalu **buka login mitra & pastikan password baru bisa masuk** untuk akun itu. Kalau ya:
 6. **Otomatis batch** — perbesar bertahap (aman diputus/disambung, yang beres dilewati):
 
    ```js

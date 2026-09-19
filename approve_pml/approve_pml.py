@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 approve_pml.py — Approve (oleh PML/Pengawas) dokumen SE2026 yang sudah dikirim PPL
-lewat main_gabungan.py. Dipetakan langsung 2026-09-15 (akun PML misdiantosgr, PPL wisada9).
+lewat main_gabungan.py. Dipetakan langsung 2026-09-15 (akun PML pml.dua, PPL ppl.contoh).
 
 YANG SUDAH DILIHAT DI fasih-web (akun Pengawas)
 ----------------------------------------------
@@ -13,7 +13,7 @@ YANG SUDAH DILIHAT DI fasih-web (akun Pengawas)
 - Status per dokumen: GET /api/assignment-general/api/assignment/web-entry/get-by-id-with-data?id=
   -> data.assignment_status_alias ("SUBMITTED BY Pencacah" / "APPROVED BY Pengawas") dan
   data.data (JSON string) berisi createdBy/updatedBy = email PPL pembuat.
-- List PENDATAAN akun PML berisi ribuan dokumen (misdiantosgr: 4.870) -> API datatable dgn
+- List PENDATAAN akun PML berisi ribuan dokumen (pml.dua: 4.870) -> API datatable dgn
   length 100 membalas 504. Karena itu target TIDAK diambil dari list penuh, melainkan dari
   audit_log_gabungan.csv (+ opsional pencarian list per subsls, length kecil).
 
@@ -27,7 +27,7 @@ Dialog konfirmasi yang tidak muncul / tombol ambigu -> batch berhenti.
 LANGKAH — satu PML, target dari audit_log_gabungan.csv
 -----------------------------------------------------
 1. Petakan / cek (READ-ONLY, tanpa klik): status semua target lewat API
-       python approve_pml/approve_pml.py --akun-pml misdiantosgr@gmail.com --akun-ppl wisada9@mail.com
+       python approve_pml/approve_pml.py --akun-pml pml.dua@gmail.com --akun-ppl ppl.contoh@mail.com
 2. Eksekusi 1 dokumen dulu, cek hasilnya:
        python approve_pml/approve_pml.py --akun-pml ... --akun-ppl ... --eksekusi --limit 1
 3. Sisanya (dokumen yang sudah APPROVED otomatis dilewati):
@@ -66,7 +66,7 @@ akun_ppl audit. Kode yang terakhir APPROVED_TERVERIFIKASI/SUDAH_APPROVED di audi
    --akun-pml / --limit / --abaikan-audit-approve sama dgn --rencana.
 
 Login (sama dgn main_gabungan): tiap PML = browser context BARU (cookie SSO kosong), login
-otomatis dgn FIXED_PASSWORD ("Mitra5108", inti/config.py) — diulang maks 3x utk gangguan
+otomatis dgn FIXED_PASSWORD (inti/config_lokal.py) — diulang maks 3x utk gangguan
 transien, akun salah tidak diulang — lalu akun aktif WAJIB terbaca = PML itu. Selesai satu PML:
 logout + tutup context. Satu PML saja / --login-manual: sesi disimpan di
 .sesi_fasih_web_<akun>.json (.gitignore) & dipakai ulang tanpa logout, supaya run berikutnya
@@ -438,8 +438,8 @@ def append_audit(row: dict):
 # ----------------------------------------------------------------------
 def penolakan_akses(status: int, text: str) -> str:
     """Pesan kalau respons get-by-id-with-data = PENOLAKAN pasti (bukan gangguan transien), '' kalau bukan.
-    Diagnosis 2026-09-15: dokumen rencana SQL Lab (DTSEN/UMK, akun munimaha) -> 200
-    {"success":false,"message":"Anda tidak memiliki akses ke dalam survey","errorCode":23}; akun dicky
+    Diagnosis 2026-09-15: dokumen rencana SQL Lab (DTSEN/UMK, akun pml.satu) -> 200
+    {"success":false,"message":"Anda tidak memiliki akses ke dalam survey","errorCode":23}; akun pml.delapan
     -> 403 kosong utk dokumen yang sama & utk id palsu, padahal dokumen PAPI-nya sendiri 200
     ("mode":["PAPI"]). Web-entry hanya melayani dokumen yang boleh dibuka akun itu (dugaan: mode PAPI)."""
     if status in (401, 403, 404):
@@ -708,7 +708,7 @@ def teks_halaman(sess) -> str:
 
 def buka_dokumen(sess, url: str, doc_id: str, percobaan: int = 3) -> str:
     """Buka URL entry sampai form-engine mount -> '', atau pesan galat setelah `percobaan` kali.
-    Run dicky 2026-09-15: screenshot ERROR_FORM_TIDAK_MOUNT berisi halaman galat fasih-web
+    Run pml.delapan 2026-09-15: screenshot ERROR_FORM_TIDAK_MOUNT berisi halaman galat fasih-web
     "Terjadi Kesalahan (504)" = gangguan server sesaat. Dibuka ulang — aman, PML hanya MEMBACA
     dokumen (aturan keselamatan #2 soal reload menyangkut PPL yang sedang mengisi)."""
     form = sess.page.locator(SEL["form_root"])

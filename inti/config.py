@@ -2,13 +2,21 @@
 config.py — Konfigurasi & konstanta untuk otomatisasi input Usaha Pecahan SE2026.
 
 SEMUA nilai di file ini diringkas dari catatan proyek
-"catatan-usaha-pecahan-se2026.md" (hasil 3x pengisian manual penuh yang
+"docs/catatan usaha pecahan se2026.md" (hasil 3x pengisian manual penuh yang
 sudah terverifikasi sukses terkirim). Kalau ada label field yang ternyata
 tidak ketemu saat dry-run, PALING BESAR KEMUNGKINAN cukup edit string di
-sini saja — logika utama di otomatisasi_se2026.py tidak perlu diubah.
+sini saja — logika utama di file lain tidak perlu diubah.
+
+⚠️ JANGAN menulis rahasia (password, email akun) di file ini — file ini ikut
+git. Nilai milik Anda sendiri (password, akun, kode kabupaten, kodepos &
+wilayah kabupaten Anda, path peta) ditulis di `inti/config_lokal.py`, yang
+TIDAK ikut git. Salin dari `templates/config_lokal.contoh.py`. Semua nama
+di file ini boleh ditimpa di sana (lihat bagian paling bawah).
 """
 
 from __future__ import annotations
+
+import os
 
 # ---------------------------------------------------------------------------
 # URL & kredensial
@@ -19,8 +27,17 @@ from __future__ import annotations
 # 3 dokumen yang berhasil dikirim.
 SURVEY_ID = "a0429e96-51a5-477b-a415-485f9c153004"
 
-# Password SSO eksternal fasih-web — SAMA utk semua akun (dikonfirmasi user).
-FIXED_PASSWORD = "Mitra5108"
+# Password SSO eksternal fasih-web — SAMA utk semua akun petugas (hasil reset
+# password mitra, lihat reset_mitra/). SENGAJA kosong di sini: isi di
+# inti/config_lokal.py atau variabel lingkungan FASIH_PASSWORD. Kosong ->
+# FasihWebSession.login() berhenti dgn pesan yang jelas, tidak mencoba login.
+FIXED_PASSWORD = os.environ.get("FASIH_PASSWORD", "")
+
+# Kode wilayah kabupaten/kota 4 digit (2 digit provinsi + 2 digit kab/kota),
+# awalan setiap idsubsls 16 digit. Dipakai memvalidasi daftar idsubsls di
+# buka_wilayah/, tandai_selesai/, pindah_wilayah/ (Python & template Console).
+# Default = contoh Kab. Buleleng (5108); ganti di config_lokal.py.
+KODE_KAB = "5108"
 
 FASIH_WEB_LOGIN_URL = "https://fasih-web.bps.go.id/login"
 FASIH_WEB_BASE = "https://fasih-web.bps.go.id"
@@ -198,10 +215,11 @@ GABUNGAN_AKUN_TUNGGAL = ""
 # Satu login ±12 jam berisiko sesi SSO kedaluwarsa -> login ulang tiap N baris.
 GABUNGAN_BARIS_PER_SESI = 40
 
-# Peta batas SUBSLS Buleleng (GeoJSON, properti `idsubsls`/`nmkec`/`nmdesa`/`nmsls`,
+# Peta batas SUBSLS kabupaten (GeoJSON, properti `idsubsls`/`nmkec`/`nmdesa`/`nmsls`,
 # periode 2025_1) — dipakai input_gabungan/rencana_ubah_wilayah.py utk memeriksa
-# apakah titik koordinat baris jatuh di subsls tujuan. Di luar repo (±15 MB).
-PETA_SLS_PATH = r"D:\innovations\raw_utp\master\final_sls_5108_2025-1.json"
+# apakah titik koordinat baris jatuh di subsls tujuan. Di luar repo (±15 MB),
+# isi path-nya di config_lokal.py atau lewat --peta.
+PETA_SLS_PATH = os.environ.get("FASIH_PETA_SLS", "")
 
 # 13f "Apa produk utama yang dihasilkan?" WAJIB di form, tapi TIDAK ADA
 # kolomnya di sheet gabungan (maupun sheet asalnya). True = salin teks 13a
@@ -604,6 +622,10 @@ SAVE_DEBOUNCE_MS = 1_500
 NAV_RETRY_ON_TRANSIENT_ERROR = 2  # hanya berlaku pada dokumen 0% progres (lihat catatan kritis)
 
 # ---------------------------------------------------------------------------
+# ⚠️ DUA dict di bawah (KODEPOS_BY_IDSUBSLS & WILAYAH_BY_IDSUBSLS) berisi data
+# CONTOH Kab. Buleleng — dipakai juga oleh uji offline. Untuk kabupaten lain,
+# definisikan ulang keduanya di inti/config_lokal.py (format sama persis).
+#
 # Kodepos per idsubsls — WAJIB dilengkapi kalau backlog mencakup SLS selain
 # yang sudah diketahui. Kalau idsubsls suatu baris tidak ada di dict ini,
 # skrip akan berhenti & minta kodepos diisi manual (lihat main.py) drpd
@@ -762,3 +784,24 @@ WILAYAH_BY_IDSUBSLS: dict[str, dict[str, str]] = {
     "5108090008000304": {"provinsi": "BALI", "kabkota": "BULELENG", "kecamatan": "TEJAKULA", "desa": "PENUKTUKAN", "sls": "BANJAR BELIMBING", "subsls": "BANJAR BELIMBING"},
     "5108090008000305": {"provinsi": "BALI", "kabkota": "BULELENG", "kecamatan": "TEJAKULA", "desa": "PENUKTUKAN", "sls": "BANJAR BELIMBING", "subsls": "BANJAR BELIMBING"},
 }
+
+# ---------------------------------------------------------------------------
+# Timpaan lokal — inti/config_lokal.py (TIDAK ikut git, lihat .gitignore).
+# Salin dari templates/config_lokal.contoh.py. Setiap nama di atas yang
+# didefinisikan ulang di sana MENANG (password, akun tunggal, KODE_KAB,
+# KODEPOS_BY_IDSUBSLS, WILAYAH_BY_IDSUBSLS, PETA_SLS_PATH, ASSIGNMENT_ID_GABUNGAN,
+# dst.). Uji offline (tests/) mengabaikannya lewat FASIH_ABAIKAN_CONFIG_LOKAL=1
+# supaya hasil uji tidak bergantung pada data lokal masing-masing kabupaten.
+# ---------------------------------------------------------------------------
+if os.environ.get("FASIH_ABAIKAN_CONFIG_LOKAL") != "1":
+    try:
+        from inti.config_lokal import *  # noqa: E402,F401,F403
+    except ModuleNotFoundError as _e:
+        if _e.name != "inti.config_lokal":
+            raise
+
+PESAN_PASSWORD_KOSONG = (
+    "STOP: password akun belum diisi. Salin templates/config_lokal.contoh.py ke "
+    "inti/config_lokal.py lalu isi FIXED_PASSWORD (atau set variabel lingkungan "
+    "FASIH_PASSWORD). Password TIDAK PERNAH ditulis di inti/config.py (file itu ikut git)."
+)

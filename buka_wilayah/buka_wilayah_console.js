@@ -57,7 +57,7 @@
  *   izinkanTarikSampel: true — halaman web sendiri tidak melarang, tapi dampaknya
  *   belum diketahui.
  * - Cakupan SEMUA: target = seluruh wilayah hasil pindai massal periode (kode di luar
- *   pola 5108+12 digit dilaporkan, tidak diproses; SLS nol …000000 dikeluarkan kecuali
+ *   pola KODE_KAB+12 digit dilaporkan, tidak diproses; SLS nol …000000 dikeluarkan kecuali
  *   sertakanSlsNol). Pindai gagal -> berhenti (tidak ada daftar cadangan). Keputusan
  *   membuka tetap dari pencarian segar per subsls.
  * - Batch BERHENTI SEKETIKA kalau: sesi/CSRF ditolak, respons tidak dikenal, hasil tidak
@@ -83,6 +83,8 @@
 
   const TARGET = /*__TARGET__*/[];
   const CAKUPAN = /*__CAKUPAN__*/"daftar";
+  // Kode kabupaten 4 digit (awalan idsubsls) — disuntik dari inti/config.py (KODE_KAB).
+  const KODE_KAB = /*__KODE_KAB__*/"5108";
 
   // -------------------------------------------------------------------------
   // Logika murni — diuji: node tests/test_buka_wilayah_console.js
@@ -100,7 +102,7 @@
     }
   }
 
-  const KODE_VALID = /^5108\d{12}$/;
+  const KODE_VALID = new RegExp(`^${KODE_KAB}\\d{12}$`);
   // Teks asli penolakan server (endpoint done, run user 2026-09-15): "Anda tidak memiliki akses ke dalam survey".
   const POLA_TANPA_AKSES = /tidak memiliki akses/i;
 
@@ -231,7 +233,7 @@
   }
 
   /** Kode SLS + sub-SLS (6 digit terakhir) semuanya nol, mis. 5108020009000000. */
-  const SLS_NOL = /^5108\d{6}000000$/;
+  const SLS_NOL = new RegExp(`^${KODE_KAB}\\d{6}000000$`);
 
   /** Cakupan SEMUA: peta pindai -> target urut kode. Kode di luar pola TIDAK diproses.
    *  Kode SLS nol juga dikeluarkan kecuali opsi sertakanSlsNol — sama dgn tandai selesai

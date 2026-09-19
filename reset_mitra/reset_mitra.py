@@ -7,6 +7,8 @@ Seperti ganti_moda: manajemen-mitra ada di balik login & kemungkinan mendeteksi
 browser otomatis, jadi JALUR UTAMA-nya Console Chrome biasa
 (reset_mitra_console.js). File ini hanya menyiapkan target & menyuntikkannya ke
 template Console — TIDAK membuka browser, TIDAK menyentuh password.
+Password baru yang disuntikkan ke Console = FIXED_PASSWORD (inti/config_lokal.py),
+supaya password hasil reset sama dgn yang dipakai skrip login fasih-web.
 
 ⚠️ STATUS: struktur halaman akun-mitra BELUM pernah dilihat (login-gated).
 Karena itu langkah pertama WAJIB "petakan"/"cocok" (read-only) di Console untuk
@@ -38,6 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from inti.config import FIXED_PASSWORD  # noqa: E402
 from inti.gabungan_loader import load_gabungan  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
@@ -51,6 +54,7 @@ KONSOL_TEMPLATE = Path(__file__).resolve().parent / "reset_mitra_console.js"
 KONSOL_SIAP = Path("./reset_mitra_console.siap.js")
 TARGET_CSV = Path("./target_reset_mitra.csv")
 PENANDA_TARGET = "/*__TARGET__*/[]"
+PENANDA_PASSWORD = '/*__PASSWORD_BARU__*/""'
 
 
 def kumpulkan_ppl(rows):
@@ -66,12 +70,15 @@ def kumpulkan_ppl(rows):
     return list(per.values())
 
 
-def tulis_console(target) -> Path:
+def tulis_console(target, password_baru: str = FIXED_PASSWORD) -> Path:
     teks = KONSOL_TEMPLATE.read_text(encoding="utf-8")
-    if teks.count(PENANDA_TARGET) != 1:
-        raise ValueError(f"Penanda {PENANDA_TARGET} harus muncul tepat 1x di {KONSOL_TEMPLATE.name}")
+    for penanda in (PENANDA_TARGET, PENANDA_PASSWORD):
+        if teks.count(penanda) != 1:
+            raise ValueError(f"Penanda {penanda} harus muncul tepat 1x di {KONSOL_TEMPLATE.name}")
     data = [{"email": t["email"], "baris": t["baris"]} for t in target]
-    KONSOL_SIAP.write_text(teks.replace(PENANDA_TARGET, json.dumps(data, ensure_ascii=False)), encoding="utf-8")
+    teks = (teks.replace(PENANDA_TARGET, json.dumps(data, ensure_ascii=False))
+                .replace(PENANDA_PASSWORD, json.dumps(password_baru or "")))
+    KONSOL_SIAP.write_text(teks, encoding="utf-8")
     return KONSOL_SIAP
 
 
@@ -92,6 +99,10 @@ def main():
     if args.console:
         path = tulis_console(target)
         print(f"{path} ditulis: {len(target)} akun PPL.")
+        if not FIXED_PASSWORD:
+            print("⚠️ FIXED_PASSWORD kosong (inti/config_lokal.py) — mode manual/otomatis di Console akan menolak "
+                  "jalan kecuali diberi jalankan({passwordBaru: \"...\"}).")
+        print("⚠️ File .siap.js berisi email PPL & password baru — jangan dibagikan / di-commit.")
         print("Chrome biasa -> login manajemen-mitra -> buka /mitra/akun-mitra -> F12 Console -> tempel isi file itu ->")
         print('  await resetMitra.jalankan({mode: "petakan"})   (read-only; buktikan gmail menemukan mitra & rekam kontrol reset)')
         return 0

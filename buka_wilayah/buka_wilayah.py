@@ -31,6 +31,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from inti.config import KODE_KAB  # noqa: E402
+
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         try:
@@ -42,13 +44,14 @@ KONSOL_TEMPLATE = Path(__file__).resolve().parent / "buka_wilayah_console.js"
 KONSOL_SIAP = Path("./buka_wilayah_console.siap.js")
 PENANDA_TARGET = "/*__TARGET__*/[]"
 PENANDA_CAKUPAN = '/*__CAKUPAN__*/"daftar"'
-POLA_KODE = re.compile(r"5108\d{12}")
+PENANDA_KODE_KAB = '/*__KODE_KAB__*/"5108"'
+POLA_KODE = re.compile(rf"{re.escape(KODE_KAB)}\d{{12}}")
 
 
 def baca_daftar(teks: str):
     """Daftar idsubsls (satu per baris; koma/spasi/titik-koma juga boleh; '#' =
     komentar) -> (kode_unik_urut, tidak_valid[(no_baris, token)], jumlah_duplikat).
-    Token yang bukan 16 digit berawalan 5108 TIDAK diperbaiki/ditebak."""
+    Token yang bukan 16 digit berawalan KODE_KAB (config) TIDAK diperbaiki/ditebak."""
     kode, tidak_valid, dup = [], [], 0
     terlihat = set()
     for no, baris in enumerate(teks.splitlines(), start=1):
@@ -68,12 +71,13 @@ def baca_daftar(teks: str):
 def isi_template(teks: str, kode, semua: bool) -> str:
     """Suntikkan target ke template. Cakupan semua -> TARGET tetap [] (dibaca dari
     pindai massal di browser), daftar -> TARGET berisi kode."""
-    for penanda in (PENANDA_TARGET, PENANDA_CAKUPAN):
+    for penanda in (PENANDA_TARGET, PENANDA_CAKUPAN, PENANDA_KODE_KAB):
         if teks.count(penanda) != 1:
             raise ValueError(f"Penanda {penanda} harus muncul tepat 1x di {KONSOL_TEMPLATE.name}")
     data = [] if semua else [{"idsubsls": k} for k in kode]
     return (teks.replace(PENANDA_TARGET, json.dumps(data))
-                .replace(PENANDA_CAKUPAN, json.dumps("semua" if semua else "daftar")))
+                .replace(PENANDA_CAKUPAN, json.dumps("semua" if semua else "daftar"))
+                .replace(PENANDA_KODE_KAB, json.dumps(KODE_KAB)))
 
 
 def tulis_console(kode, semua: bool = False) -> Path:

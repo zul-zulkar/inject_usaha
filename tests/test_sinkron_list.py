@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 import input_gabungan.main_gabungan as mg
 from input_gabungan.sinkron_list import id_dari_url, rencana_sinkron, status_server, url_entry
@@ -50,7 +52,7 @@ audit = [
     {"kunci": r_ganda.kunci, "status": "SKIP_GALAT_PERLU_REVIEW", "akun_login": AKUN},
     {"kunci": r_96.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN, "dokumen_url": url_entry("id-96", ASG)},
     {"kunci": r_96.kunci, "status": "TERKIRIM_BELUM_TERVERIFIKASI", "akun_login": AKUN},
-    {"kunci": r_lain.kunci, "status": mg.STATUS_DIBUAT, "akun_login": "wisada9@mail.com", "dokumen_url": "x"},
+    {"kunci": r_lain.kunci, "status": mg.STATUS_DIBUAT, "akun_login": "ppl.contoh@mail.com", "dokumen_url": "x"},
 ]
 sumber = [("S.xlsx", r, "SIAP") for r in (r_kirim, r_draft, r_belum, r_ganda, r_96, r_lain)]
 laporan, tulis, tak = rencana_sinkron(sumber, items, AKUN, SUBSLS, ASG, audit)

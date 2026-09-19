@@ -98,7 +98,7 @@ await pindahWilayah.jalankan({mode: "cari", tujuan: ["5108060002000203"]})    //
 Contoh baris di Console:
 
 ```text
-[3/457] Agenda.xlsx:4 f1acecae 5108010010000105 -> 5108060002000203 -> CEK_SIAP_PINDAH (cari: PANGKALAN GAS (I PUTU ARYA))
+[3/457] Agenda.xlsx:4 f1acecae 5108010010000105 -> 5108060002000203 -> CEK_SIAP_PINDAH (cari: PANGKALAN GAS (I PUTU CONTOH))
 ```
 
 - Yang ideal: `CEK_SIAP_PINDAH`. Yang lain → lihat [Arti status](#arti-status).

@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import os  # noqa: E402
+os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 import input_gabungan.main_gabungan as mg
 from inti.gabungan_loader import GabunganRow
@@ -268,7 +270,7 @@ with tempfile.TemporaryDirectory() as d:
     finally:
         __import__("os").chdir(_cwd0)
 
-# --- satu akun = satu proses (run 2026-09-14: 2 proses akun megakartika saling memutus sesi) ---
+# --- satu akun = satu proses (run 2026-09-14: 2 proses akun ppl.kedua saling memutus sesi) ---
 import os
 import subprocess
 _cwd = os.getcwd()

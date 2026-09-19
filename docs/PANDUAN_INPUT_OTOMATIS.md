@@ -52,7 +52,7 @@ per record, izin di satu record tidak berlaku untuk record lain.
 |---|---|---|
 | `DRY_RUN_SIAP_KIRIM` | beres, GALAT=0 | tinjau lalu `--submit` |
 | `SKIP_DOKUMEN_BELUM_ADA` | wilayah belum punya assignment | buat dokumen manual, ulangi |
-| `SKIP_KODEPOS_TIDAK_DIKETAHUI` | idsubsls baru | tambah di `config.py -> KODEPOS_BY_IDSUBSLS` |
+| `SKIP_KODEPOS_TIDAK_DIKETAHUI` | idsubsls baru | tambah di `KODEPOS_BY_IDSUBSLS` (`inti/config_lokal.py`) |
 | `SKIP_EXPORT_*` | file export belum ada / tidak cocok | lihat `PANDUAN_EKSPOR_MANUAL.md` |
 | `SKIP_ALAMAT_KOSONG` | alamat tidak ada di export | lengkapi export dulu |
 | `SKIP_GALAT_PERLU_REVIEW` | GALAT>0 & bukan Nomor Urut Bangunan | buka dokumen, perbaiki manual |
