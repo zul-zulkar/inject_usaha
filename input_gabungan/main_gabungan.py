@@ -437,7 +437,7 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
             result["dokumen_url"] = sess.page.url
 
         # 2. PENGANTAR -> IDENTITAS WILAYAH -> SE2026 - P (form-engine hanya
-        #    merender section aktif; lihat CLAUDE.md).
+        #    merender section aktif).
         sess.fill_pengantar()
         if not sess.next_section():
             raise FieldNotFound(f"Section setelah PENGANTAR tidak ter-enable. Tersedia: {sess.list_sections()}")
@@ -810,7 +810,7 @@ def main():
                         time.sleep(30)
 
             def _mulai_sesi_sekali():
-                """Context baru = cookie SSO kosong (CLAUDE.md -> Pergantian akun), login &
+                """Context baru = cookie SSO kosong (sesi Keycloak sso.bps.go.id ikut terputus), login &
                 verifikasi akun. Melempar exception kalau gagal (context sudah ditutup)."""
                 ctx = browser.new_context()
                 s = FasihWebSession(ctx.new_page(), dump_dom=args.dump_dom)

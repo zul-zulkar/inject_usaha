@@ -818,7 +818,7 @@ def approve_satu(sess, t: dict, assignment_id: str, akun_ppl: str | None, ekseku
     sess.page.on("response", _rekam)
     try:
         sess.klik_tahan(konfirmasi, "Approve (dialog Konfirmasi Approve)")
-        # Sukses = status API berubah (toast/redirect bukan bukti, lihat CLAUDE.md "Toast ≠ terkirim").
+        # Sukses = status API berubah (toast/redirect bukan bukti: toast pernah muncul padahal server tetap DRAFT).
         status_akhir = ""
         for _ in range(30):
             sess.page.wait_for_timeout(2_000)

@@ -27,8 +27,8 @@
  *         ke-render — buat cross-check manual kalau ada field yang salah
  *         pasang di langkah (b).
  *      d. Khusus rincian 24 (pekerja dibayar/tidak dibayar) — field ini
- *         BELUM ADA di scrape_source.py sama sekali (gap diketahui di
- *         CLAUDE.md), jadi TIDAK ditebak otomatis. Semua baris yang
+ *         BELUM ADA di scrape_source.py sama sekali (gap yang diketahui),
+ *         jadi TIDAK ditebak otomatis. Semua baris yang
  *         mengandung kata "dibayar"/"pekerja" dikumpulkan di
  *         `pekerja_candidates` biar kamu petakan manual sekali lihat.
  *      e. console.table hasil field utama (biar bisa dicek sekilas di layar)

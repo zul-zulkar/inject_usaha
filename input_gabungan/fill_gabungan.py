@@ -2,8 +2,8 @@
 fill_gabungan.py — Isi SE2026-L BLOK II dari SATU baris sheet gabungan.
 
 Padanan fill_blok2.py utk sumber gabungan. Urutan & penjagaan field
-bersyarat SENGAJA sama (alasannya dicatat panjang di fill_blok2.py &
-CLAUDE.md): pilih_umkm_sls sebelum keberadaan_usaha, 13b4 setelah KBLI,
+bersyarat SENGAJA sama (alasannya dicatat panjang di fill_blok2.py):
+pilih_umkm_sls sebelum keberadaan_usaha, 13b4 setelah KBLI,
 blok finansial baru dirender setelah rincian 25 di-blur.
 
 Bedanya: nilai diambil APA ADANYA dari sheet. Tidak ada 10%, tidak ada
@@ -41,7 +41,7 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
 
     # --- 8a-8d ---------------------------------------------------------
     # pilih_umkm_sls HILANG dari DOM begitu keberadaan_usaha dijawab, jadi
-    # wajib lebih dulu (lihat CLAUDE.md -> jebakan selector).
+    # wajib lebih dulu (radio tidak bisa di-unset, jadi tidak ada jalan kembali).
     if ISI_PILIH_UMKM_SLS and sess.komponen_ada("pilih_umkm_sls", timeout_ms=4000):
         kandidat = tuple(dict.fromkeys(filter(None, (row["pilih_umkm_sls"], *UMKM_SATU_SLS_KANDIDAT))))
         sess.pilih_combobox_pertama_yang_cocok("pilih_umkm_sls", kandidat)

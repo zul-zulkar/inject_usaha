@@ -997,8 +997,8 @@ class FasihWebSession:
 
     def _reload_list(self):
         """Klik 'Muat Ulang' di list PENDATAAN. List bisa stale sesaat
-        setelah aksi (mis. baru create_document) — lihat aturan #4 di
-        CLAUDE.md, jangan hapus langkah ini."""
+        setelah aksi (mis. baru create_document / submit — pernah tampil
+        DRAFT padahal sudah terkirim), jangan hapus langkah ini."""
         btn = self._visible(self.page.get_by_text(L["muat_ulang_btn"], exact=False))
         if btn.count() > 0:
             btn.first.click()
@@ -1060,8 +1060,8 @@ class FasihWebSession:
             #
             # Muat ulang di sini AMAN dan hanya di sini: cabang ini khusus
             # dokumen yang BARU SAJA dibuat create_document(), jadi dijamin
-            # 0% progres — tidak ada data yang bisa hilang. Lihat aturan
-            # keselamatan #2 di CLAUDE.md; jangan tiru pola ini di tempat lain.
+            # 0% progres — tidak ada data yang bisa hilang. Jangan tiru pola
+            # ini di tempat lain (reload dokumen berisi data bisa menghapus isian).
             mount_ok = False
             for percobaan in range(1, 4):
                 try:
@@ -1829,7 +1829,7 @@ class FasihWebSession:
         self.fill_by_datakey("nomor_domisili", blok_nomor)
 
         # ⚠️ #no_bang (Nomor Urut Bangunan): SENGAJA TIDAK DISENTUH SAMA
-        # SEKALI — lihat aturan keselamatan #3 di CLAUDE.md. Sekali ter-klik
+        # SEKALI (aturan keselamatan di README). Sekali ter-klik
         # nilainya jadi literal 0 dan memicu GALAT keras yg tidak bisa
         # dikembalikan ke null. Perbaikan HANYA lewat
         # fix_nomor_urut_bangunan_if_needed(), dipanggil dari main.py kalau

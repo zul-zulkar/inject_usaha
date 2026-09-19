@@ -74,7 +74,7 @@
  *   yang terputus bisa dilanjutkan dgn menempel ulang & jalankan lagi.
  *
  * Temuan halaman (dipetakan 2026-09-13) & alasan tiap penjagaan: lihat
- * docstring ubah_moda.py dan CLAUDE.md -> "fasih-sm: ganti mode".
+ * docstring ubah_moda.py dan docs/PANDUAN_UBAH_MODA.md.
  */
 (function (global) {
   "use strict";

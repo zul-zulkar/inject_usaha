@@ -172,7 +172,7 @@ def process_one_row(sess: FasihWebSession, row, dry_run: bool, allow_live_scrape
         # 1. Sumber BLOK II — UTAMA: file export/{No}_{assignment_id}.converted.json
         #    hasil ekspor manual (lihat PANDUAN_EKSPOR_MANUAL.md). Live-scrape
         #    fasih-sm cuma dipakai kalau --allow-live-scrape SENGAJA diaktifkan
-        #    (berisiko deteksi bot — lihat CLAUDE.md).
+        #    (berisiko deteksi bot).
         lookup = load_source_blok2_from_export(row.no, row.row_assignment_id, row.nama_usaha_di_keluarga)
         if lookup.status == "OK":
             src = lookup.src
@@ -214,7 +214,7 @@ def process_one_row(sess: FasihWebSession, row, dry_run: bool, allow_live_scrape
         # 3b. Pindah ke section berikutnya. Form-engine fasih-web HANYA
         #     merender section yang sedang aktif — field section lain benar2
         #     tidak ada di DOM, jadi tanpa langkah ini pengisian PASTI
-        #     FieldNotFound. Lihat CLAUDE.md -> "Cara kerja form-engine".
+        #     FieldNotFound.
         if not sess.next_section():
             raise FieldNotFound(
                 "Section setelah PENGANTAR tidak ter-enable — tombol 'Berikutnya' tidak "

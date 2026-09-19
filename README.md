@@ -137,8 +137,7 @@ Sesuaikan dengan kebijakan kabupaten Anda **sebelum** mengirim data sungguhan.
 5. **Satu akun = satu proses.** Jangan menjalankan dua proses dengan akun yang sama.
 6. **Jalankan headed** (jendela browser terlihat) — fasih-web menolak browser headless.
 
-Penjelasan lengkap & alasannya ada di [`CLAUDE.md`](CLAUDE.md) (bagian "ATURAN KESELAMATAN") dan di
-panduan per alat.
+Penjelasan lengkap & alasannya ada di panduan per alat (`docs/`).
 
 ## Privasi data
 
@@ -173,7 +172,6 @@ mengubah kode, terutama selektor (`tests/test_selectors.py`).
 | [`docs/PANDUAN_BUKA_WILAYAH.md`](docs/PANDUAN_BUKA_WILAYAH.md), [`docs/PANDUAN_TANDAI_SELESAI.md`](docs/PANDUAN_TANDAI_SELESAI.md) | Buka / tandai selesai wilayah |
 | [`docs/PANDUAN_PINDAH_WILAYAH.md`](docs/PANDUAN_PINDAH_WILAYAH.md) | Pindah wilayah dokumen |
 | [`docs/catatan usaha pecahan se2026.md`](docs/catatan%20usaha%20pecahan%20se2026.md) | Temuan awal perilaku form fasih-web |
-| [`CLAUDE.md`](CLAUDE.md) | Catatan teknis lengkap (arsitektur, jebakan selektor, temuan per run). Dimuat otomatis oleh Claude Code. |
 
 Tanggal di dokumen-dokumen itu (2026-09-xx) adalah tanggal temuan saat skrip dikembangkan.
 Perilaku fasih-web/fasih-sm bisa berubah — kalau skrip berhenti dengan pesan "tidak dikenal",

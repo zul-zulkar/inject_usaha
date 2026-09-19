@@ -20,7 +20,7 @@ menjadi **"Listing Selesai"** (sama dengan tombol **"Tandai Selesai Listing"** d
 > **Listing Selesai** langsung dilewati. Sisanya diproses satu per satu: dicari (harus tepat
 > 1 kode yang persis sama dan statusnya Proses Listing), ditandai dengan permintaan yang sama
 > dengan tombol "Tandai Selesai Listing", lalu **dicari ulang untuk memastikan statusnya sudah
-> Listing Selesai**. Detail teknis: `CLAUDE.md` → "fasih-sm: tandai selesai listing".
+> Listing Selesai**. Detail teknis: komentar di `tandai_selesai/tandai_selesai_console.js`.
 
 ---
 

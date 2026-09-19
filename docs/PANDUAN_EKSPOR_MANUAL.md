@@ -64,7 +64,7 @@ Ini otomatis:
 - Sertakan `financial_crosscheck_vs_backlog_csv` (gaji, biaya produksi,
   pendapatan, aset, dst) — buat konfirmasi angka backlog CSV kamu memang
   cocok dgn sumber, bukan sumber utama (backlog CSV tetap yang dipakai utk
-  isi form, sesuai `CLAUDE.md`).
+  isi form).
 
 Output tersimpan di `export/nama_file.converted.json`, ringkasannya juga
 tercetak di terminal.
@@ -77,7 +77,7 @@ tercetak di terminal.
   ditambahkan mapping-nya di `convert_manual_export.py`.
 - Field finansial di `financial_crosscheck_vs_backlog_csv` HARUS dicocokkan
   ke kolom backlog CSV baris yang sama — kalau beda, backlog CSV yang jadi
-  acuan (lihat `CLAUDE.md`), tapi selisihnya perlu ditelusuri kenapa.
+  acuan, tapi selisihnya perlu ditelusuri kenapa.
 
 ## Metode B (FALLBACK) — Console DOM-scrape
 

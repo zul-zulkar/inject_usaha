@@ -2,8 +2,8 @@
 export_source.py — Muat data BLOK II dari hasil ekspor manual fasih-sm
 (export/{No}_{assignment_id}.converted.json, hasil convert_manual_export.py
 — lihat PANDUAN_EKSPOR_MANUAL.md) sbg SourceBlok2, PENGGANTI
-scrape_source_blok2() yang rawan deteksi bot & masih berlubang (lihat
-"Gap yang diketahui" di CLAUDE.md).
+scrape_source_blok2() yang rawan deteksi bot & masih berlubang (tidak
+mengambil 13b1-3, pekerja, maupun kepemilikan modal).
 
 Kalau 1 keluarga di sumber punya >1 usaha (umum terjadi — dari 204
 assignment pertama yang diekspor, 72 di antaranya begitu), hasil export
@@ -13,7 +13,7 @@ via normalisasi teks (uppercase, buang tanda baca) + fuzzy match
 (difflib). HANYA match PERSIS (score 1.0) yang dipakai otomatis — FUZZY
 atau NO_MATCH dikembalikan sbg None + alasan, BUKAN ditebak, supaya
 main.py men-skip baris itu utk direview manual (prinsip proyek: jangan
-menebak field yang tidak pasti, lihat CLAUDE.md rule #5).
+menebak field yang tidak pasti).
 """
 
 from __future__ import annotations

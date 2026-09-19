@@ -7,7 +7,7 @@ tidak ada aturan pekerja ≤3, dan tidak ada override aset/luas tanah = 0.
 
 **Templat kosong:** `templates/Agenda.contoh.xlsx` — tab `gabungan` berjudul kolom persis yang dibaca skrip, dengan dropdown opsi form, tab `petunjuk` (penjelasan tiap kolom) dan tab `contoh` (satu baris fiktif). Salin ke root proyek sebagai `Agenda.xlsx`, isi tab `gabungan`, lalu jalankan `--cek`.
 
-Aturan keselamatan di `CLAUDE.md` tetap berlaku penuh: default dry-run, `--submit`
+Aturan keselamatan di `README.md` tetap berlaku penuh: default dry-run, `--submit`
 wajib ketik `YA`, dan Nomor Urut Bangunan tidak disentuh.
 
 ---

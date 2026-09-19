@@ -15,8 +15,7 @@ di dialog *Progress Penyelesaian Wilayah*) secara massal. Kebalikan
 > Sisanya diproses satu per satu: dicari (harus tepat 1 kode yang persis sama dan statusnya
 > Listing Selesai), dibuka dengan permintaan yang **sama persis** dengan tombol
 > "Buka Wilayah" → "Ya, Buka Wilayah", lalu **dicari ulang untuk memastikan statusnya sudah
-> Proses Listing**. Detail teknis:
-> `CLAUDE.md` → "fasih-sm: buka wilayah".
+> Proses Listing**. Detail teknis: komentar di `buka_wilayah/buka_wilayah_console.js`.
 
 ---
 

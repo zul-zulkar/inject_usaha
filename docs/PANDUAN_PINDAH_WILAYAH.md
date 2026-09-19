@@ -36,7 +36,7 @@ Sama dengan menu **Aksi Lainnya → Change Region by Selection** di halaman Data
 > lalu mengulang, dan jeda antar-pencarian diperlambat otomatis. Kalau pencarian tetap gagal, dokumen
 > dilanjutkan lewat ID approve (nama tetap dicek dari detail).
 >
-> Detail teknis: `CLAUDE.md` → "fasih-sm: pindah wilayah".
+> Detail teknis: komentar di `pindah_wilayah/pindah_wilayah_console.js`.
 
 ---
 

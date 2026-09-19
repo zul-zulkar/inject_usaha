@@ -1,6 +1,6 @@
 # Panduan Input Otomatis — Usaha Pecahan SE2026
 
-Panduan singkat. Detail teknis ada di `CLAUDE.md`, aturan pengisian resmi ada di
+Panduan singkat. Aturan keselamatan ada di `README.md`, aturan pengisian resmi ada di
 `catatan usaha pecahan se2026.md`.
 
 ---

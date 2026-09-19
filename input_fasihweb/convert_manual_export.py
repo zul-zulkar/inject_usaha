@@ -27,7 +27,7 @@ scrape_source.py/config.py):
     "pribadi#{suffix}" dst) — sebelumnya di config.py ini di-hardcode
     100% Pribadi krn dikira tidak ada di sumber. Script ini scrape
     langsung, TIDAK pakai KEPEMILIKAN_MODAL_DEFAULT lagi kalau datanya ada.
-  - Field pekerja (gap yang dicatat di CLAUDE.md) TERNYATA di sumber cuma
+  - Field pekerja (gap yang diketahui di scrape_source.py) TERNYATA di sumber cuma
     ada sbg 2 pasang angka MARGINAL, bukan cross-tab lengkap:
       tk_laki / tk_pr           = total pekerja per JENIS KELAMIN
       tk_dibayar / tk_tdk_dibayar = total pekerja per STATUS BAYAR

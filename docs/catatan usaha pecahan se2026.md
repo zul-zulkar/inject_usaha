@@ -117,4 +117,4 @@ Ketiganya sukses terkirim manual (31 Agustus 2026). Nilai mentah per record TIDA
 
 ## Status
 
-Kode otomatisasi dibuat SETELAH ketiga record ini sukses. Status uji live terkini, aturan keselamatan, dan temuan-temuan sesudahnya ada di `CLAUDE.md` & `docs/PANDUAN_*.md` — dokumen ini hanya arsip temuan awal.
+Kode otomatisasi dibuat SETELAH ketiga record ini sukses. Aturan keselamatan ada di `README.md`, temuan-temuan sesudahnya di `docs/PANDUAN_*.md` — dokumen ini hanya arsip temuan awal.
