@@ -47,10 +47,30 @@ Tiap dokumen tetap wajib createdBy/updatedBy = Email PPL BARIS ITU.
    Batasi PML: --akun-pml a@x.com --akun-pml b@y.com (boleh diulang / dipisah koma).
    --limit berlaku PER PML. Login PML gagal -> PML itu dilewati (ERROR_LOGIN_PML), lanjut PML
    berikutnya; STOP_* / 3 ERROR beruntun menghentikan SELURUH run (anomali UI/VPN).
+   ⚠️ Dry-run 2026-09-15: 765/768 dokumen file SQL Lab = CAPI -> SKIP_TIDAK_ADA_AKSES (web-entry
+   hanya membuka dokumen PAPI). Dokumen hasil main_gabungan (PAPI) aman.
 
-Login: cookie sesi disimpan di .sesi_fasih_web_<akun>.json (+ profil .profil_fasih_web_<akun>/),
-keduanya berisi sesi -> .gitignore. Kalau sesi tidak hidup: default login otomatis dgn
-FIXED_PASSWORD (seperti main_gabungan); --login-manual = tunggu manusia login di jendela browser.
+LANGKAH — MULTI PML, target dari ekspor tabel Data fasih-sm (--daftar submit.xlsx, 2026-09-15)
+--------------------------------------------------------------------------------------------
+File = salinan tabel list fasih-sm (Kode Identitas, Nama, ..., Status, Mode, Petugas Saat Ini).
+Header-nya BERGESER, jadi kolom dibaca lewat JANGKAR sel "PAPI"/"CAPI": sel sebelumnya = Status,
+sesudahnya = Petugas Saat Ini (= akun PML yang login). Hanya PAPI + "submitted by pencacah".
+File tidak memuat id dokumen & email PPL: per PML, list PENDATAAN dicari per subsls (16 digit
+awal kode) lalu codeIdentity dicocokkan PERSIS -> id; item harus bermode PAPI & petugas saat
+ini = PML itu. createdBy/updatedBy TIDAK dicek (tidak ada PPL di file) tapi dicatat di kolom
+akun_ppl audit. Kode yang terakhir APPROVED_TERVERIFIKASI/SUDAH_APPROVED di audit dilewati.
+   0. Rencana saja, tanpa browser:     python approve_pml/approve_pml.py --daftar submit.xlsx --cek
+   1. Dry-run semua PML:               python approve_pml/approve_pml.py --daftar submit.xlsx
+   2. 1 dokumen PER PML dulu:          ... --daftar submit.xlsx --eksekusi --limit 1
+   3. Sisanya:                         ... --daftar submit.xlsx --eksekusi
+   --akun-pml / --limit / --abaikan-audit-approve sama dgn --rencana.
+
+Login (sama dgn main_gabungan): tiap PML = browser context BARU (cookie SSO kosong), login
+otomatis dgn FIXED_PASSWORD ("Mitra5108", inti/config.py) — diulang maks 3x utk gangguan
+transien, akun salah tidak diulang — lalu akun aktif WAJIB terbaca = PML itu. Selesai satu PML:
+logout + tutup context. Satu PML saja / --login-manual: sesi disimpan di
+.sesi_fasih_web_<akun>.json (.gitignore) & dipakai ulang tanpa logout, supaya run berikutnya
+tidak perlu login lagi. --login-manual = tunggu manusia login di jendela browser.
 """
 from __future__ import annotations
 
@@ -86,6 +106,8 @@ ST_SIAP = "SIAP_APPROVE"
 ST_SUDAH = "SUDAH_APPROVED"
 ST_OK = "APPROVED_TERVERIFIKASI"
 ST_TANPA_AKSES = "SKIP_TIDAK_ADA_AKSES"
+LOGIN_PERCOBAAN = 3
+LOGIN_JEDA_DTK = 30
 # Kejanggalan yang pasti berulang di dokumen berikutnya -> hentikan batch.
 STATUS_BERHENTI_SEGERA = {"STOP_DIALOG_TIDAK_MUNCUL", "STOP_TOMBOL_AMBIGU", "STOP_AKUN_BERUBAH",
                           "APPROVE_TIDAK_TERVERIFIKASI"}
@@ -149,8 +171,9 @@ def petugas_dokumen(detail: dict) -> set[str]:
     return {str(isi.get(k) or "").strip().lower() for k in ("createdBy", "updatedBy")} - {""}
 
 
-def nilai_dokumen(detail: dict | None, akun_ppl: str) -> tuple[str, str]:
-    """-> (kategori, pesan) satu dokumen menurut API detail. Hanya ST_SIAP yang boleh di-approve."""
+def nilai_dokumen(detail: dict | None, akun_ppl: str | None) -> tuple[str, str]:
+    """-> (kategori, pesan) satu dokumen menurut API detail. Hanya ST_SIAP yang boleh di-approve.
+    akun_ppl None = createdBy/updatedBy TIDAK dicek (khusus --daftar); "" tetap gagal-tertutup."""
     if not detail:
         return "SKIP_DETAIL_TIDAK_TERBACA", "respons get-by-id-with-data kosong"
     alias = str(detail.get("assignment_status_alias") or "")
@@ -159,6 +182,8 @@ def nilai_dokumen(detail: dict | None, akun_ppl: str) -> tuple[str, str]:
         return ST_SUDAH, alias
     if not up.startswith("SUBMITTED BY PENCACAH"):
         return "SKIP_STATUS_" + (re.sub(r"[^A-Z]+", "_", up).strip("_") or "KOSONG"), alias
+    if akun_ppl is None:
+        return ST_SIAP, alias
     petugas = petugas_dokumen(detail)
     if akun_ppl.lower() not in petugas:
         return "SKIP_BUKAN_PPL", f"createdBy/updatedBy = {sorted(petugas) or '-'}"
@@ -235,6 +260,137 @@ def id_sudah_approved(audit_approve: list[dict]) -> set[str]:
         if b.get("id"):
             akhir[b["id"]] = b.get("status", "")
     return {i for i, s in akhir.items() if s == ST_OK}
+
+
+_KODE_IDENTITAS = re.compile(r"^\d{16}\s*-")
+
+
+def baku_kode(teks) -> str:
+    """Kode identitas utk dicocokkan PERSIS (spasi diseragamkan, besar/kecil huruf diabaikan)."""
+    return " ".join(str(teks or "").split()).casefold()
+
+
+def baris_daftar_sm(sel: list) -> dict | None:
+    """Satu baris salinan tabel Data fasih-sm -> {kode, nama, status, mode, pml}, None kalau bukan
+    baris data. Header submit.xlsx 2026-09-15 BERGESER (judul "Kode Identitas" hilang), jadi kolom
+    tidak dibaca lewat judul: kode = sel pertama berawalan 16 digit; JANGKAR = sel "PAPI"/"CAPI"
+    (kolom Mode) -> sel sebelumnya Status, sesudahnya Petugas Saat Ini. Kolom Email USAHA juga bisa
+    berisi email (2 baris di submit.xlsx), jadi "email pertama" BUKAN petugas."""
+    teks = ["" if v is None else str(v).strip() for v in sel]
+    i_kode = next((i for i, v in enumerate(teks) if _KODE_IDENTITAS.match(v)), None)
+    if i_kode is None:
+        return None
+    b = {"kode": " ".join(teks[i_kode].split()), "nama": teks[i_kode + 1] if i_kode + 1 < len(teks) else "",
+         "status": "", "mode": "", "pml": ""}
+    jangkar = [i for i, v in enumerate(teks) if i > i_kode and v.upper() in ("PAPI", "CAPI")]
+    if len(jangkar) == 1:
+        j = jangkar[0]
+        b.update(status=teks[j - 1], mode=teks[j].upper(), pml=(teks[j + 1] if j + 1 < len(teks) else "").lower())
+    return b
+
+
+def target_dari_daftar(rows: list[list]) -> tuple[list[dict], list[str]]:
+    """Baris salinan tabel fasih-sm (termasuk header) -> (target, masalah). `baris` = nomor baris
+    file. Target hanya Mode PAPI + Status "submitted by pencacah" + Petugas Saat Ini berupa email;
+    sisanya dilaporkan. Kode ganda dgn Petugas beda digugurkan seluruhnya (tidak ditebak).
+    `id` diisi belakangan dari list PENDATAAN (cocokkan_list); `kunci` = kode (jejak audit)."""
+    per_kode: dict[str, dict | None] = {}
+    urut: list[dict] = []
+    masalah: list[str] = []
+    for n, sel in enumerate(rows, start=1):
+        b = baris_daftar_sm(sel)
+        if b is None:
+            continue
+        sebab = ""
+        if not b["mode"]:
+            sebab = "kolom Mode PAPI/CAPI tidak dikenali"
+        elif b["mode"] != "PAPI":
+            sebab = f"mode {b['mode']} (web-entry hanya membuka dokumen PAPI)"
+        elif not b["status"].lower().startswith("submitted by pencacah"):
+            sebab = f"status '{b['status']}'"
+        elif not _EMAIL.match(b["pml"]):
+            sebab = f"Petugas Saat Ini '{b['pml'] or '-'}' bukan email"
+        if sebab:
+            masalah.append(f"baris {n} ({b['kode']}): {sebab} — dilewati")
+            continue
+        k = baku_kode(b["kode"])
+        if k in per_kode:
+            lama = per_kode[k]
+            if lama is not None and lama["akun_pml"] != b["pml"]:
+                masalah.append(f"kode {b['kode']}: Petugas Saat Ini beda di baris {lama['baris']} & {n} — digugurkan")
+                per_kode[k] = None
+            continue
+        t = {"id": "", "kode": b["kode"], "baris": str(n), "kunci": b["kode"], "nama": b["nama"],
+             "sumber": "daftar", "akun_pml": b["pml"], "akun_ppl": None}
+        per_kode[k] = t
+        urut.append(t)
+    return [t for t in urut if per_kode.get(baku_kode(t["kode"])) is t], masalah
+
+
+def cocokkan_list(target: list[dict], items: list[dict], akun_pml: str) -> list[dict]:
+    """Salinan target --daftar dgn `id` dari item list PENDATAAN (API datatable) lewat codeIdentity
+    PERSIS. Yang tidak bisa dipastikan diberi `status`/`pesan` & tidak dibuka dokumennya:
+    SKIP_KODE_TIDAK_DI_LIST / SKIP_KODE_GANDA / SKIP_BUKAN_PML_SAAT_INI / SKIP_MODE_BUKAN_PAPI.
+    Item yang sudah APPROVED tetap diteruskan: statusnya diputuskan API detail (SUDAH_APPROVED)."""
+    per_kode: dict[str, dict[str, dict]] = {}
+    for it in items:
+        per_kode.setdefault(baku_kode(it.get("codeIdentity")), {})[str(it.get("id") or "")] = it
+    hasil = []
+    for t in target:
+        t = dict(t)
+        cocok = list(per_kode.get(baku_kode(t["kode"]), {}).values())
+        if not cocok:
+            t.update(status="SKIP_KODE_TIDAK_DI_LIST", pesan="kode tidak ada di list PENDATAAN PML (dicari per subsls)")
+        elif len(cocok) > 1:
+            t.update(status="SKIP_KODE_GANDA",
+                     pesan=f"{len(cocok)} dokumen berkode sama: {[str(it.get('id'))[:8] for it in cocok]}")
+        else:
+            it = cocok[0]
+            t.update(id=str(it.get("id") or ""), nama=t["nama"] or str(it.get("data1") or ""))
+            pemegang = str(it.get("currentUserUsername") or "").strip().lower()
+            mode = [str(m).upper() for m in (it.get("mode") or [])]
+            if "APPROVED" in str(it.get("assignmentStatusAlias") or "").upper():
+                pass
+            elif pemegang and pemegang != akun_pml:
+                t.update(status="SKIP_BUKAN_PML_SAAT_INI", pesan=f"petugas saat ini di list = {pemegang}")
+            elif "PAPI" not in mode:
+                t.update(status="SKIP_MODE_BUKAN_PAPI", pesan=f"mode di list = {mode or '-'}")
+        hasil.append(t)
+    return hasil
+
+
+def kode_sudah_approved(audit_approve: list[dict]) -> set[str]:
+    """Kode identitas (baku) sumber --daftar yang status TERAKHIR-nya di audit approve sudah
+    APPROVED_TERVERIFIKASI / SUDAH_APPROVED -> dilewati tanpa login saat run diulang."""
+    akhir: dict[str, str] = {}
+    for b in audit_approve:
+        if b.get("sumber") == "daftar" and b.get("kunci"):
+            akhir[baku_kode(b["kunci"])] = b.get("status", "")
+    return {k for k, s in akhir.items() if s in (ST_OK, ST_SUDAH)}
+
+
+def kode_halaman_error(teks: str) -> int:
+    """Kode HTTP halaman galat fasih-web ("Terjadi Kesalahan (504)" / "Status Code: 504"), 0 kalau bukan."""
+    m = re.search(r"Terjadi Kesalahan\s*\((\d{3})\)|Status Code:\s*(\d{3})", teks or "", re.I)
+    return int(m.group(1) or m.group(2)) if m else 0
+
+
+def baca_daftar(path: Path) -> list[list]:
+    """Salinan tabel Data fasih-sm (.xlsx sheet pertama / .csv) -> baris mentah (header ikut, supaya
+    nomor baris akurat). ValueError kalau tidak ada satu pun baris berkode identitas."""
+    if path.suffix.lower() in (".xlsx", ".xlsm"):
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        try:
+            rows = [list(r) for r in wb.worksheets[0].iter_rows(values_only=True)]
+        finally:
+            wb.close()
+    else:
+        with path.open(newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.reader(f))
+    if not any(baris_daftar_sm(r) for r in rows):
+        raise ValueError(f"{path}: tidak ada baris berkode identitas (16 digit + ' - ')")
+    return rows
 
 
 def baca_rencana(path: Path) -> list[dict]:
@@ -382,26 +538,27 @@ def akun_terbaca(sess, tunggu_ms: int) -> str:
         sess.page.wait_for_timeout(500)
 
 
-def pastikan_login(sess, akun: str, manual: bool, file_sesi: Path):
+def pastikan_login(sess, akun: str, manual: bool, file_sesi: Path | None):
     """Pakai sesi tersimpan kalau masih hidup & akunnya benar; kalau tidak, login.
     Cookie sesi (SSO & fasih-web tanpa tanggal kedaluwarsa -> TIDAK disimpan profil
-    Chromium, terbukti 2026-09-15) disimpan di `file_sesi` & dipasang ulang saat mulai."""
+    Chromium, terbukti 2026-09-15) disimpan di `file_sesi` & dipasang ulang saat mulai.
+    file_sesi None = langsung login di context baru (multi PML, seperti main_gabungan)."""
     akun = akun.lower()
     ctx = sess.page.context
-    if file_sesi.exists():
+    if file_sesi and file_sesi.exists():
         try:
             ctx.add_cookies(json.loads(file_sesi.read_text(encoding="utf-8")).get("cookies", []))
         except Exception as e:
             sess._log(f"⚠️ cookie sesi tersimpan tidak bisa dipasang: {e}")
-    sess.akun_api = {}
-    sess.page.goto(FASIH_WEB_BASE, wait_until="domcontentloaded", timeout=45_000)
-    aktif = akun_terbaca(sess, 15_000)
-    if aktif == akun:
-        sess._log(f"✅ Sesi tersimpan masih hidup: {aktif}")
-        return
-    if aktif:
-        sess._log(f"Sesi tersimpan milik akun LAIN ({aktif}) — diputus.")
-        sess.logout()
+        sess.akun_api = {}
+        sess.page.goto(FASIH_WEB_BASE, wait_until="domcontentloaded", timeout=45_000)
+        aktif = akun_terbaca(sess, 15_000)
+        if aktif == akun:
+            sess._log(f"✅ Sesi tersimpan masih hidup: {aktif}")
+            return
+        if aktif:
+            sess._log(f"Sesi tersimpan milik akun LAIN ({aktif}) — diputus.")
+            sess.logout()
     if not manual:
         sess.login(akun, FIXED_PASSWORD)
     else:
@@ -431,11 +588,58 @@ def pastikan_login(sess, akun: str, manual: bool, file_sesi: Path):
     simpan_sesi(sess, file_sesi)
 
 
-def simpan_sesi(sess, file_sesi: Path):
+def simpan_sesi(sess, file_sesi: Path | None):
+    if not file_sesi:
+        return
     try:
         file_sesi.write_text(json.dumps(sess.page.context.storage_state()), encoding="utf-8")
     except Exception as e:
         sess._log(f"⚠️ sesi tidak tersimpan: {e}")
+
+
+def mulai_sesi_pml(browser, akun: str, manual: bool, file_sesi: Path | None):
+    """Seperti main_gabungan: context BARU (cookie SSO kosong -> tidak mungkin tembus sbg PML
+    sebelumnya), login dgn FIXED_PASSWORD & verifikasi akun. Gangguan transien (goto timeout,
+    "Execution context was destroyed") diulang maks LOGIN_PERCOBAAN x dgn jeda LOGIN_JEDA_DTK;
+    akun salah & login manual TIDAK diulang. -> (ctx, sess); context sudah ditutup kalau melempar."""
+    from inti.fasih_web import FasihWebSession
+    for percobaan in range(1, LOGIN_PERCOBAAN + 1):
+        ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+        try:
+            sess = FasihWebSession(ctx.new_page())
+            pastikan_login(sess, akun, manual, file_sesi)
+            return ctx, sess
+        except Exception as e:
+            try:
+                ctx.close()
+            except Exception:
+                pass
+            if manual or "AKUN" in str(e) or percobaan == LOGIN_PERCOBAAN:
+                raise
+            print(f"⚠️ Login {akun} gagal (percobaan {percobaan}/{LOGIN_PERCOBAAN}): {str(e)[:150]} "
+                  f"— ulangi {LOGIN_JEDA_DTK} dtk lagi.", flush=True)
+            time.sleep(LOGIN_JEDA_DTK)
+    raise RuntimeError(f"Login {akun} gagal")
+
+
+def siapkan_target_daftar(sess, target: list[dict], akun_pml: str, assignment_id: str) -> list[dict]:
+    """--daftar: isi `id` target dari list PENDATAAN PML, dicari per subsls (16 digit awal kode).
+    Subsls yang list-nya gagal dibaca -> targetnya SKIP_LIST_TIDAK_TERBACA (diulang di run berikut)."""
+    items: list[dict] = []
+    gagal: dict[str, str] = {}
+    for subsls in sorted({t["kode"][:16] for t in target}):
+        try:
+            items += cari_list(sess, assignment_id, subsls)
+        except Exception as e:
+            gagal[subsls] = str(e)[:150]
+            print(f"⚠️ List subsls {subsls} gagal dibaca: {gagal[subsls]}", flush=True)
+    hasil = cocokkan_list([t for t in target if t["kode"][:16] not in gagal], items, akun_pml)
+    hasil += [{**t, "status": "SKIP_LIST_TIDAK_TERBACA", "pesan": gagal[t["kode"][:16]]}
+              for t in target if t["kode"][:16] in gagal]
+    siap = sum(1 for t in hasil if not t.get("status"))
+    print(f"Kode dicocokkan ke list: {siap} siap, {dict(Counter(t['status'] for t in hasil if t.get('status')))}",
+          flush=True)
+    return hasil
 
 
 def cari_list(sess, assignment_id: str, kata: str, per_halaman: int = 50) -> list[dict]:
@@ -495,10 +699,56 @@ def _dialog_konfirmasi(sess):
         has_text=re.compile(r"yakin ingin melakukan approve", re.I)))
 
 
-def approve_satu(sess, t: dict, assignment_id: str, akun_ppl: str, eksekusi: bool) -> dict:
-    """Proses satu dokumen. Mengembalikan baris audit (tanpa timestamp/akun)."""
+def teks_halaman(sess) -> str:
+    try:
+        return sess.page.evaluate("() => ((document.body && document.body.innerText) || '').slice(0, 3000)") or ""
+    except Exception:
+        return ""
+
+
+def buka_dokumen(sess, url: str, doc_id: str, percobaan: int = 3) -> str:
+    """Buka URL entry sampai form-engine mount -> '', atau pesan galat setelah `percobaan` kali.
+    Run dicky 2026-09-15: screenshot ERROR_FORM_TIDAK_MOUNT berisi halaman galat fasih-web
+    "Terjadi Kesalahan (504)" = gangguan server sesaat. Dibuka ulang — aman, PML hanya MEMBACA
+    dokumen (aturan keselamatan #2 soal reload menyangkut PPL yang sedang mengisi)."""
+    form = sess.page.locator(SEL["form_root"])
+    halaman_galat = sess.page.get_by_text(re.compile(r"Terjadi Kesalahan", re.I))
+    pesan = ""
+    for ke in range(1, percobaan + 1):
+        try:
+            sess.page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+            form.or_(halaman_galat).first.wait_for(state="attached", timeout=45_000)
+            try:
+                form.first.wait_for(state="attached", timeout=5_000)
+                return ""
+            except Exception:
+                pesan = f"halaman galat fasih-web HTTP {kode_halaman_error(teks_halaman(sess)) or '?'}"
+        except Exception as e:
+            pesan = f"form-engine tidak mount dlm 45 dtk ({(str(e).splitlines() or [''])[0][:80]})"
+        sess._log(f"⚠️ {doc_id[:8]}: {pesan} (buka {ke}/{percobaan})")
+        if ke < percobaan:
+            sess.page.wait_for_timeout(10_000 * ke)
+    sess._shot(f"approve_form_tidak_mount_{doc_id[:8]}")
+    return f"{pesan} — sudah {percobaan}x dibuka"
+
+
+def approve_satu(sess, t: dict, assignment_id: str, akun_ppl: str | None, eksekusi: bool) -> dict:
+    """Proses satu dokumen. Mengembalikan baris audit (tanpa timestamp/akun_pml).
+    akun_ppl None (--daftar) = createdBy/updatedBy tidak dicek; petugas dokumen dicatat di `akun_ppl`."""
     res = {**t, "dokumen_url": url_entry(t["id"], assignment_id)}
-    detail = detail_dokumen(sess, t["id"])
+    info: dict = {}
+    detail = detail_dokumen(sess, t["id"], info=info)
+    if detail is None and not info.get("ditolak"):
+        # Halaman bisa tersangkut di keadaan yang membuat fetch gagal (mis. redirect pasca-approve
+        # dokumen sebelumnya). Buka dokumennya dulu — hanya membuka, belum mengklik — lalu baca ulang,
+        # supaya dokumen ini tetap dieksekusi di run yang sama, bukan dilewati.
+        sess._log(f"⚠️ Detail {t['id'][:8]} tidak terbaca — buka dokumennya lalu baca ulang.")
+        try:
+            sess.page.goto(res["dokumen_url"], wait_until="domcontentloaded", timeout=45_000)
+            sess.page.locator(SEL["form_root"]).first.wait_for(state="attached", timeout=45_000)
+        except Exception:
+            pass
+        detail = detail_dokumen(sess, t["id"], info=info)
     kategori, pesan = nilai_dokumen(detail, akun_ppl)
     if detail is None:
         if info.get("ditolak"):
@@ -506,24 +756,29 @@ def approve_satu(sess, t: dict, assignment_id: str, akun_ppl: str, eksekusi: boo
         else:
             pesan += f" | HTTP {info.get('status')} {info.get('text', '')[:120]}"
     res["status_sebelum"] = (detail or {}).get("assignment_status_alias", "")
+    if akun_ppl is None and detail:
+        res["akun_ppl"] = ",".join(sorted(petugas_dokumen(detail)))
     if not res["nama"] and detail:
         res["nama"] = detail.get("data1") or ""
     if kategori != ST_SIAP:
         return {**res, "status": kategori, "pesan": pesan}
 
-    sess.page.goto(res["dokumen_url"], wait_until="domcontentloaded", timeout=45_000)
-    try:
-        sess.page.locator(SEL["form_root"]).first.wait_for(state="attached", timeout=45_000)
-    except Exception:
-        sess._shot(f"approve_form_tidak_mount_{t['id'][:8]}")
-        return {**res, "status": "ERROR_FORM_TIDAK_MOUNT", "pesan": "form-engine tidak mount dlm 45 dtk"}
+    galat = buka_dokumen(sess, res["dokumen_url"], t["id"])
+    if galat:
+        return {**res, "status": "ERROR_FORM_TIDAK_MOUNT", "pesan": galat}
     tombol = sess._visible(sess.page.get_by_role("button", name=re.compile(r"^\s*Approve\s*$")))
     try:
         tombol.first.wait_for(state="visible", timeout=30_000)
     except Exception:
+        # Screenshot run 2026-09-15: bar bawah berisi "Revoke" = dokumen SUDAH di-approve (klik
+        # sebelumnya terbaca terlambat). Status API yang memutuskan, bukan ada/tidaknya tombol.
+        d2 = detail_dokumen(sess, t["id"], percobaan=2)
+        alias = str((d2 or {}).get("assignment_status_alias") or "")
+        if "APPROVED" in alias.upper():
+            return {**res, "status": ST_SUDAH, "pesan": f"tombol Approve tidak ada; status API {alias}"}
         sess._shot(f"approve_tombol_tidak_ada_{t['id'][:8]}")
         return {**res, "status": "ERROR_TOMBOL_APPROVE_TIDAK_ADA",
-                "pesan": "tombol Approve di bar bawah tidak tampil dlm 30 dtk"}
+                "pesan": f"tombol Approve di bar bawah tidak tampil dlm 30 dtk (status API '{alias or '-'}')"}
     if tombol.count() != 1:
         return {**res, "status": "STOP_TOMBOL_AMBIGU", "pesan": f"{tombol.count()} tombol Approve terlihat"}
     if not eksekusi:
@@ -593,22 +848,28 @@ def proses_kelompok(sess, akun_pml: str, target: list[dict], args, hitung: Count
         print(f"Ringkasan PML {akun_pml}: {dict(lokal)}", flush=True)
 
 
-def _proses_kelompok(sess, akun_pml: str, target: list[dict], args, hitung: Counter, file_sesi: Path) -> str:
+def _proses_kelompok(sess, akun_pml: str, target: list[dict], args, hitung: Counter, file_sesi: Path | None) -> str:
     diproses = 0
     error_beruntun = 0
     for n, t in enumerate(target, start=1):
         if args.limit and diproses >= args.limit:
             print(f"(--limit {args.limit} tercapai utk {akun_pml})")
             break
-        res = approve_satu(sess, t, args.assignment_id, t["akun_ppl"], args.eksekusi)
-        res.update(timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), akun_pml=akun_pml, akun_ppl=t["akun_ppl"])
+        if t.get("status"):
+            # Sudah diputuskan sebelum dokumen dibuka (--daftar: kode tidak di list, ganda, dst.).
+            res = {**t, "dokumen_url": url_entry(t["id"], args.assignment_id) if t["id"] else ""}
+        else:
+            res = approve_satu(sess, t, args.assignment_id, t["akun_ppl"], args.eksekusi)
+        res.update(timestamp=time.strftime("%Y-%m-%d %H:%M:%S"), akun_pml=akun_pml)
         if res["status"] != ST_SUDAH and not res["status"].startswith("SKIP_"):
             diproses += 1
-        if res["status"] != ST_SUDAH:
+        # SUDAH_APPROVED dicatat khusus --daftar: kodenya jadi dilewati offline di run berikut.
+        if res["status"] != ST_SUDAH or t.get("sumber") == "daftar":
             append_audit(res)
         hitung[res["status"]] += 1
-        print(f"[{n}/{len(target)}] {res['status']:28s} {t['id'][:8]} baris {t['baris'] or '-':>4} "
-              f"{res['nama']}" + (f" | {res['pesan'][:160]}" if res["status"] not in (ST_OK, ST_SUDAH) else ""),
+        print(f"[{n}/{len(target)}] {res['status']:28s} {(t['id'] or '-')[:8]:8s} baris {t['baris'] or '-':>4} "
+              f"{t.get('kode') or res['nama']}"
+              + (f" | {str(res.get('pesan', ''))[:160]}" if res["status"] not in (ST_OK, ST_SUDAH) else ""),
               flush=True)
         if res["status"] in STATUS_BERHENTI_SEGERA:
             return res["status"]
@@ -629,9 +890,11 @@ def main() -> int:
                          "(boleh diulang / dipisah koma; kosong = semua PML di file)")
     ap.add_argument("--akun-ppl", help="mode audit: akun_login PPL di audit_log_gabungan.csv")
     ap.add_argument("--rencana", help="MULTI PML: file SQL Lab .xlsx/.csv (kolom Email PML, Email PPL, assignment_id)")
+    ap.add_argument("--daftar", help="MULTI PML: salinan tabel Data fasih-sm .xlsx/.csv (mis. submit.xlsx: Kode "
+                                     "Identitas, Status, Mode, Petugas Saat Ini); id dicari di list PENDATAAN PML")
     ap.add_argument("--cek", action="store_true", help="tampilkan rencana per PML saja, tanpa browser")
     ap.add_argument("--abaikan-audit-approve", action="store_true",
-                    help="--rencana: cek ulang juga dokumen yang di audit sudah APPROVED_TERVERIFIKASI")
+                    help="--rencana/--daftar: cek ulang juga dokumen yang di audit sudah APPROVED")
     ap.add_argument("--assignment-id", default=ASSIGNMENT_ID_GABUNGAN)
     ap.add_argument("--eksekusi", action="store_true", help="SUNGGUHAN klik Approve (irreversible)")
     ap.add_argument("--ya", action="store_true", help="lewati prompt ketik YA (izin sudah diberikan)")
@@ -645,30 +908,38 @@ def main() -> int:
     pml_dipilih = [a.strip().lower() for s in args.akun_pml for a in s.split(",") if a.strip()]
     akun_ppl = (args.akun_ppl or "").strip().lower()
 
+    if args.rencana and args.daftar:
+        ap.error("pilih salah satu: --rencana atau --daftar")
     audit: list[dict] = []
     audit_docs: dict[str, dict] = {}
-    if args.rencana:
+    if args.rencana or args.daftar:
         try:
-            rows = baca_rencana(Path(args.rencana))
+            if args.rencana:
+                target, masalah = target_dari_rencana(baca_rencana(Path(args.rencana)))
+            else:
+                target, masalah = target_dari_daftar(baca_daftar(Path(args.daftar)))
         except (OSError, ValueError) as e:
             print(f"❌ {e}", file=sys.stderr)
             return 2
-        target, masalah = target_dari_rencana(rows)
         for m in masalah[:30]:
             print(f"⚠️ {m}")
         if len(masalah) > 30:
             print(f"⚠️ ... {len(masalah) - 30} masalah lain")
-        sudah = set() if args.abaikan_audit_approve else id_sudah_approved(baca_csv(AUDIT_APPROVE))
-        dilewati_audit = sum(1 for t in target if t["id"] in sudah)
-        kelompok = kelompokkan_per_pml([t for t in target if t["id"] not in sudah], pml_dipilih)
+        audit_approve = [] if args.abaikan_audit_approve else baca_csv(AUDIT_APPROVE)
+        if args.rencana:
+            sudah, kunci_target = id_sudah_approved(audit_approve), (lambda t: t["id"])
+        else:
+            sudah, kunci_target = kode_sudah_approved(audit_approve), (lambda t: baku_kode(t["kode"]))
+        dilewati_audit = sum(1 for t in target if kunci_target(t) in sudah)
+        kelompok = kelompokkan_per_pml([t for t in target if kunci_target(t) not in sudah], pml_dipilih)
         tak_ada = [p for p in pml_dipilih if p not in {k for k, _ in kelompok}]
         if tak_ada:
-            print(f"⚠️ PML diminta tapi tidak punya dokumen tersisa di rencana: {tak_ada}")
-        print(f"Rencana {args.rencana}: {len(target)} dokumen valid, "
-              f"{dilewati_audit} sudah {ST_OK} di {AUDIT_APPROVE} (dilewati).")
+            print(f"⚠️ PML diminta tapi tidak punya dokumen tersisa di file: {tak_ada}")
+        print(f"{'Rencana' if args.rencana else 'Daftar'} {args.rencana or args.daftar}: {len(target)} dokumen "
+              f"valid, {len(masalah)} baris bermasalah, {dilewati_audit} sudah APPROVED di {AUDIT_APPROVE} (dilewati).")
     else:
         if len(pml_dipilih) != 1 or not akun_ppl:
-            ap.error("mode audit butuh tepat satu --akun-pml dan --akun-ppl (multi PML: pakai --rencana)")
+            ap.error("mode audit butuh tepat satu --akun-pml dan --akun-ppl (multi PML: pakai --daftar / --rencana)")
         audit = baca_csv(AUDIT_GABUNGAN)
         audit_docs = dokumen_audit_ppl(audit, akun_ppl)
         if not audit_docs:
@@ -685,8 +956,9 @@ def main() -> int:
           + (f", maks {args.limit} per PML" if args.limit else "") + ":")
     for k, (pml, tg) in enumerate(kelompok, start=1):
         nama = tg[0].get("nama_pml") or ""
-        print(f"  {k}. {pml} {('(' + nama + ')') if nama else ''} — {len(tg)} dokumen, "
-              f"PPL {dict(Counter(t['akun_ppl'] for t in tg))}")
+        rinci = (f"subsls {dict(Counter(t['kode'][:16] for t in tg))}" if args.daftar
+                 else f"PPL {dict(Counter(t['akun_ppl'] for t in tg))}")
+        print(f"  {k}. {pml} {('(' + nama + ')') if nama else ''} — {len(tg)} dokumen, {rinci}")
     if args.cek:
         return 0
     if args.eksekusi and not args.ya:
@@ -695,61 +967,92 @@ def main() -> int:
             return 1
 
     from playwright.sync_api import sync_playwright
-    from inti.fasih_web import FasihWebSession
-    hitung: Counter = Counter()
-    kode = 0
-    profil = (f".profil_fasih_web_{slug_akun(kelompok[0][0])}" if len(kelompok) == 1
-              else ".profil_fasih_web_multi_pml")
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(str(Path(profil)), headless=False,
-                                                   viewport={"width": 1440, "height": 900})
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        sess = FasihWebSession(page)
+        browser = p.chromium.launch(headless=False)
         try:
-            for k, (akun_pml, target) in enumerate(kelompok, start=1):
-                print(f"\n===== PML {k}/{len(kelompok)}: {akun_pml} — {len(target)} dokumen =====", flush=True)
-                file_sesi = Path(f".sesi_fasih_web_{slug_akun(akun_pml)}.json")
-                if k > 1:
-                    # Ganti akun: putus sesi PML sebelumnya (UI "Keluar" + cookie SEMUA domain termasuk
-                    # sso.bps.go.id). Sesinya sudah disimpan di akhir kelompok sebelumnya; pastikan_login
-                    # tetap memverifikasi akun yang aktif sebelum satu dokumen pun diproses.
-                    sess.logout()
-                try:
-                    pastikan_login(sess, akun_pml, args.login_manual, file_sesi)
-                except Exception as e:
-                    pesan = str(e)[:300]
-                    print(f"❌ Login {akun_pml} gagal — PML ini DILEWATI: {pesan}", flush=True)
-                    append_audit({"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "akun_pml": akun_pml,
-                                  "status": "ERROR_LOGIN_PML", "pesan": pesan})
-                    hitung["ERROR_LOGIN_PML"] += 1
-                    kode = 1
-                    continue
-                if not args.rencana:
-                    items_list: list[dict] = []
-                    for subsls in subsls_audit_ppl(audit, akun_ppl):
-                        try:
-                            items_list += cari_list(sess, args.assignment_id, subsls)
-                        except Exception as e:
-                            print(f"⚠️ Pencarian list subsls {subsls} gagal (tidak fatal): {str(e)[:150]}")
-                    luar = [it for it in items_list if it.get("id") not in audit_docs]
-                    print(f"Dokumen list subsls PPL yg TIDAK di audit: {len(luar)} "
-                          f"{dict(Counter(i.get('assignmentStatusAlias') for i in luar))}"
-                          + ("" if args.termasuk_di_luar_audit else " — tidak diproses (pakai --termasuk-di-luar-audit)"))
-                    if args.termasuk_di_luar_audit:
-                        target = [{**t, "akun_pml": akun_pml, "akun_ppl": akun_ppl}
-                                  for t in gabung_target(audit_docs, items_list)]
-                    print(f"Target: {len(target)} dokumen.\n")
-                alasan = proses_kelompok(sess, akun_pml, target, args, hitung, file_sesi)
-                simpan_sesi(sess, file_sesi)
-                if alasan:
-                    print(f"\n⛔ {alasan} — SELURUH run DIHENTIKAN (di PML {akun_pml}). "
-                          f"Lihat {AUDIT_APPROVE} & log_screenshots/.")
-                    kode = 1
-                    break
+            hitung, kode = jalankan_semua_pml(browser, kelompok, args, audit, audit_docs, akun_ppl)
         finally:
-            ctx.close()
+            try:
+                browser.close()
+            except Exception:
+                pass
     print(f"\nRingkasan: {dict(hitung)}\nAudit: {AUDIT_APPROVE}")
     return kode
+
+
+def tutup_sesi_pml(ctx, sess, logout: bool):
+    """Akhiri sesi satu PML. Multi PML (seperti main_gabungan): logout UI + hapus cookie SEMUA domain
+    (termasuk sso.bps.go.id), lalu tutup context. Satu PML / login manual: tanpa logout supaya sesi
+    tersimpan tetap bisa dipakai run berikutnya."""
+    if logout and sess is not None:
+        try:
+            sess.logout()
+        except Exception as e:
+            print(f"⚠️ Logout gagal (tidak fatal, context tetap ditutup): {str(e)[:120]}", flush=True)
+    try:
+        ctx.close()
+    except Exception:
+        pass
+
+
+def jalankan_semua_pml(browser, kelompok: list[tuple[str, list[dict]]], args, audit: list[dict],
+                       audit_docs: dict[str, dict], akun_ppl: str) -> tuple[Counter, int]:
+    """Loop PML: login (context baru) -> siapkan target -> proses -> simpan sesi -> logout & tutup
+    context -> PML berikutnya. Login gagal = PML itu dilewati (ERROR_LOGIN_PML); STOP_*/error beruntun/
+    exception tak terduga = SELURUH run berhenti. -> (hitung status, kode keluar)."""
+    hitung: Counter = Counter()
+    kode = 0
+    # Satu PML / login manual: sesi disimpan & dipakai ulang (tanpa logout). Multi PML: seperti
+    # main_gabungan — login FIXED_PASSWORD di context baru, logout + tutup context di akhir tiap PML.
+    pakai_sesi = len(kelompok) == 1 or args.login_manual
+    for k, (akun_pml, target) in enumerate(kelompok, start=1):
+        print(f"\n===== PML {k}/{len(kelompok)}: {akun_pml} — {len(target)} dokumen =====", flush=True)
+        file_sesi = Path(f".sesi_fasih_web_{slug_akun(akun_pml)}.json") if pakai_sesi else None
+        try:
+            ctx, sess = mulai_sesi_pml(browser, akun_pml, args.login_manual, file_sesi)
+        except Exception as e:
+            pesan = str(e)[:300]
+            print(f"❌ Login {akun_pml} gagal — PML ini DILEWATI: {pesan}", flush=True)
+            append_audit({"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "akun_pml": akun_pml,
+                          "status": "ERROR_LOGIN_PML", "pesan": pesan})
+            hitung["ERROR_LOGIN_PML"] += 1
+            kode = 1
+            continue
+        alasan = ""
+        try:
+            if args.daftar:
+                # File fasih-sm tidak memuat id dokumen: cari di list PENDATAAN PML yang SEDANG login.
+                target = siapkan_target_daftar(sess, target, akun_pml, args.assignment_id)
+            elif not args.rencana:
+                items_list: list[dict] = []
+                for subsls in subsls_audit_ppl(audit, akun_ppl):
+                    try:
+                        items_list += cari_list(sess, args.assignment_id, subsls)
+                    except Exception as e:
+                        print(f"⚠️ Pencarian list subsls {subsls} gagal (tidak fatal): {str(e)[:150]}")
+                luar = [it for it in items_list if it.get("id") not in audit_docs]
+                print(f"Dokumen list subsls PPL yg TIDAK di audit: {len(luar)} "
+                      f"{dict(Counter(i.get('assignmentStatusAlias') for i in luar))}"
+                      + ("" if args.termasuk_di_luar_audit else " — tidak diproses (pakai --termasuk-di-luar-audit)"))
+                if args.termasuk_di_luar_audit:
+                    target = [{**t, "akun_pml": akun_pml, "akun_ppl": akun_ppl}
+                              for t in gabung_target(audit_docs, items_list)]
+                print(f"Target: {len(target)} dokumen.\n")
+            alasan = proses_kelompok(sess, akun_pml, target, args, hitung, file_sesi)
+            simpan_sesi(sess, file_sesi)
+        except Exception as e:
+            alasan = f"ERROR_TAK_TERDUGA di PML {akun_pml}: {type(e).__name__}: {str(e)[:200]}"
+            append_audit({"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "akun_pml": akun_pml,
+                          "status": "ERROR_TAK_TERDUGA", "pesan": alasan})
+            hitung["ERROR_TAK_TERDUGA"] += 1
+        finally:
+            tutup_sesi_pml(ctx, sess, logout=not pakai_sesi)
+        if alasan:
+            print(f"\n⛔ {alasan} — SELURUH run DIHENTIKAN (di PML {akun_pml}). "
+                  f"Lihat {AUDIT_APPROVE} & log_screenshots/.", flush=True)
+            kode = 1
+            break
+    return hitung, kode
 
 
 if __name__ == "__main__":

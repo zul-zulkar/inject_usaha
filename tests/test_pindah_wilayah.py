@@ -52,9 +52,35 @@ check("tujuan tidak valid -> masalah", [(s, br) for s, br, _ in masalah], [("Age
 check("kembar digabung", ringkas["baris_kembar_digabung"], 1)
 check("target a lengkap", per_k[a.kunci],
       {"k": a.kunci, "s": "Agenda.xlsx", "b": 2, "n": "PANGKALAN GAS (WAYAN SUMARTAWA)", "t": T1,
-       "p": "ppl@gmail.com", "ids": ["id-a-1"]})
+       "p": "ppl@gmail.com", "ids": ["id-a-1"], "a": ["5108010010000105", "5108060014000403"]})
 check("nama ganda ditandai di kedua baris", (per_k[b.kunci].get("g"), per_k[b2.kunci].get("g")), (1, 1))
 check("ringkasan id audit", (ringkas["dgn_id_audit"], ringkas["tanpa_id_audit"]), (1, 2))
+check("tanpa asal di audit -> tidak ada kunci a", "a" in per_k[b.kunci], False)
+
+# --- alur satuan: target dari audit_approve_pml.csv ---
+NAMA_LAMA = "PANGKALAN GAS WAYAN SUMARTAWA (WAYAN SUMARTAWA)"
+audit_approve = [
+    {"id": "id-a-appr", "kunci": a.kunci, "nama": "", "status": "DRY_RUN_SIAP_APPROVE"},
+    {"id": "id-a-appr", "kunci": a.kunci, "nama": NAMA_LAMA, "status": "APPROVED_TERVERIFIKASI"},
+    {"id": "id-b-1", "kunci": b.kunci, "nama": "APOTEK KEMBAR", "status": "SKIP_DETAIL_TIDAK_TERBACA"},
+    {"id": "id-prelist", "kunci": "", "nama": "UMK", "status": "APPROVED_TERVERIFIKASI"},
+    {"id": "id-hilang", "kunci": "kunci-hilang", "nama": "X", "status": "APPROVED_TERVERIFIKASI"},
+]
+approve, ringkas_ap = pw.approved_per_kunci(audit_approve)
+check("approve per kunci (hanya APPROVED_TERVERIFIKASI ber-kunci)", approve,
+      {a.kunci: {"id-a-appr": NAMA_LAMA}, "kunci-hilang": {"id-hilang": "X"}})
+check("approved tanpa kunci dihitung, tidak dipakai", ringkas_ap["approved_tanpa_kunci"], 1)
+t_ap, m_ap, r_ap = pw.bangun_target(sumber, audit, approve)
+check("target approve hanya baris yang dokumennya di-approve", [t["k"] for t in t_ap], [a.kunci])
+check("target approve: ids = id approve (bukan id audit), asal, nama lama",
+      {k: t_ap[0].get(k) for k in ("ids", "a", "na")},
+      {"ids": ["id-a-appr"], "a": ["5108010010000105", "5108060014000403"], "na": [NAMA_LAMA]})
+check("kunci approve tanpa baris Agenda -> masalah", any("kunci-hilang" in p for _, _, p in m_ap), True)
+check("ringkasan dari_approve", r_ap["dari_approve"], 1)
+audit_nama = audit + [{"kunci": b.kunci, "nama_usaha": "apotek  kembar", "idsubsls_input": ""},
+                      {"kunci": b.kunci, "nama_usaha": "APOTEK KEMBAR LAMA", "idsubsls_input": ""}]
+t_nama = {t["k"]: t for t in pw.bangun_target(sumber, audit_nama)[0]}
+check("nama lama dari audit nama_usaha (nama sekarang tidak diulang)", t_nama[b.kunci].get("na"), ["APOTEK KEMBAR LAMA"])
 
 asal, salah = pw.subsls_asal(audit, ["5108010001000101", "123"])
 check("subsls asal dari audit + tambahan", asal, ["5108010001000101", "5108010010000105", "5108060014000403"])

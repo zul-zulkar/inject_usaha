@@ -157,6 +157,44 @@ check("tombol 'Tidak' bukan konfirmasi", m.pilihTombolKonfirmasi(["Tidak", "Ya"]
 check("tanpa tombol konfirmasi", m.pilihTombolKonfirmasi(["Batal", "Tutup"]), null);
 check("dua kandidat -> ambigu", m.pilihTombolKonfirmasi(["Ya", "Simpan"]), null);
 
+// --- verifikasi tertunda & rate limit (run user 2026-09-15: Mode baru terbaca belakangan,
+//     cek beruntun memicu HTTP 429). Kasus kembar dgn tests/test_ubah_moda.py. ---
+check("jadwal cek ulang", [0, 1, 4, 5, 40].map(m.jedaCekVerifikasi), [30000, 45000, 120000, 180000, 180000]);
+check("verifikasi: semua PAPI (huruf kecil juga)", m.putuskanVerifikasi({ a: "PAPI", b: "papi" }, 1000, 60000), "TERVERIFIKASI");
+check("verifikasi: PAPI setelah batas tetap terverifikasi", m.putuskanVerifikasi({ a: "PAPI" }, 999999, 60000), "TERVERIFIKASI");
+check("verifikasi: masih CAPI sebelum batas -> menunggu", m.putuskanVerifikasi({ a: "CAPI" }, 59999, 60000), "MENUNGGU");
+check("verifikasi: masih CAPI saat batas habis", m.putuskanVerifikasi({ a: "CAPI" }, 60000, 60000), "BELUM_TERVERIFIKASI");
+check("verifikasi: sebagian PAPI -> menunggu", m.putuskanVerifikasi({ a: "PAPI", b: "CAPI" }, 1000, 60000), "MENUNGGU");
+check("verifikasi: kode tidak tampil -> menunggu", m.putuskanVerifikasi({ a: "(hilang)" }, 1000, 60000), "MENUNGGU");
+check("verifikasi: tanpa kode tidak pernah terverifikasi",
+  [m.putuskanVerifikasi({}, 1000, 60000), m.putuskanVerifikasi({}, 60000, 60000)], ["MENUNGGU", "BELUM_TERVERIFIKASI"]);
+check("verifikasi: waktu klik tak diketahui (Infinity) & masih CAPI", m.putuskanVerifikasi({ a: "CAPI" }, Infinity, 60000),
+  "BELUM_TERVERIFIKASI");
+check("429: 15 dtk x 2^ke, maks 2 mnt", [0, 1, 2, 3, 6].map((ke) => m.jedaRateLimit(ke)), [15000, 30000, 60000, 120000, 120000]);
+check("429: Retry-After dihormati (5 dtk - 5 mnt)", ["20", "1", "999", "", "abc"].map((ra) => m.jedaRateLimit(0, ra)),
+  [20000, 5000, 300000, 15000, 15000]);
+check("RATE_LIMIT & DIUBAH_BELUM_TERVERIFIKASI menghentikan batch",
+  ["RATE_LIMIT", "DIUBAH_BELUM_TERVERIFIKASI"].map((s) => m.STATUS_BERHENTI_SEGERA.has(s)), [true, true]);
+check("DIUBAH_MENUNGGU: tidak tuntas & tidak menghentikan",
+  [m.STATUS_TUNTAS_LIVE.has("DIUBAH_MENUNGGU"), m.STATUS_BERHENTI_SEGERA.has("DIUBAH_MENUNGGU")], [false, false]);
+// Khusus Console (hasil tersimpan di localStorage): kode yang sudah diklik tidak diklik ulang di run berikut.
+const K1 = `${S} - UMK - 4`;
+const K2 = `${S} - UMK - 7`;
+const WK = "2026-09-15T01:00:30.000Z";
+check("sudah diklik: DIUBAH_MENUNGGU -> kodenya",
+  m.kodeSudahDiklik({ status: "DIUBAH_MENUNGGU", dipilih: `${K1} | ${K2}`, waktu_klik: WK }), [K1, K2]);
+check("sudah diklik: hasil lama DIUBAH_BELUM_TERVERIFIKASI tanpa waktu_klik",
+  m.kodeSudahDiklik({ status: "DIUBAH_BELUM_TERVERIFIKASI", dipilih: K1 }), [K1]);
+check("sudah diklik: gagal SETELAH klik (waktu_klik ada) tetap dianggap diklik",
+  m.kodeSudahDiklik({ status: "CENTANG_GAGAL", dipilih: K1, waktu_klik: WK }), [K1]);
+check("sudah diklik: gagal SEBELUM klik -> diproses biasa", m.kodeSudahDiklik({ status: "TABEL_BERUBAH", dipilih: K1 }), []);
+check("sudah diklik: terverifikasi -> tidak", m.kodeSudahDiklik({ status: "DIUBAH_TERVERIFIKASI", dipilih: K1, waktu_klik: WK }), []);
+check("sudah diklik: dry-run / belum pernah", [m.kodeSudahDiklik({ status: "DRY_RUN_AKAN_DIUBAH", dipilih: K1 }),
+  m.kodeSudahDiklik(undefined)], [[], []]);
+check("waktu klik: waktu_klik, cadangan waktu mulai proses",
+  [m.waktuKlikDari({ waktu: "2026-09-15T01:00:00.000Z", waktu_klik: WK }), m.waktuKlikDari({ waktu: "2026-09-15T01:00:00.000Z" })],
+  [Date.parse(WK), Date.parse("2026-09-15T01:00:00.000Z")]);
+
 // --- penanda halaman (hanya DIBACA, paginasi tidak pernah diklik) ---
 check("baca halaman", m.bacaHalaman("10 row(s) Rows per page 10 Page 1 of 33"), [1, 33]);
 check("baca halaman beda baris", m.bacaHalaman("Page 4\nof 4"), [4, 4]);

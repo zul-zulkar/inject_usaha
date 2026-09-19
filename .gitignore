@@ -37,6 +37,11 @@ buka_wilayah_console.siap.js
 daftar_buka_wilayah*.txt
 audit_buka_wilayah*.csv
 
+# tandai_selesai: file siap-tempel, daftar target & audit
+tandai_selesai_console.siap.js
+daftar_tandai_selesai*.txt
+audit_tandai_selesai*.csv
+
 # pindah_wilayah: file siap-tempel (nama usaha & akun PPL) & audit
 pindah_wilayah_console.siap.js
 audit_pindah_wilayah*.csv

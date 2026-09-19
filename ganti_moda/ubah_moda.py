@@ -75,6 +75,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import re
 import sys
 import time
@@ -131,8 +132,17 @@ STATUS_BERHENTI_SEGERA = {
     "JUMLAH_TERCENTANG_BEDA", "MENU_TIDAK_TERTUTUP", "TABEL_BERUBAH", "DIALOG_TIDAK_DIKENAL",
     "TOMBOL_KONFIRMASI_AMBIGU", "DIUBAH_BELUM_TERVERIFIKASI", "CENTANG_GAGAL",
     "ITEM_MENU_TIDAK_ADA", "BELUM_LOGIN", "TIDAK_ADA_AKSES",
-    "PENCARIAN_TIDAK_MENYARING", "KODE_GANDA",
+    "PENCARIAN_TIDAK_MENYARING", "KODE_GANDA", "RATE_LIMIT",
 }
+
+# Perubahan mode TIDAK langsung terbaca di tabel (run user 2026-09-15: 3x cari ulang
+# dlm ±10 dtk setelah konfirmasi tetap CAPI, dan cek beruntun itu memicu HTTP 429 di
+# datatable). Jadwal cek ulang sejak diklik & batas tunggunya — HARUS sama dgn
+# ubah_moda_console.js.
+JADWAL_CEK_VERIFIKASI_MS = (30_000, 45_000, 60_000, 90_000, 120_000)
+JEDA_CEK_VERIFIKASI_MAKS_MS = 180_000
+BATAS_TUNGGU_VERIFIKASI_MS = 15 * 60_000
+BATAS_ULANG_429 = 6
 
 
 class Berhenti(RuntimeError):
@@ -409,6 +419,32 @@ def pilih_tombol_konfirmasi(teks_tombol: list[str]) -> Optional[int]:
     return kandidat[0] if len(kandidat) == 1 else None
 
 
+def jeda_cek_verifikasi(ke: int) -> int:
+    """ms sebelum cek ulang berikutnya (ke = jumlah cek yang sudah dilakukan)."""
+    return JADWAL_CEK_VERIFIKASI_MS[ke] if ke < len(JADWAL_CEK_VERIFIKASI_MS) else JEDA_CEK_VERIFIKASI_MAKS_MS
+
+
+def putuskan_verifikasi(mode: dict, sejak_klik_ms: float, batas_ms: int = BATAS_TUNGGU_VERIFIKASI_MS) -> str:
+    """{kode: mode terbaca} -> 'TERVERIFIKASI' (semua PAPI) | 'MENUNGGU' |
+    'BELUM_TERVERIFIKASI' (batas tunggu habis). Kode yang tidak tampil
+    ('(hilang)') dianggap belum berubah."""
+    if mode and all(str(m).upper() == "PAPI" for m in mode.values()):
+        return "TERVERIFIKASI"
+    return "BELUM_TERVERIFIKASI" if sejak_klik_ms >= batas_ms else "MENUNGGU"
+
+
+def jeda_rate_limit(ke: int, retry_after=None) -> int:
+    """ms sebelum mengulang pencarian yang kena HTTP 429 (percobaan ke-0,1,..).
+    Retry-After (detik) dihormati (5 dtk–5 mnt); tanpa itu 15 dtk x 2^ke, maks 2 menit."""
+    try:
+        detik = float(retry_after)
+    except (TypeError, ValueError):
+        detik = None
+    if detik is not None and math.isfinite(detik) and detik >= 0:
+        return int(min(max(detik * 1000, 5_000), 300_000))
+    return min(15_000 * 2 ** ke, 120_000)
+
+
 # ---------------------------------------------------------------------------
 # Interaksi browser
 # ---------------------------------------------------------------------------
@@ -549,20 +585,36 @@ class FasihSm:
         lihat Target.istilah_cari). Selalu dikosongkan dulu supaya pencarian
         ulang (verifikasi) benar-benar memuat data baru.
         -> (baris halaman yang tampil, ada_halaman_lain). Paginasi TIDAK PERNAH
-        dipindah — halaman yang dipindah tidak memuat datanya dgn benar."""
-        self.tutup_menu()
-        kotak = self.page.locator('input[placeholder="Cari..."]').locator("visible=true").first
-        kotak.wait_for(state="visible", timeout=15_000)
-        for nilai in ("", istilah):
-            try:
-                with self.page.expect_response(lambda r: "datatable" in r.url, timeout=25_000):
-                    kotak.fill(nilai)
-                    kotak.press("Enter")
-            except PWTimeout:
-                self._log(f"⚠️ tidak ada respons datatable setelah mengisi '{nilai}' — baca tabel apa adanya.")
-            self.page.wait_for_timeout(1_500)
-        baris, halaman = self.baca_tabel()
-        return baris, bool(halaman and halaman[1] > 1)
+        dipindah — halaman yang dipindah tidak memuat datanya dgn benar.
+        Respons datatable HTTP 429 (rate limit, run user 2026-09-15) -> tabelnya
+        tidak dipercaya: tunggu jeda_rate_limit lalu ulangi, maks BATAS_ULANG_429
+        kali -> RATE_LIMIT."""
+        for ulang in range(BATAS_ULANG_429 + 1):
+            self.tutup_menu()
+            kotak = self.page.locator('input[placeholder="Cari..."]').locator("visible=true").first
+            kotak.wait_for(state="visible", timeout=15_000)
+            respons_429 = None
+            for nilai in ("", istilah):
+                try:
+                    with self.page.expect_response(lambda r: "datatable" in r.url, timeout=25_000) as info:
+                        kotak.fill(nilai)
+                        kotak.press("Enter")
+                    if info.value.status == 429:
+                        respons_429 = info.value
+                        break
+                except PWTimeout:
+                    self._log(f"⚠️ tidak ada respons datatable setelah mengisi '{nilai}' — baca tabel apa adanya.")
+                self.page.wait_for_timeout(1_500)
+            if respons_429 is None:
+                baris, halaman = self.baca_tabel()
+                return baris, bool(halaman and halaman[1] > 1)
+            if ulang >= BATAS_ULANG_429:
+                break
+            jeda = jeda_rate_limit(ulang, respons_429.headers.get("retry-after"))
+            self._log(f"⏳ HTTP 429 (rate limit) saat mencari '{istilah}' — tunggu {jeda // 1000} dtk lalu cari ulang "
+                      f"({ulang + 1}/{BATAS_ULANG_429}).")
+            self.page.wait_for_timeout(jeda)
+        raise Berhenti("RATE_LIMIT", f"pencarian '{istilah}' masih HTTP 429 setelah {BATAS_ULANG_429} kali menunggu")
 
     def _baris_tr(self, b: BarisAssignment):
         """<tr> utk baris `b`, DIVERIFIKASI kodenya persis sama. has_text tidak
@@ -640,15 +692,23 @@ class FasihSm:
         self.page.wait_for_timeout(2_000)
         return "DIKONFIRMASI"
 
-    def verifikasi_papi(self, istilah: str, kode: list[str], percobaan: int = 3) -> bool:
-        for ke in range(1, percobaan + 1):
-            self.page.wait_for_timeout(3_000 * ke)
+    def verifikasi_papi(self, istilah: str, kode: list[str], batas_ms: int = BATAS_TUNGGU_VERIFIKASI_MS) -> bool:
+        """Mode baru TIDAK langsung terbaca (run user 2026-09-15). Cari ulang
+        menurut jeda_cek_verifikasi sampai semua PAPI atau batas_ms habis.
+        Berbeda dgn Console (antrean, batch lanjut), jalur cadangan ini
+        MENUNGGU per kode."""
+        mulai = time.monotonic()
+        ke = 0
+        while True:
+            self.page.wait_for_timeout(jeda_cek_verifikasi(ke))
+            ke += 1
             baris = {b.kode: b for b in self.cari(istilah)[0]}
             mode = {k: (baris[k].mode if k in baris else "(hilang)") for k in kode}
-            self._log(f"Verifikasi ke-{ke}: {mode}")
-            if all(m.upper() == "PAPI" for m in mode.values()):
-                return True
-        return False
+            sejak = (time.monotonic() - mulai) * 1000
+            keputusan = putuskan_verifikasi(mode, sejak, batas_ms)
+            self._log(f"Verifikasi ke-{ke} ({sejak / 60_000:.1f} mnt sejak diklik): {mode} -> {keputusan}")
+            if keputusan != "MENUNGGU":
+                return keputusan == "TERVERIFIKASI"
 
 
 # ---------------------------------------------------------------------------

@@ -13,24 +13,31 @@ Per baris Agenda (unik per `kunci`):
   - ids     = ID dokumen dari dokumen_url audit_log_gabungan.csv (boleh kosong:
               sebagian dokumen diinput di perangkat lain -> dicocokkan lewat nama)
   - nama yang dipakai >1 baris ditandai `g` -> Console TIDAK mencocokkan lewat nama.
+  - a       = subsls asal baris itu (idsubsls_input audit) -> kode identitas "<asal> - <nama>"
+  - na      = nama lain dokumen yang sama di audit (format nama lama), ikut dicari
 Subsls ASAL = idsubsls_input audit (+ --subsls-asal). Status APPROVED, pencocokan
 dokumen, wilayah tujuan & petugas diperiksa di Console terhadap data server.
+
+--dari-approve (alur SATUAN, disarankan): target HANYA dokumen yang pernah
+APPROVED_TERVERIFIKASI di audit_approve_pml.csv (id dokumen pasti, hasil approve_pml.py),
+lalu di Console dicari satu per satu lewat nama / kode identitas dan dipindah satu per satu.
 
 LANGKAH
 -------
     python pindah_wilayah/pindah_wilayah.py --sumber Agenda.xlsx --sumber Agenda1-1.xlsx \
-        --sumber Agenda2.xlsx --console
+        --sumber Agenda2.xlsx --dari-approve --console
 Lalu di Chrome (login fasih-sm, halaman Data survei) -> F12 Console -> tempel
 pindah_wilayah_console.siap.js:
-    await pindahWilayah.jalankan({mode: "petakan"})             // READ-ONLY, sekali: cari semua dokumen
-    await pindahWilayah.jalankan({mode: "cek", limit: 20})      // READ-ONLY per ID dari peta
-    await pindahWilayah.jalankan({mode: "eksekusi", limit: 1})  // 1 dokumen, cek hasilnya
-    await pindahWilayah.jalankan({mode: "eksekusi"})            // sisanya
+    await pindahWilayah.jalankan({mode: "cari", limit: 10})     // READ-ONLY per dokumen
+    await pindahWilayah.jalankan({mode: "pindah", limit: 1})    // pindah 1 dokumen, cek hasilnya
+    await pindahWilayah.jalankan({mode: "pindah"})              // sisanya, satu per satu
+Alur lama dua tahap (petakan -> cek -> eksekusi) tetap ada, lihat docs/PANDUAN_PINDAH_WILAYAH.md.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -52,18 +59,50 @@ for _stream in (sys.stdout, sys.stderr):
 
 KONSOL_TEMPLATE = Path(__file__).resolve().parent / "pindah_wilayah_console.js"
 KONSOL_SIAP = Path("./pindah_wilayah_console.siap.js")
+AUDIT_APPROVE_PATH = Path("./audit_approve_pml.csv")
+STATUS_APPROVED = "APPROVED_TERVERIFIKASI"  # = approve_pml.ST_OK
 PENANDA_TARGET = "/*__TARGET__*/[]"
 PENANDA_ASAL = "/*__ASAL__*/[]"
 POLA_KODE = re.compile(r"5108\d{12}")
 
 
-def bangun_target(sumber_rows: list[tuple[str, GabunganRow]], audit: list[dict]):
-    """Fungsi murni -> (target[], masalah[(sumber, baris, pesan)], ringkasan Counter)."""
+def approved_per_kunci(audit_approve: list[dict]) -> tuple[dict[str, dict[str, str]], Counter]:
+    """audit_approve_pml.csv -> ({kunci: {id dokumen: nama}}, ringkasan).
+    Dokumen yang PERNAH APPROVED_TERVERIFIKASI (approve_pml.py tidak menulis ulang dokumen yang sudah
+    APPROVED, dan status segarnya tetap dicek Console). Baris tanpa kunci = dokumen di luar Agenda
+    (sumber rencana SQL Lab / list) -> tidak dipakai, hanya dihitung."""
+    hasil: dict[str, dict[str, str]] = defaultdict(dict)
+    ringkasan = Counter()
+    for b in audit_approve:
+        if (b.get("status") or "").strip() != STATUS_APPROVED or not b.get("id"):
+            continue
+        if not b.get("kunci"):
+            ringkasan["approved_tanpa_kunci"] += 1
+            continue
+        hasil[b["kunci"]][b["id"].strip()] = b.get("nama") or ""
+    return dict(hasil), ringkasan
+
+
+def bangun_target(sumber_rows: list[tuple[str, GabunganRow]], audit: list[dict],
+                  approve: dict[str, dict[str, str]] | None = None):
+    """Fungsi murni -> (target[], masalah[(sumber, baris, pesan)], ringkasan Counter).
+    `approve` (hasil approved_per_kunci) -> target HANYA baris yang dokumennya sudah di-approve,
+    dgn `ids` = id dokumen approve itu (bukan semua id audit)."""
     ids_per_kunci = defaultdict(set)
+    asal_per_kunci = defaultdict(set)
+    nama_per_kunci = defaultdict(set)
     for b in audit:
+        if not b.get("kunci"):
+            continue
         doc_id = id_dari_url(b.get("dokumen_url"))
-        if b.get("kunci") and doc_id:
+        if doc_id:
             ids_per_kunci[b["kunci"]].add(doc_id)
+        if POLA_KODE.fullmatch((b.get("idsubsls_input") or "").strip()):
+            asal_per_kunci[b["kunci"]].add(b["idsubsls_input"].strip())
+        if b.get("nama_usaha"):
+            nama_per_kunci[b["kunci"]].add(norm(b["nama_usaha"]))
+    for kunci, per_id in (approve or {}).items():
+        nama_per_kunci[kunci].update(norm(n) for n in per_id.values() if n)
 
     ringkasan = Counter()
     masalah = []
@@ -81,15 +120,32 @@ def bangun_target(sumber_rows: list[tuple[str, GabunganRow]], audit: list[dict])
     for kunci, (_, row) in baris_unik.items():
         kunci_per_nama[norm(row.nama_dokumen)].add(kunci)
 
+    if approve is not None:
+        for kunci, per_id in approve.items():
+            if kunci not in baris_unik:
+                masalah.append((AUDIT_APPROVE_PATH.name, "", f"kunci {kunci} (id {', '.join(sorted(per_id))}) "
+                                                             "sudah di-approve tapi tidak ada di sheet Agenda"))
+
     target = []
     for kunci, (sumber, row) in baris_unik.items():
+        if approve is not None and kunci not in approve:
+            continue
         n = norm(row.nama_dokumen)
+        ids = approve[kunci] if approve is not None else ids_per_kunci.get(kunci, ())
         t = {"k": kunci, "s": Path(sumber).name, "b": row.baris, "n": n, "t": row.idsubsls,
-             "p": row.akun_ppl, "ids": sorted(ids_per_kunci.get(kunci, ()))}
+             "p": row.akun_ppl, "ids": sorted(ids)}
+        if asal_per_kunci.get(kunci):
+            t["a"] = sorted(asal_per_kunci[kunci])
+        if nama_per_kunci.get(kunci, set()) - {n, ""}:
+            t["na"] = sorted(nama_per_kunci[kunci] - {n, ""})
         if len(kunci_per_nama[n]) > 1:
             t["g"] = 1
             ringkasan["nama_ganda"] += 1
         ringkasan["dgn_id_audit" if t["ids"] else "tanpa_id_audit"] += 1
+        if approve is not None:
+            ringkasan["dari_approve"] += 1
+        if len(t["ids"]) > 1:
+            ringkasan["id_ganda"] += 1
         target.append(t)
     return target, masalah, ringkasan
 
@@ -117,6 +173,9 @@ def main() -> int:
     ap.add_argument("--sumber", action="append", required=True, help="xlsx/csv sheet Agenda (boleh berulang)")
     ap.add_argument("--subsls-asal", action="append", default=[],
                     help="subsls tempat dokumen disuntik, selain yang tercatat di audit (boleh berulang)")
+    ap.add_argument("--dari-approve", nargs="?", const=str(AUDIT_APPROVE_PATH), default=None, metavar="CSV",
+                    help="target HANYA dokumen APPROVED_TERVERIFIKASI di audit approve PML "
+                         f"(default {AUDIT_APPROVE_PATH.name}) -> alur satuan mode cari/pindah")
     ap.add_argument("--console", action="store_true", help=f"Tulis {KONSOL_SIAP} utk ditempel di Console Chrome")
     args = ap.parse_args()
 
@@ -126,11 +185,33 @@ def main() -> int:
         print(f"{s}: {len(rows)} baris")
         sumber_rows += [(s, r) for r in rows]
     audit = mg._baca_audit()
-    target, masalah, ringkasan = bangun_target(sumber_rows, audit)
+    approve = None
+    if args.dari_approve:
+        path_approve = Path(args.dari_approve)
+        if not path_approve.exists():
+            print(f"⛔ {path_approve} tidak ada — jalankan approve_pml.py dulu atau beri path yang benar.")
+            return 1
+        with path_approve.open(newline="", encoding="utf-8-sig") as f:
+            approve, ringkas_approve = approved_per_kunci(list(csv.DictReader(f)))
+        print(f"{path_approve}: {sum(len(v) for v in approve.values())} dokumen APPROVED_TERVERIFIKASI ber-kunci Agenda"
+              + (f", {ringkas_approve['approved_tanpa_kunci']} tanpa kunci (bukan dokumen suntikan, diabaikan)"
+                 if ringkas_approve["approved_tanpa_kunci"] else ""))
+    target, masalah, ringkasan = bangun_target(sumber_rows, audit, approve)
     asal, asal_salah = subsls_asal(audit, args.subsls_asal)
 
     print(f"\n{len(target)} baris unik jadi target | dgn ID audit: {ringkasan['dgn_id_audit']}, "
           f"tanpa ID audit (dicocokkan lewat nama): {ringkasan['tanpa_id_audit']}")
+    if approve is not None:
+        print(f"  alur SATUAN: {ringkasan['dari_approve']} dokumen sudah di-approve -> "
+              'mode "cari" / "pindah" di Console')
+        tanpa_asal = sum(1 for t in target if not t.get("a"))
+        if tanpa_asal:
+            print(f"  ⚠️ {tanpa_asal} target tanpa subsls asal di audit -> kode identitas tidak bisa dicari, "
+                  "dicari lewat nama saja")
+    if ringkasan["id_ganda"]:
+        print(f"  ⚠️ {ringkasan['id_ganda']} baris punya >1 id dokumen -> DOKUMEN_GANDA di Console (tidak dipindah)")
+    if sum(1 for t in target if t.get("na")):
+        print(f"  {sum(1 for t in target if t.get('na'))} baris punya nama lama di audit -> nama lama ikut dicari")
     if ringkasan["baris_kembar_digabung"]:
         print(f"  {ringkasan['baris_kembar_digabung']} baris kembar (kunci sama di beberapa sheet) digabung")
     if ringkasan["nama_ganda"]:
@@ -149,10 +230,16 @@ def main() -> int:
     if not asal:
         print("⛔ Tidak ada subsls asal (audit kosong?). Beri --subsls-asal.")
         return 1
+    if not target:
+        print("⛔ Tidak ada target.")
+        return 1
     if args.console:
         path = tulis_console(target, asal)
         print(f"\n{path} ditulis. Chrome biasa -> login fasih-sm -> halaman Data survei (tab baru) -> F12 Console -> tempel ->")
-        print('  await pindahWilayah.jalankan({mode: "petakan"})')
+        if approve is not None:
+            print('  await pindahWilayah.jalankan({mode: "cari", limit: 10})')
+        else:
+            print('  await pindahWilayah.jalankan({mode: "petakan"})')
     return 0
 
 

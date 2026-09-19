@@ -8,10 +8,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tempfile
 from pathlib import Path
 
-from approve_pml.approve_pml import (ST_OK, ST_SIAP, ST_SUDAH, baca_rencana, dokumen_audit_ppl, gabung_target,
-                                     id_sudah_approved, kelompokkan_per_pml, nilai_dokumen, penolakan_akses,
-                                     petugas_dokumen,
-                                     subsls_audit_ppl, target_dari_rencana)
+from approve_pml.approve_pml import (ST_OK, ST_SIAP, ST_SUDAH, ST_TANPA_AKSES, approve_satu, baca_rencana,
+                                     baku_kode, cocokkan_list, dokumen_audit_ppl, gabung_target,
+                                     id_sudah_approved, kelompokkan_per_pml, kode_halaman_error,
+                                     kode_sudah_approved, nilai_dokumen, penolakan_akses, petugas_dokumen,
+                                     subsls_audit_ppl, target_dari_daftar, target_dari_rencana)
 
 U = "https://fasih-web.bps.go.id/survey/s/p/{}/entry"
 
@@ -142,6 +143,236 @@ def test_baca_rencana_csv_dan_kolom_wajib():
             raise AssertionError("kolom Email PML hilang harus ditolak")
         except ValueError as e:
             assert "Email PML" in str(e)
+
+
+def test_nilai_dokumen_tanpa_cek_ppl():
+    # --daftar: PPL tidak ada di file -> None mematikan cek petugas; "" tetap gagal-tertutup.
+    assert nilai_dokumen(detail("SUBMITTED BY Pencacah", "lain@x.com", "lain@x.com"), None)[0] == ST_SIAP
+    assert nilai_dokumen(detail("SUBMITTED BY Pencacah"), "")[0] == "SKIP_BUKAN_PPL"
+    assert nilai_dokumen(detail("REJECTED BY Pengawas"), None)[0] == "SKIP_STATUS_REJECTED_BY_PENGAWAS"
+
+
+def sel_sm(kode, nama="USAHA X", status="submitted by pencacah", mode="PAPI", pml="munimaha234@gmail.com",
+           email_usaha="-"):
+    # Bentuk nyata baris submit.xlsx 2026-09-15 (16 sel; header bergeser): kolom 6 = Email USAHA.
+    return [None, kode, nama, "-", "36 /", "-", email_usaha, "-", 1, 81119, "-", "-", status, mode, pml, "-"]
+
+
+HEADER_SM = [None, "Nama Keluarga/Bangunan/Usaha", "Alamat Prelist", "Nomor Urut Bangunan / IDSBR", "NIB / No. KK",
+             "Email", "Skala Usaha / Jenis Prelist", "Jumlah Usaha", "Kode Pos", "Perubahan SLS",
+             "IDSBR UMKM SLS Sama", "Status", "Mode", "Petugas Saat Ini", "Keterangan", None]
+
+
+def test_target_dari_daftar():
+    rows = [
+        HEADER_SM,
+        sel_sm("5108060005000103 - BAGJA GORDEN - 36 / - - - 1 - 81119", pml="GustiNgurah@gmail.com"),
+        sel_sm("5108070005000602 - UMK - 8", email_usaha="usaha@gmail.com"),   # email usaha BUKAN petugas
+        [None] * 16,                                                           # baris kosong: diam
+        sel_sm("5108060005000405 - UMK - 20", status="rejected by pengawas", pml="arya@gmail.com"),
+        sel_sm("5108070005000603 - DTSEN - 1", mode="CAPI"),
+        sel_sm("5108070005000603 - DTSEN - 2", pml="-"),
+        sel_sm("5108070005000602  -  UMK - 8"),                                # duplikat identik (spasi): sekali
+        sel_sm("5108070013000103 - UMK - 32", pml="a@x.com"),
+        sel_sm("5108070013000103 - UMK - 32", pml="b@x.com"),                  # PML beda: gugur
+    ]
+    target, masalah = target_dari_daftar(rows)
+    assert [t["kode"] for t in target] == ["5108060005000103 - BAGJA GORDEN - 36 / - - - 1 - 81119",
+                                           "5108070005000602 - UMK - 8"]
+    assert target[0]["akun_pml"] == "gustingurah@gmail.com" and target[0]["baris"] == "2"
+    assert target[1]["akun_pml"] == "munimaha234@gmail.com" and target[1]["nama"] == "USAHA X"
+    assert target[0]["akun_ppl"] is None and target[0]["id"] == "" and target[0]["kunci"] == target[0]["kode"]
+    assert len(masalah) == 4, masalah
+    assert "rejected" in masalah[0] and "CAPI" in masalah[1] and "bukan email" in masalah[2] and "UMK - 32" in masalah[3]
+
+
+def test_cocokkan_list():
+    target, _ = target_dari_daftar([sel_sm("5108070005000602 - UMK - 8"), sel_sm("5108070005000602 - UMK - 9"),
+                                    sel_sm("5108070005000602 - UMK - 10"), sel_sm("5108070005000602 - UMK - 11"),
+                                    sel_sm("5108070005000602 - UMK - 12"), sel_sm("5108070005000602 - UMK - 13")])
+    pml = "munimaha234@gmail.com"
+
+    def item(i, kode, pemegang=pml, mode=("PAPI",), alias="SUBMITTED BY Pencacah"):
+        return {"id": i, "codeIdentity": kode, "currentUserUsername": pemegang, "mode": list(mode),
+                "assignmentStatusAlias": alias, "data1": "NAMA " + i}
+    items = [item("d8", "5108070005000602 - umk - 8"),                     # beda huruf besar/kecil: tetap cocok
+             item("d80", "5108070005000602 - UMK - 80"),                   # "- 8" BUKAN "- 80"
+             item("d9a", "5108070005000602 - UMK - 9"), item("d9b", "5108070005000602 - UMK - 9"),
+             item("d10", "5108070005000602 - UMK - 10", pemegang="ppl@gmail.com"),
+             item("d11", "5108070005000602 - UMK - 11", mode=("CAPI",)),
+             item("d12", "5108070005000602 - UMK - 12", pemegang="admin@bps.go.id", alias="APPROVED BY Pengawas")]
+    h = {t["kode"][-2:].strip(" -"): t for t in cocokkan_list(target, items, pml)}
+    assert h["8"]["id"] == "d8" and "status" not in h["8"]
+    assert h["9"]["status"] == "SKIP_KODE_GANDA"
+    assert h["10"]["status"] == "SKIP_BUKAN_PML_SAAT_INI" and "ppl@gmail.com" in h["10"]["pesan"]
+    assert h["11"]["status"] == "SKIP_MODE_BUKAN_PAPI"
+    assert h["12"]["id"] == "d12" and "status" not in h["12"]   # sudah APPROVED: diputuskan API detail
+    assert h["13"]["status"] == "SKIP_KODE_TIDAK_DI_LIST"
+    assert "status" not in target[0]                             # target asli tidak diubah
+
+
+def test_kode_sudah_approved():
+    audit = [{"sumber": "daftar", "kunci": "5108 - UMK - 1", "status": ST_OK},
+             {"sumber": "daftar", "kunci": "5108 - UMK - 2", "status": ST_OK},
+             {"sumber": "daftar", "kunci": "5108  -  UMK - 2", "status": "ERROR_FORM_TIDAK_MOUNT"},
+             {"sumber": "daftar", "kunci": "5108 - UMK - 3", "status": ST_SUDAH},
+             {"sumber": "audit", "kunci": "k-agenda", "status": ST_OK}]
+    assert kode_sudah_approved(audit) == {baku_kode("5108 - UMK - 1"), baku_kode("5108 - UMK - 3")}
+
+
+def test_kode_halaman_error():
+    # Teks halaman galat nyata (screenshot approve_form_tidak_mount 2026-09-15).
+    assert kode_halaman_error("Terjadi Kesalahan (504)\nService unavailable.\nStatus Code: 504") == 504
+    assert kode_halaman_error("Status Code: 502") == 502
+    assert kode_halaman_error("PENGANTAR SE2026 bertujuan ...") == 0
+
+
+class _Loc:
+    def __init__(self):
+        self.first = self
+
+    def wait_for(self, **kw):
+        pass
+
+
+class _PageTiruan:
+    """Cukup utk jalur approve_satu yang TIDAK membuka dokumen / cuma membuka ulang (fallback)."""
+    def __init__(self, respons):
+        self.respons = list(respons)
+        self.goto_ke = []
+
+    def evaluate(self, script, arg=None):
+        return self.respons.pop(0) if len(self.respons) > 1 else self.respons[0]
+
+    def goto(self, url, **kw):
+        self.goto_ke.append(url)
+
+    def locator(self, sel):
+        return _Loc()
+
+    def wait_for_load_state(self, *a, **kw):
+        pass
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+class _SesiTiruan:
+    def __init__(self, respons):
+        self.page = _PageTiruan(respons)
+        self.log = []
+
+    def _log(self, m):
+        self.log.append(m)
+
+    def _shot(self, nama):
+        pass
+
+
+def _ok(d):
+    return {"status": 200, "text": json.dumps({"success": True, "data": d})}
+
+
+def test_approve_satu_tanpa_membuka_dokumen():
+    # Regresi merge 6338cad: `info` hilang -> NameError di SETIAP dokumen.
+    t = {"id": "d1", "baris": "2", "kunci": "", "nama": "", "sumber": "rencana", "akun_pml": "p@x.com",
+         "akun_ppl": "wisada9@mail.com"}
+    t23 = '{"success":false,"message":"Anda tidak memiliki akses ke dalam survey","data":null,"errorCode":23}'
+    s = _SesiTiruan([{"status": 200, "text": t23}])
+    r = approve_satu(s, t, "periode", "wisada9@mail.com", eksekusi=False)
+    assert r["status"] == ST_TANPA_AKSES and "tidak memiliki akses" in r["pesan"]
+    assert s.page.goto_ke == []                                   # penolakan: dokumen tidak dibuka
+    s = _SesiTiruan([_ok(detail("APPROVED BY Pengawas"))])
+    r = approve_satu(s, t, "periode", "wisada9@mail.com", eksekusi=False)
+    assert r["status"] == ST_SUDAH and r["nama"] == "X"
+    # Detail kosong 4x (halaman redirect) -> dokumen dibuka SEKALI lalu dibaca ulang (8565f61).
+    s = _SesiTiruan([{"status": 0, "text": "evaluate gagal"}] * 4 + [_ok(detail("SUBMITTED BY Pencacah", "l@x.com", "l@x.com"))])
+    r = approve_satu(s, t, "periode", "wisada9@mail.com", eksekusi=False)
+    assert r["status"] == "SKIP_BUKAN_PPL" and len(s.page.goto_ke) == 1
+    # --daftar (akun_ppl None): petugas dokumen dicatat di kolom akun_ppl audit.
+    s = _SesiTiruan([_ok(detail("REJECTED BY Pengawas", "a@x.com", "b@x.com"))])
+    r = approve_satu(s, {**t, "akun_ppl": None, "sumber": "daftar"}, "periode", None, eksekusi=False)
+    assert r["status"] == "SKIP_STATUS_REJECTED_BY_PENGAWAS" and r["akun_ppl"] == "a@x.com,b@x.com"
+
+
+def test_jalankan_semua_pml():
+    """Orkestrasi multi PML tanpa browser: tiap PML context baru + login, --daftar dipetakan ke id
+    di sesi PML itu, logout + tutup context SETIAP PML (termasuk yang berhenti/error), login gagal
+    dilewati tanpa NameError, STOP menghentikan seluruh run."""
+    import types
+    import approve_pml.approve_pml as m
+
+    jejak, audit_tulis = [], []
+
+    class Ctx:
+        def __init__(self, akun):
+            self.akun = akun
+
+        def close(self):
+            jejak.append(("tutup", self.akun))
+
+    class Sesi:
+        def __init__(self, akun):
+            self.akun = akun
+
+        def logout(self):
+            jejak.append(("logout", self.akun))
+
+    def mulai(browser, akun, manual, file_sesi):
+        jejak.append(("login", akun, file_sesi))
+        if akun == "gagal@x.com":
+            raise RuntimeError("Login gagal: masih di halaman login")
+        return Ctx(akun), Sesi(akun)
+
+    def siapkan(sess, target, akun, assignment_id):
+        jejak.append(("siapkan", sess.akun, akun))
+        return [{**t, "id": "id-" + t["kode"][-1]} for t in target]
+
+    def proses(sess, akun, target, args, hitung, file_sesi):
+        jejak.append(("proses", sess.akun, [t["id"] for t in target]))
+        hitung[m.ST_OK] += len(target)
+        if akun == "stop@x.com":
+            return "STOP_DIALOG_TIDAK_MUNCUL"
+        if akun == "meledak@x.com":
+            raise RuntimeError("Target page, context or browser has been closed")
+        return ""
+
+    asli = {n: getattr(m, n) for n in ("mulai_sesi_pml", "siapkan_target_daftar", "proses_kelompok",
+                                        "append_audit", "simpan_sesi")}
+    m.mulai_sesi_pml, m.siapkan_target_daftar, m.proses_kelompok = mulai, siapkan, proses
+    m.append_audit, m.simpan_sesi = audit_tulis.append, (lambda s, f: None)
+    try:
+        args = types.SimpleNamespace(daftar="submit.xlsx", rencana=None, login_manual=False,
+                                     assignment_id="periode", termasuk_di_luar_audit=False)
+        tg = lambda *kode: [{"kode": "5108 - UMK - " + k, "id": ""} for k in kode]
+        kelompok = [("gagal@x.com", tg("1")), ("a@x.com", tg("2", "3")), ("b@x.com", tg("4"))]
+        hitung, kode = m.jalankan_semua_pml(None, kelompok, args, [], {}, "")
+        assert kode == 1 and hitung["ERROR_LOGIN_PML"] == 1 and hitung[m.ST_OK] == 3
+        assert audit_tulis[0]["status"] == "ERROR_LOGIN_PML" and audit_tulis[0]["akun_pml"] == "gagal@x.com"
+        assert jejak == [
+            ("login", "gagal@x.com", None),                                   # multi PML: tanpa file sesi
+            ("login", "a@x.com", None), ("siapkan", "a@x.com", "a@x.com"),
+            ("proses", "a@x.com", ["id-2", "id-3"]), ("logout", "a@x.com"), ("tutup", "a@x.com"),
+            ("login", "b@x.com", None), ("siapkan", "b@x.com", "b@x.com"),
+            ("proses", "b@x.com", ["id-4"]), ("logout", "b@x.com"), ("tutup", "b@x.com"),
+        ], jejak
+
+        # STOP & exception: sesi tetap ditutup, PML berikutnya TIDAK login.
+        for akun_henti in ("stop@x.com", "meledak@x.com"):
+            jejak.clear()
+            audit_tulis.clear()
+            hitung, kode = m.jalankan_semua_pml(None, [(akun_henti, tg("5")), ("c@x.com", tg("6"))], args, [], {}, "")
+            assert kode == 1 and ("logout", akun_henti) in jejak and ("tutup", akun_henti) in jejak
+            assert not any(j[0] == "login" and j[1] == "c@x.com" for j in jejak), jejak
+        assert audit_tulis and audit_tulis[0]["status"] == "ERROR_TAK_TERDUGA"
+
+        # Satu PML: file sesi dipakai & TIDAK logout (sesi disimpan utk run berikutnya).
+        jejak.clear()
+        m.jalankan_semua_pml(None, [("a@x.com", tg("7"))], args, [], {}, "")
+        assert jejak[0][2] is not None and ("logout", "a@x.com") not in jejak and ("tutup", "a@x.com") in jejak
+    finally:
+        for n, f in asli.items():
+            setattr(m, n, f)
 
 
 if __name__ == "__main__":

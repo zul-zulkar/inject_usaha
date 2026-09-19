@@ -99,14 +99,24 @@
     "JUMLAH_TERCENTANG_BEDA", "CENTANG_TIDAK_SESUAI", "MENU_TIDAK_TERTUTUP",
     "TABEL_BERUBAH", "DIALOG_TIDAK_DIKENAL", "TOMBOL_KONFIRMASI_AMBIGU", "DIUBAH_BELUM_TERVERIFIKASI",
     "BELUM_BERUBAH", "CENTANG_GAGAL", "ITEM_MENU_TIDAK_ADA", "DIHENTIKAN_PENGGUNA",
-    "PENCARIAN_TIDAK_MENYARING", "KODE_GANDA",
+    "PENCARIAN_TIDAK_MENYARING", "KODE_GANDA", "RATE_LIMIT",
   ]);
   // Tidak menghentikan batch sekali muncul (permintaan user 2026-09-14: "tetap jalankan"),
   // tapi 3x berturut-turut = masalah sistematis (akun/tampilan) -> berhenti.
   // Aman: status ini muncul SEBELUM item "Ganti Mode" bisa diklik, dan centangnya dilepas.
   const STATUS_LANJUT_TAPI_HITUNG = new Set(["TIDAK_ADA_AKSES"]);
   // Status yang berarti item "Ganti Mode" sudah diklik (jeda panjang sesudahnya).
-  const STATUS_SETELAH_KLIK = new Set(["DIUBAH_TERVERIFIKASI", "DIUBAH_BELUM_TERVERIFIKASI", "BELUM_BERUBAH"]);
+  const STATUS_SETELAH_KLIK = new Set(["DIUBAH_TERVERIFIKASI", "DIUBAH_MENUNGGU", "DIUBAH_BELUM_TERVERIFIKASI", "BELUM_BERUBAH"]);
+  // Sudah diklik & dikonfirmasi tapi Mode belum terbaca PAPI -> JANGAN diklik ulang otomatis.
+  const STATUS_SUDAH_DIKLIK = new Set(["DIUBAH_MENUNGGU", "DIUBAH_BELUM_TERVERIFIKASI"]);
+
+  // Perubahan mode TIDAK langsung terbaca di tabel (run user 2026-09-15: 3x cari ulang
+  // dlm ±10 dtk setelah konfirmasi tetap CAPI, dan cek beruntun itu memicu HTTP 429).
+  // Jadwal cek ulang sejak diklik & batas tunggunya — HARUS sama dgn ubah_moda.py.
+  const JADWAL_CEK_VERIFIKASI_MS = [30000, 45000, 60000, 90000, 120000];
+  const JEDA_CEK_VERIFIKASI_MAKS_MS = 180000;
+  const BATAS_TUNGGU_VERIFIKASI_MS = 15 * 60000;
+  const BATAS_ULANG_429 = 6;
 
   class Berhenti extends Error {
     constructor(kode, pesan) {
@@ -303,10 +313,46 @@
     return kandidat.length === 1 ? kandidat[0] : null;
   }
 
+  /** Jeda sebelum cek ulang berikutnya (ke = jumlah cek yang sudah dilakukan). */
+  function jedaCekVerifikasi(ke) {
+    return ke < JADWAL_CEK_VERIFIKASI_MS.length ? JADWAL_CEK_VERIFIKASI_MS[ke] : JEDA_CEK_VERIFIKASI_MAKS_MS;
+  }
+
+  /** {kode: mode terbaca} -> "TERVERIFIKASI" (semua PAPI) | "MENUNGGU" | "BELUM_TERVERIFIKASI"
+   *  (batas tunggu habis). Kode yang tidak tampil ("(hilang)") dianggap belum berubah. */
+  function putuskanVerifikasi(mode, sejakKlikMs, batasMs = BATAS_TUNGGU_VERIFIKASI_MS) {
+    const nilai = Object.values(mode || {});
+    if (nilai.length && nilai.every((m) => String(m).toUpperCase() === "PAPI")) return "TERVERIFIKASI";
+    return sejakKlikMs >= batasMs ? "BELUM_TERVERIFIKASI" : "MENUNGGU";
+  }
+
+  /** Lama menunggu sebelum mengulang pencarian yang kena HTTP 429 (percobaan ke-0,1,..).
+   *  Retry-After (detik) dihormati; tanpa itu 15 dtk x 2^ke, maks 2 menit. Sama dgn pindah_wilayah_console.js. */
+  function jedaRateLimit(ke, retryAfter) {
+    const detik = Number(retryAfter);
+    if (retryAfter != null && retryAfter !== "" && Number.isFinite(detik) && detik >= 0) {
+      return Math.min(Math.max(detik * 1000, 5000), 300000);
+    }
+    return Math.min(15000 * 2 ** ke, 120000);
+  }
+
+  /** Hasil tersimpan -> kode yang SUDAH diklik "Ganti Mode" tapi belum terbukti PAPI. Kode ini
+   *  hanya DIPERIKSA di run berikut, tidak diklik ulang. `waktu_klik` ikut dihitung supaya
+   *  kegagalan SETELAH klik (mis. gagal melepas centang) tidak membuat kodenya diklik lagi. */
+  function kodeSudahDiklik(lama) {
+    if (!lama || STATUS_TUNTAS_LIVE.has(lama.status)) return [];
+    if (!STATUS_SUDAH_DIKLIK.has(lama.status) && !lama.waktu_klik) return [];
+    return String(lama.dipilih || "").split(" | ").map(bersih).filter(Boolean);
+  }
+
+  /** Epoch ms saat diklik; hasil lama (sebelum ada waktu_klik) memakai waktu mulai proses. NaN kalau tidak ada. */
+  const waktuKlikDari = (lama) => Date.parse((lama && (lama.waktu_klik || lama.waktu)) || "");
+
   if (typeof module !== "undefined" && module.exports) {
     module.exports = {
       TARGET, Berhenti, barisDariTabel, rencanakan, angkaItemMenu, pilihTombolKonfirmasi,
       idsubslsDariKode, bacaHalaman, normalisasiKode, targetDariDaftarKode, kunciTarget, istilahCari, cocokTarget,
+      jedaCekVerifikasi, putuskanVerifikasi, jedaRateLimit, kodeSudahDiklik, waktuKlikDari,
       STATUS_TUNTAS_LIVE, STATUS_BERHENTI_SEGERA,
     };
     return;
@@ -342,6 +388,36 @@
     }
     return null;
   }
+
+  /** sleep panjang yang tetap bisa dihentikan ubahModa.berhenti() (dicek tiap detik). */
+  async function tidur(ms) {
+    for (const akhir = Date.now() + ms; Date.now() < akhir;) {
+      cekHenti();
+      await sleep(Math.min(1000, akhir - Date.now()));
+    }
+  }
+
+  // --- rate limit (HTTP 429) ----------------------------------------------------
+  // Request datatable dikirim HALAMAN (bukan skrip), jadi statusnya dibaca lewat
+  // PerformanceObserver (responseStatus, Chrome >= 109). Waktu dicatat dgn jam
+  // performance.now() yang sama dgn entri (Date.now() bisa bergeser saat laptop tidur).
+  const POLA_URL_DATATABLE = /\/datatable-all-user-survey-periode\b/;
+  const waktu429 = [];
+  let pantau429 = false;
+  try {
+    if (global.__ubahModaPantau429) global.__ubahModaPantau429.disconnect(); // skrip ditempel ulang
+    const obs = new PerformanceObserver((daftar) => {
+      for (const en of daftar.getEntries()) {
+        if (en.responseStatus === 429 && POLA_URL_DATATABLE.test(en.name)) waktu429.push(en.responseEnd);
+      }
+    });
+    obs.observe({ type: "resource" });
+    global.__ubahModaPantau429 = obs;
+    pantau429 = typeof PerformanceResourceTiming !== "undefined" && "responseStatus" in PerformanceResourceTiming.prototype;
+  } catch (e) {
+    pantau429 = false;
+  }
+  const ada429Sejak = (mulai) => waktu429.some((w) => w >= mulai);
 
   function tabel() {
     return [...document.querySelectorAll("table")].filter(tampak).find((t) => /Kode Identitas/i.test(t.innerText)) || null;
@@ -435,8 +511,9 @@
    *  "KETEMU"   = baris yang dicari tampil;
    *  "TERSARING" = semua baris milik subsls target tapi baris yang dicari tidak ada;
    *  "KOSONG"   = tabel tanpa baris (kode/subsls tidak ada);
-   *  null       = batas waktu habis, tabel masih berisi subsls lain / belum berubah. */
-  async function tungguHasilCari(sebelum, t, batasMs = 20000) {
+   *  null       = batas waktu habis, tabel masih berisi subsls lain / belum berubah,
+   *               atau batal() bernilai true (pencarian kena HTTP 429). */
+  async function tungguHasilCari(sebelum, t, batasMs = 20000, batal = () => false) {
     const target = cocokTarget(t);
     const milikSubsls = (b) => b.idsubsls === t.idsubsls;
     const baca = () => {
@@ -449,6 +526,7 @@
     const akhir = Date.now() + batasMs;
     let berubah = false;
     while (Date.now() < akhir) {
+      if (batal()) return null;
       berubah = berubah || tandaTabel() !== sebelum;
       const v = berubah && baca();
       if (v) {
@@ -466,43 +544,73 @@
    *  PERNAH dipindah: halaman yang dipindah tidak memuat datanya dgn benar
    *  (temuan user 2026-09-14). Baris lain tidak dibuang di sini — rencanakan()
    *  yang mengabaikannya. Target list kode dicari dgn KODE-nya, target sheet dgn
-   *  idsubsls. -> {baris, halaman: [ke, dari]} */
+   *  idsubsls. -> {baris, halaman: [ke, dari]}
+   *
+   *  Pencarian yang kena HTTP 429 dibuang (tabelnya bisa masih milik pencarian
+   *  sebelumnya): tunggu jedaRateLimit lalu ulangi, maks BATAS_ULANG_429 kali -> RATE_LIMIT. */
   async function cari(t) {
     const istilah = istilahCari(t);
     const target = cocokTarget(t);
-    await tutupMenu();
-    const kotak = kotakCari();
-    if (!kotak) throw new Berhenti("KOLOM_TIDAK_ADA", "kotak 'Cari...' tidak ditemukan");
-    // Kotak berisi istilah yg SAMA (verifikasi): kosongkan dulu supaya data dimuat
-    // ulang, dan TUNGGU daftar tanpa-saring benar-benar tampil sebelum mengisi lagi
-    // — kalau tidak, respons isian "" bisa tiba belakangan & menimpa hasil.
-    // Kalau isinya istilah lain, langsung ditimpa.
-    if (kotak.value === istilah) {
-      const sebelum = tandaTabel();
-      await isiInputReact(kotak, "");
-      await tunggu(() => tandaTabel() !== sebelum && barisTerbaca().some((b) => !target(b)), 20000);
-      await tungguStabil();
+    for (let ulang = 0; ; ulang++) {
+      const mulai = performance.now();
+      const kena429 = () => ada429Sejak(mulai);
+      await tutupMenu();
+      const kotak = kotakCari();
+      if (!kotak) throw new Berhenti("KOLOM_TIDAK_ADA", "kotak 'Cari...' tidak ditemukan");
+      // Kotak berisi istilah yg SAMA (verifikasi): kosongkan dulu supaya data dimuat
+      // ulang, dan TUNGGU daftar tanpa-saring benar-benar tampil sebelum mengisi lagi
+      // — kalau tidak, respons isian "" bisa tiba belakangan & menimpa hasil.
+      // Kalau isinya istilah lain, langsung ditimpa.
+      if (kotak.value === istilah) {
+        const sebelum = tandaTabel();
+        await kirimCari(kotak, "");
+        await tunggu(() => kena429() || (tandaTabel() !== sebelum && barisTerbaca().some((b) => !target(b))), 20000);
+        if (!kena429()) await tungguStabil();
+      }
+      // Maks 2x: kalau tabel belum tersaring (respons tertukar / pencarian tidak
+      // terpicu), istilah diketik ulang sekali lagi sebelum tabel dibaca apa adanya.
+      let hasilCari = null;
+      for (let ke = 1; ke <= 2 && !hasilCari && !kena429(); ke++) {
+        const sebelum = tandaTabel();
+        await kirimCari(kotakCari() || kotak, istilah);
+        hasilCari = await tungguHasilCari(sebelum, t, 20000, kena429);
+        if (!hasilCari && ke === 1 && !kena429()) log(`⚠️ tabel belum tersaring utk "${istilah}" — pencarian diulang.`);
+      }
+      await sleep(500); // entri PerformanceObserver diserahkan asinkron
+      if (kena429()) {
+        if (ulang >= BATAS_ULANG_429) {
+          throw new Berhenti("RATE_LIMIT",
+            `pencarian "${istilah}" masih HTTP 429 setelah ${ulang} kali menunggu — tunggu beberapa menit lalu jalankan ulang`);
+        }
+        const jeda = jedaRateLimit(ulang);
+        log(`⏳ HTTP 429 (rate limit) saat mencari "${istilah}" — isi tabel tidak dipakai. `
+          + `Tunggu ${Math.round(jeda / 1000)} dtk lalu cari ulang (${ulang + 1}/${BATAS_ULANG_429}).`);
+        await tidur(jeda);
+        continue;
+      }
+      if (!hasilCari) log(`⚠️ tabel tetap belum tersaring utk "${istilah}" — dibaca apa adanya.`);
+      const d = bacaTabelWajib();
+      const baris = barisDariTabel(d).map((b) => ({ ...b, halaman: d.halaman[0] }));
+      const nTarget = baris.filter(target).length;
+      log(`Pencarian "${istilah}": halaman ${d.halaman[0]} dari ${d.halaman[1]}, ${baris.length} baris tampil `
+        + `(${nTarget} ${t.kode ? "kode persis" : "milik subsls ini"}). Halaman lain tidak dibaca.`);
+      if (d.halaman[1] > 1 && baris.length < 50) {
+        throw new Berhenti("PER_PAGE_KECIL",
+          `hanya ${baris.length} baris/halaman utk ${d.halaman[1]} halaman — buka list dgn perPage=100`);
+      }
+      return { baris, halaman: d.halaman };
     }
-    // Maks 2x: kalau tabel belum tersaring (respons tertukar / pencarian tidak
-    // terpicu), istilah diketik ulang sekali lagi sebelum tabel dibaca apa adanya.
-    let hasilCari = null;
-    for (let ke = 1; ke <= 2 && !hasilCari; ke++) {
-      const sebelum = tandaTabel();
-      await isiInputReact(kotakCari() || kotak, istilah);
-      hasilCari = await tungguHasilCari(sebelum, t);
-      if (!hasilCari && ke === 1) log(`⚠️ tabel belum tersaring utk "${istilah}" — pencarian diulang.`);
-    }
-    if (!hasilCari) log(`⚠️ tabel tetap belum tersaring utk "${istilah}" — dibaca apa adanya.`);
-    const d = bacaTabelWajib();
-    const baris = barisDariTabel(d).map((b) => ({ ...b, halaman: d.halaman[0] }));
-    const nTarget = baris.filter(target).length;
-    log(`Pencarian "${istilah}": halaman ${d.halaman[0]} dari ${d.halaman[1]}, ${baris.length} baris tampil `
-      + `(${nTarget} ${t.kode ? "kode persis" : "milik subsls ini"}). Halaman lain tidak dibaca.`);
-    if (d.halaman[1] > 1 && baris.length < 50) {
-      throw new Berhenti("PER_PAGE_KECIL",
-        `hanya ${baris.length} baris/halaman utk ${d.halaman[1]} halaman — buka list dgn perPage=100`);
-    }
-    return { baris, halaman: d.halaman };
+  }
+
+  // Jarak minimal antar-pencarian yang dikirim skrip (rate limit fasih-sm); opsi jarakCariMs.
+  let jarakCariMs = 2000;
+  let cariTerakhir = 0;
+
+  async function kirimCari(kotak, nilai) {
+    const jeda = cariTerakhir + jarakCariMs - Date.now();
+    if (jeda > 0) await tidur(jeda);
+    cariTerakhir = Date.now();
+    await isiInputReact(kotak, nilai);
   }
 
   // --- centang ----------------------------------------------------------------
@@ -619,23 +727,29 @@
     return { teks, tombol };
   }
 
-  /** Mode manual: manusia yang mengklik item & konfirmasi. */
-  async function tungguKlikManusia(item, n) {
+  /** Mode manual: manusia yang mengklik item & konfirmasi. -> true kalau dialog konfirmasi
+   *  terlihat (dianggap diklik), false kalau menu ditutup tanpa dialog (Esc / batal). */
+  async function tungguKlikManusia(item, n, hasil) {
     item.style.outline = "3px solid #e65100";
     item.scrollIntoView({ block: "nearest" });
     log(`👉 KLIK SENDIRI "Ganti Mode (Ke PAPI) (${n})" lalu konfirmasi dialognya. `
-      + "Kalau batal: tekan Esc (subsls ini akan tercatat BELUM_BERUBAH & batch berhenti).");
+      + "Kalau batal: tekan Esc SEBELUM dialog muncul (kode ini tercatat BELUM_BERUBAH & batch berhenti).");
     await tunggu(() => !menuTerbuka(), 15 * 60 * 1000, 400);
     const dlg = await tunggu(dialogTerbuka, 4000, 300);
-    if (dlg) {
-      catatDialog(dlg);
-      await tunggu(() => !dialogTerbuka(), 15 * 60 * 1000, 400);
-    }
+    if (!dlg) return false;
+    // Gagal tertutup: dialog yang ditutup lewat Batal pun dicatat diklik -> tidak diklik ulang otomatis.
+    hasil.waktu_klik = new Date().toISOString();
+    catatDialog(dlg);
+    await tunggu(() => !dialogTerbuka(), 15 * 60 * 1000, 400);
     await sleep(2500);
+    return true;
   }
 
-  /** Mode otomatis: klik item & satu-satunya tombol konfirmasi. IRREVERSIBLE. */
-  async function klikOtomatis(item) {
+  /** Mode otomatis: klik item & satu-satunya tombol konfirmasi. IRREVERSIBLE.
+   *  hasil.waktu_klik diisi SEBELUM klik yang bisa mengubah data (item tanpa dialog /
+   *  tombol konfirmasi), supaya berhenti di tengah pun kodenya tidak diklik ulang. */
+  async function klikOtomatis(item, hasil) {
+    hasil.waktu_klik = new Date().toISOString();
     item.click();
     const dlg = await tunggu(dialogTerbuka, 8000, 300);
     if (!dlg) {
@@ -644,32 +758,114 @@
     }
     const { teks, tombol } = catatDialog(dlg);
     if (!/papi|mode/i.test(teks)) {
+      hasil.waktu_klik = "";
       tekanEscape();
       throw new Berhenti("DIALOG_TIDAK_DIKENAL", `dialog tidak menyebut PAPI/mode: ${teks.slice(0, 200)}`);
     }
     const i = pilihTombolKonfirmasi(tombol);
     if (i === null) {
+      hasil.waktu_klik = "";
       tekanEscape();
       throw new Berhenti("TOMBOL_KONFIRMASI_AMBIGU", `tombol dialog: ${JSON.stringify(tombol)}`);
     }
+    hasil.waktu_klik = new Date().toISOString();
     [...dlg.querySelectorAll("button")].filter(tampak)[i].click();
     await tunggu(() => !dialogTerbuka(), 20000);
     await sleep(2000);
     return "DIKONFIRMASI";
   }
 
-  /** Cari ulang & cek kode yang diubah sudah PAPI. Kode yang pindah ke halaman
-   *  lain terbaca "(hilang)" -> tidak terverifikasi (gagal tertutup). */
-  async function verifikasiPapi(t, kode, percobaan = 3) {
-    let baris = [];
-    for (let ke = 1; ke <= percobaan; ke++) {
-      await sleep(1500 * ke);
-      ({ baris } = await cari(t));
-      const mode = Object.fromEntries(kode.map((k) => [k, (baris.find((b) => b.kode === k) || { mode: "(hilang)" }).mode]));
-      log(`Verifikasi ke-${ke}:`, mode);
-      if (Object.values(mode).every((m) => m.toUpperCase() === "PAPI")) return { ok: true, baris };
+  // --- verifikasi tertunda ------------------------------------------------------
+  // Mode baru TIDAK langsung terbaca di tabel (run user 2026-09-15). Kode yang sudah
+  // dikonfirmasi masuk antrean (DIUBAH_MENUNGGU) & dicek ulang di sela target lain,
+  // bukan ditunggu di tempat. Objek hasil dipakai bersama & ditimpa di tempat.
+
+  /** {kode: mode} dari baris tabel; "(hilang)" kalau kode tidak tampil. */
+  const modeKode = (baris, kode) => Object.fromEntries(kode.map((k) =>
+    [k, (baris.find((b) => samaKode(b.kode, k)) || { mode: "(hilang)" }).mode]));
+
+  const menit = (ms) => (Number.isFinite(ms) ? `${(ms / 60000).toFixed(1)} mnt` : "? mnt");
+
+  function entriAntrean(t, hasil) {
+    const wk = waktuKlikDari(hasil);
+    return { t, hasil, kode: kodeSudahDiklik(hasil), waktuKlik: Number.isFinite(wk) ? wk : Date.now(), ke: 0,
+      cekBerikut: Date.now() + jedaCekVerifikasi(0) };
+  }
+
+  /** Satu kali cek ulang. Hasil tersimpan hanya ditimpa kalau keputusannya final (PAPI, atau
+   *  batas tunggu habis). -> null, atau kode status yang menghentikan batch. */
+  async function cekUlang(e, o) {
+    const kunci = kunciTarget(e.t);
+    e.ke += 1;
+    try {
+      const { baris } = await cari(e.t);
+      const mode = modeKode(baris, e.kode);
+      const sejak = Date.now() - e.waktuKlik;
+      const v = putuskanVerifikasi(mode, sejak, o.batasTungguMs);
+      log(`Cek ulang ke-${e.ke} ${kunci} (${menit(sejak)} sejak diklik):`, mode, `-> ${v}`);
+      if (v === "MENUNGGU") {
+        e.cekBerikut = Date.now() + jedaCekVerifikasi(e.ke);
+        return null;
+      }
+      if (v === "TERVERIFIKASI") {
+        e.hasil.status = "DIUBAH_TERVERIFIKASI";
+        e.hasil.pesan += ` | PAPI terbaca ${menit(sejak)} setelah diklik (cek ke-${e.ke})`;
+      } else {
+        e.hasil.status = "DIUBAH_BELUM_TERVERIFIKASI";
+        e.hasil.pesan += ` | ${menit(sejak)} setelah diklik masih ${JSON.stringify(mode)} — cek di fasih-sm; `
+          + "kalau memang belum berubah, ulangi dgn klikUlang";
+      }
+      simpanHasil(e.hasil);
+      return STATUS_BERHENTI_SEGERA.has(e.hasil.status) ? e.hasil.status : null;
+    } catch (err) {
+      if (!(err instanceof Berhenti)) console.error(err);
+      log(`⚠️ cek ulang ${kunci} gagal: ${err && err.message ? err.message : err} — tetap DIUBAH_MENUNGGU (tidak diklik ulang).`);
+      return err instanceof Berhenti ? err.kode : "ERROR_TAK_TERDUGA";
     }
-    return { ok: false, baris };
+  }
+
+  /** Cek entri yang jatuh tempo. sampai "penuh": tunggu selama antrean >= batas();
+   *  "habis": tunggu sampai antrean kosong. -> null, atau kode status penghenti batch. */
+  async function layaniAntrean(antrean, o, catat, sampai, batas) {
+    for (;;) {
+      for (const e of antrean.filter((x) => x.cekBerikut <= Date.now())) {
+        const stop = await cekUlang(e, o);
+        if (e.hasil.status !== "DIUBAH_MENUNGGU") {
+          antrean.splice(antrean.indexOf(e), 1);
+          catat("DIUBAH_MENUNGGU", e.hasil.status);
+          log(`  -> ${kunciTarget(e.t)}: ${e.hasil.status}`);
+        }
+        if (stop) return stop;
+      }
+      const tungguLagi = sampai === "habis" ? antrean.length > 0 : antrean.length >= batas();
+      if (!tungguLagi) return null;
+      const jeda = Math.max(1000, Math.min(...antrean.map((x) => x.cekBerikut)) - Date.now());
+      log(`⏳ ${antrean.length} kode menunggu Mode terbaca PAPI`
+        + (sampai === "habis" ? "" : ` (batas ${batas()} — kode baru belum diklik)`)
+        + ` — cek berikutnya ${Math.round(jeda / 1000)} dtk lagi.`);
+      try {
+        await tidur(jeda);
+      } catch (err) {
+        if (err instanceof Berhenti) return err.kode;
+        throw err;
+      }
+    }
+  }
+
+  /** Tunggu SATU entri sampai final (dipakai cakupan "semua": putaran berikutnya baru boleh
+   *  mencari CAPI setelah yang diklik terbaca PAPI). -> null kalau terverifikasi, atau kode penghenti. */
+  async function tungguEntri(e, o) {
+    while (e.hasil.status === "DIUBAH_MENUNGGU") {
+      try {
+        await tidur(Math.max(0, e.cekBerikut - Date.now()));
+      } catch (err) {
+        if (err instanceof Berhenti) return err.kode;
+        throw err;
+      }
+      const stop = await cekUlang(e, o);
+      if (stop) return stop;
+    }
+    return null;
   }
 
   // --- pemetaan filter (READ-ONLY) -------------------------------------------

@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
 """
-buka_wilayah.py — Siapkan "Buka Wilayah" (batal tandai Selesai Listing) massal
-di fasih-sm, utk SEMUA subsls periode (--semua) atau daftar idsubsls polos (--daftar).
+tandai_selesai.py — Siapkan "Tandai Selesai Listing" massal di fasih-sm
+(kebalikan buka_wilayah.py).
 
 Tombol aslinya ada di halaman Data survei -> "Progress Penyelesaian Wilayah"
-(pojok kanan atas) -> kartu wilayah berstatus "Listing Selesai" -> "Buka Wilayah".
-fasih-sm menolak Playwright, jadi JALUR-nya Console Chrome biasa
-(buka_wilayah_console.js). File ini hanya memvalidasi daftar & menyuntikkannya
+(pojok kanan atas) -> kartu wilayah berstatus "Proses Listing" -> "Tandai Selesai
+Listing". fasih-sm menolak Playwright, jadi JALUR-nya Console Chrome biasa
+(tandai_selesai_console.js). File ini hanya memvalidasi daftar & menyuntikkannya
 ke template Console — TIDAK membuka browser.
 
 LANGKAH
 -------
-    python buka_wilayah/buka_wilayah.py --semua --console
-    python buka_wilayah/buka_wilayah.py --daftar daftar_buka_wilayah.txt --console
+    python tandai_selesai/tandai_selesai.py --semua --console
+    python tandai_selesai/tandai_selesai.py --daftar daftar_buka_wilayah.txt --console
 Lalu di Chrome (login fasih-sm, halaman Data survei) -> F12 Console -> tempel
-buka_wilayah_console.siap.js:
-    await bukaWilayah.jalankan({mode: "cek"})                 // READ-ONLY
-    await bukaWilayah.jalankan({mode: "eksekusi", limit: 1})  // 1 wilayah, cek hasilnya
-    await bukaWilayah.jalankan({mode: "eksekusi"})            // sisanya
+tandai_selesai_console.siap.js:
+    await tandaiSelesai.jalankan({mode: "cek"})                 // READ-ONLY
+    await tandaiSelesai.jalankan({mode: "eksekusi", limit: 1})  // 1 wilayah, cek hasilnya
+    await tandaiSelesai.jalankan({mode: "eksekusi"})            // sisanya
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from buka_wilayah.buka_wilayah import baca_daftar  # noqa: E402 — format daftar sama persis
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -38,31 +39,10 @@ for _stream in (sys.stdout, sys.stderr):
         except Exception:
             pass
 
-KONSOL_TEMPLATE = Path(__file__).resolve().parent / "buka_wilayah_console.js"
-KONSOL_SIAP = Path("./buka_wilayah_console.siap.js")
+KONSOL_TEMPLATE = Path(__file__).resolve().parent / "tandai_selesai_console.js"
+KONSOL_SIAP = Path("./tandai_selesai_console.siap.js")
 PENANDA_TARGET = "/*__TARGET__*/[]"
 PENANDA_CAKUPAN = '/*__CAKUPAN__*/"daftar"'
-POLA_KODE = re.compile(r"5108\d{12}")
-
-
-def baca_daftar(teks: str):
-    """Daftar idsubsls (satu per baris; koma/spasi/titik-koma juga boleh; '#' =
-    komentar) -> (kode_unik_urut, tidak_valid[(no_baris, token)], jumlah_duplikat).
-    Token yang bukan 16 digit berawalan 5108 TIDAK diperbaiki/ditebak."""
-    kode, tidak_valid, dup = [], [], 0
-    terlihat = set()
-    for no, baris in enumerate(teks.splitlines(), start=1):
-        for token in re.split(r"[\s,;]+", baris.split("#", 1)[0].strip()):
-            if not token:
-                continue
-            if not POLA_KODE.fullmatch(token):
-                tidak_valid.append((no, token))
-            elif token in terlihat:
-                dup += 1
-            else:
-                terlihat.add(token)
-                kode.append(token)
-    return kode, tidak_valid, dup
 
 
 def isi_template(teks: str, kode, semua: bool) -> str:
@@ -76,14 +56,14 @@ def isi_template(teks: str, kode, semua: bool) -> str:
                 .replace(PENANDA_CAKUPAN, json.dumps("semua" if semua else "daftar")))
 
 
-def tulis_console(kode, semua: bool = False) -> Path:
+def tulis_console(kode, semua: bool) -> Path:
     teks = KONSOL_TEMPLATE.read_text(encoding="utf-8")
     KONSOL_SIAP.write_text(isi_template(teks, kode, semua), encoding="utf-8")
     return KONSOL_SIAP
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Siapkan Buka Wilayah massal (fasih-sm)")
+    ap = argparse.ArgumentParser(description="Siapkan Tandai Selesai Listing massal (fasih-sm)")
     sumber = ap.add_mutually_exclusive_group(required=True)
     sumber.add_argument("--semua", action="store_true",
                         help="SEMUA subsls periode (daftar dibaca di browser dari Progress Penyelesaian Wilayah)")
@@ -94,7 +74,6 @@ def main():
     kode = []
     if args.semua:
         print("Cakupan: SEMUA subsls periode — daftarnya dibaca skrip Console dari server saat dijalankan.")
-        print("⚠️ Termasuk wilayah yang ditandai Selesai Listing oleh orang lain.")
     else:
         kode, tidak_valid, dup = baca_daftar(Path(args.daftar).read_text(encoding="utf-8-sig"))
         print(f"{args.daftar}: {len(kode)} idsubsls unik" + (f", {dup} duplikat digabung" if dup else ""))
@@ -104,10 +83,13 @@ def main():
             print(f"⛔ {len(tidak_valid)} entri bukan idsubsls 16 digit (baris, isi): {tidak_valid[:10]}")
             print("Perbaiki file daftarnya dulu — tidak ada yang ditebak.")
             return 1
+        if not kode:
+            print("⛔ Daftar kosong.")
+            return 1
     if args.console:
         path = tulis_console(kode, args.semua)
         print(f"\n{path} ditulis. Chrome biasa -> login fasih-sm -> halaman Data survei -> F12 Console -> tempel ->")
-        print('  await bukaWilayah.jalankan({mode: "cek"})')
+        print('  await tandaiSelesai.jalankan({mode: "cek"})')
     return 0
 
 

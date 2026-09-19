@@ -124,7 +124,16 @@ check("body pindah", m.bodyPindah("a1", TUJ, G, { id: "c78fee73", allocationId: 
 check("success true", m.nilaiRespons(200, '{"success":true,"message":"ok"}').status, "OK");
 check("success false", m.nilaiRespons(200, '{"success":false,"message":"tidak boleh"}').status, "GAGAL_PINDAH");
 check("403 CSRF", m.nilaiRespons(403, "Invalid CSRF Token").status, "SESI_DITOLAK");
-check("bukan JSON", m.nilaiRespons(502, "<html>").status, "RESPONS_TIDAK_DIKENAL");
+check("200 bukan JSON", m.nilaiRespons(200, "<html>").status, "RESPONS_TIDAK_DIKENAL");
+check("504 Gateway Time-out (teks asli run user) -> SERVER_SIBUK, bukan berhenti",
+  m.nilaiRespons(504, "<html><body><h1>504 Gateway Time-out</h1>\nThe server didn't respond in time.\n</body></html>").status, "SERVER_SIBUK");
+check("502/503/gagal jaringan -> SERVER_SIBUK", [502, 503, 0].map((s) => m.nilaiRespons(s, "x").status),
+  ["SERVER_SIBUK", "SERVER_SIBUK", "SERVER_SIBUK"]);
+check("jenis galat sementara", [429, 504, 502, 503, 0, 500, 404, 200].map(m.jenisSementara),
+  ["RATE_LIMIT", "SERVER_SIBUK", "SERVER_SIBUK", "SERVER_SIBUK", "SERVER_SIBUK", null, null, null]);
+check("SERVER_SIBUK tidak menghentikan seketika, tapi dihitung beruntun",
+  [m.STATUS_BERHENTI_SEGERA.has("SERVER_SIBUK"), m.gagalDihitung("SERVER_SIBUK"), m.gagalDihitung("PENCARIAN_GAGAL"),
+    m.gagalDihitung("ERROR_TAK_TERDUGA"), m.gagalDihitung("TUJUAN_BELUM_DIBUKA")], [false, true, true, true, false]);
 check("429 (teks asli) -> RATE_LIMIT",
   m.nilaiRespons(429, '{"error":"RATE_LIMIT_EXCEEDED","message":"Rate limit exceeded","status":429}').status, "RATE_LIMIT");
 check("RATE_LIMIT menghentikan batch", m.STATUS_BERHENTI_SEGERA.has("RATE_LIMIT"), true);
@@ -180,6 +189,72 @@ check("gabung peta: baru menimpa, kunci asing dibuang",
   Object.keys(m.gabungPeta({ a: { status: "DOKUMEN_TIDAK_DITEMUKAN" }, z: {} }, { a: eA, b: peta.b }, TP)).sort(), ["a", "b"]);
 check("gabung peta: entri lama tetap kalau tidak dipetakan ulang",
   m.gabungPeta({ c: peta.c }, { a: eA }, TP).c.status, "DOKUMEN_TIDAK_DITEMUKAN");
+
+// === ALUR SATUAN (mode cari / pindah) ===
+// --- level wilayah provinsi..subsls ---
+check("level wilayah tujuan", m.levelWilayah(TUJ).map((x) => `${x.nama}:${x.kode}`),
+  ["provinsi:51", "kabupaten:5108", "kecamatan:5108060", "desa:5108060002", "sls:51080600020002", "subsls:5108060002000203"]);
+check("level wilayah kode tidak valid", m.levelWilayah("5108"), null);
+check("jalur level", m.jalurLevel(TUJ), "51 > 5108 > 5108060 > 5108060002 > 51080600020002 > 5108060002000203");
+check("kode per level dari detail (level_7 null diabaikan)", m.kodeLevel(regionSnake(TUJ)),
+  ["51", "5108", "5108060", "5108060002", "51080600020002", TUJ]);
+check("kode per level dari datatable", m.kodeLevel(regionCamel(ASAL)).length, 6);
+check("semua level cocok", m.bedaLevel(m.kodeLevel(regionSnake(TUJ)), TUJ), []);
+const regionAneh = regionSnake(TUJ);
+regionAneh.level_1.level_2.level_3.full_code = "5108010";
+check("level kecamatan beda terdeteksi", m.bedaLevel(m.kodeLevel(regionAneh), TUJ), ["kecamatan 5108010 != 5108060"]);
+check("level kosong", m.bedaLevel([], TUJ).length, 6);
+check("level beda menghentikan batch", m.STATUS_BERHENTI_SEGERA.has("DIPINDAH_LEVEL_BEDA"), true);
+
+// --- detail: asal bisa lebih dari satu, nama & level ikut terbaca ---
+const ASAL2 = "5108010010000105";
+check("detail: asal Set", m.nilaiDetail(det(ASAL2), new Set([ASAL, ASAL2]), TUJ).status, "SIAP");
+check("detail: asal array", m.nilaiDetail(det(ASAL2), [ASAL, ASAL2], TUJ).status, "SIAP");
+check("detail: di luar semua asal", m.nilaiDetail(det("5108090010000503"), new Set([ASAL, ASAL2]), TUJ).status, "ASAL_BERUBAH");
+const detNama = m.nilaiDetail(det(ASAL, "APPROVED BY Pengawas", { code_identity: `${ASAL} - Pangkalan Gas (Wayan)` }), ASAL, TUJ);
+check("detail: nama dari code_identity & level", [detNama.nama, detNama.level[2]], [["PANGKALAN GAS (WAYAN)"], "5108060"]);
+
+// --- nama & istilah pencarian ---
+check("nama dari kode identitas", m.namaDariKode(`${ASAL} -  Praktek Dokter (Made)`), "PRAKTEK DOKTER (MADE)");
+check("nama tanpa awalan kode tetap", m.namaDariKode("apotek sehat"), "APOTEK SEHAT");
+check("nama target + nama lama (unik)", m.namaTarget({ n: "PANGKALAN GAS (I PUTU ARYA)", na: ["pangkalan gas i putu arya (i putu arya)", "PANGKALAN GAS (I PUTU ARYA)"] }),
+  ["PANGKALAN GAS (I PUTU ARYA)", "PANGKALAN GAS I PUTU ARYA (I PUTU ARYA)"]);
+check("istilah cari: nama, nama lama, lalu kode identitas per asal",
+  m.istilahCariDokumen({ n: "BARU", na: ["LAMA"], a: [ASAL, "123"] }),
+  ["BARU", "LAMA", `${ASAL} - BARU`, `${ASAL} - LAMA`]);
+check("istilah cari tanpa asal = nama saja", m.istilahCariDokumen({ n: "BARU" }), ["BARU"]);
+check("asal per target menang, cadangan ASAL global", [[...m.asalUntuk({ a: [ASAL2] }, [ASAL])], [...m.asalUntuk({}, [ASAL])]],
+  [[ASAL2], [ASAL]]);
+
+// --- nilai pencarian ---
+const cari = (o, items) => m.nilaiPencarian(tgt(o), items);
+const A2 = item({ data1: A.data1, assignmentStatusAlias: "APPROVED BY Pengawas" });  // nama sama, ID lain
+const r1 = cari({ n: A.data1, ids: [A.id] }, [C1, A, PRE]);
+check("ID approve tampil -> KETEMU, nama cocok", [r1.status, r1.item.id, r1.namaCocok, r1.pesan], ["KETEMU", A.id, true, ""]);
+const r2 = cari({ n: A.data1, ids: [A.id] }, [A2, A, A]);
+check("ID approve + dokumen lain bernama sama -> tetap ID approve, yg lain dilaporkan",
+  [r2.status, r2.item.id, r2.pesan.startsWith("dokumen lain bernama sama (TIDAK dipindah)")], ["KETEMU", A.id, true]);
+check("ID approve tidak tampil (hanya nama sama) -> TIDAK_TAMPIL, bukan memilih yg lain",
+  [cari({ n: A.data1, ids: [A.id] }, [A2]).status, cari({ n: A.data1, ids: [A.id] }, [A2]).item], ["TIDAK_TAMPIL", null]);
+check("ID approve tampil tapi nama beda -> namaCocok false (dicek lagi di detail)",
+  [cari({ n: "NAMA LAIN", ids: [A.id] }, [A]).status, cari({ n: "NAMA LAIN", ids: [A.id] }, [A]).namaCocok], ["KETEMU", false]);
+check("hasil kosong", cari({ n: A.data1, ids: [A.id] }, []).status, "TIDAK_TAMPIL");
+check("tanpa ID: nama lama cocok", cari({ n: "BARU", na: [C1.data1] }, [C1]).status, "KETEMU");
+check("tanpa ID: dua APPROVED -> ganda", cari({ n: "APOTEK KEMBAR" }, [C1, C2]).status, "DOKUMEN_GANDA");
+check("tanpa ID: belum approved", cari({ n: B.data1 }, [B]).status, "BELUM_APPROVED");
+check("tanpa ID: prelist tidak dicocokkan", cari({ n: "APOTEK SEHAT" }, [PRE]).status, "TIDAK_TAMPIL");
+check("tanpa ID: DRAFT + APPROVED -> yang APPROVED", cari({ n: "DRAFT DAN APPROVED" }, [F, F2]).item.id, F2.id);
+check("tanpa ID: cocok lewat codeIdentity walau data1 kosong",
+  cari({ n: "TOKO KODE" }, [item({ data1: "", codeIdentity: `${ASAL} - toko kode` })]).status, "KETEMU");
+
+// --- jeda pencarian adaptif ---
+check("faktor jeda naik x2 maks 8, turun x0,8 min 1",
+  [m.faktorJeda(1, true), m.faktorJeda(8, true), m.faktorJeda(2, false), m.faktorJeda(1.1, false)], [2, 8, 1.6, 1]);
+
+// --- lewati yang tuntas oleh mode pindah ---
+check("lewati tuntas oleh mode pindah, bukan oleh mode cari",
+  ks(m.saringTarget(T, { a: { jalan: "pindah", status: "DIPINDAH_TERVERIFIKASI" }, b: { jalan: "cari", status: "SUDAH_DI_TUJUAN" } },
+    { lewatiSelesai: true })), ["b", "c"]);
 
 console.log(okAll ? "\nSEMUA PASS" : "\nADA YANG FAIL");
 process.exit(okAll ? 0 : 1);

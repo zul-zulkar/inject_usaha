@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from inti.gabungan_loader import GabunganRow, Pemeriksaan
 from ganti_moda.ubah_moda import (
     STATUS_BERHENTI_SEGERA, STATUS_TUNTAS_LIVE, BarisAssignment, Berhenti, Target, angka_item_menu, bangun_target,
-    baca_daftar, baris_dari_tabel, normalisasi_kode, pilih_tombol_konfirmasi, rencanakan, target_dari_daftar_kode,
+    baca_daftar, baris_dari_tabel, jeda_cek_verifikasi, jeda_rate_limit, normalisasi_kode, pilih_tombol_konfirmasi,
+    putuskan_verifikasi, rencanakan, target_dari_daftar_kode,
 )
 
 ok_all = True
@@ -161,6 +162,29 @@ check("kunci: target sheet = idsubsls", T.kunci, S)
 check("kunci: target kode = kode identitas", TK.kunci, f"{S} - UMK - 4")
 check("cocok kode: '- 41' bukan '- 4'", [TK.cocok(x) for x in (b(4), b(41))], [True, False])
 check("cocok sheet: semua baris subsls", [T.cocok(x) for x in (b(4), b(41), b(1, sub=LAIN))], [True, True, False])
+
+# --- verifikasi tertunda & rate limit (run user 2026-09-15: Mode baru terbaca belakangan,
+#     cek beruntun memicu HTTP 429). Kasus kembar dgn tests/test_ubah_moda_console.js. ---
+check("jadwal cek ulang", [jeda_cek_verifikasi(k) for k in (0, 1, 4, 5, 40)], [30_000, 45_000, 120_000, 180_000, 180_000])
+check("verifikasi: semua PAPI (huruf kecil juga)", putuskan_verifikasi({"a": "PAPI", "b": "papi"}, 1000, 60_000),
+      "TERVERIFIKASI")
+check("verifikasi: PAPI setelah batas tetap terverifikasi", putuskan_verifikasi({"a": "PAPI"}, 999_999, 60_000),
+      "TERVERIFIKASI")
+check("verifikasi: masih CAPI sebelum batas -> menunggu", putuskan_verifikasi({"a": "CAPI"}, 59_999, 60_000), "MENUNGGU")
+check("verifikasi: masih CAPI saat batas habis", putuskan_verifikasi({"a": "CAPI"}, 60_000, 60_000), "BELUM_TERVERIFIKASI")
+check("verifikasi: sebagian PAPI -> menunggu", putuskan_verifikasi({"a": "PAPI", "b": "CAPI"}, 1000, 60_000), "MENUNGGU")
+check("verifikasi: kode tidak tampil -> menunggu", putuskan_verifikasi({"a": "(hilang)"}, 1000, 60_000), "MENUNGGU")
+check("verifikasi: tanpa kode tidak pernah terverifikasi",
+      [putuskan_verifikasi({}, 1000, 60_000), putuskan_verifikasi({}, 60_000, 60_000)], ["MENUNGGU", "BELUM_TERVERIFIKASI"])
+check("verifikasi: waktu klik tak diketahui (inf) & masih CAPI", putuskan_verifikasi({"a": "CAPI"}, float("inf"), 60_000),
+      "BELUM_TERVERIFIKASI")
+check("429: 15 dtk x 2^ke, maks 2 mnt", [jeda_rate_limit(k) for k in (0, 1, 2, 3, 6)], [15_000, 30_000, 60_000, 120_000, 120_000])
+check("429: Retry-After dihormati (5 dtk - 5 mnt)", [jeda_rate_limit(0, ra) for ra in ("20", "1", "999", "", "abc")],
+      [20_000, 5_000, 300_000, 15_000, 15_000])
+check("RATE_LIMIT & DIUBAH_BELUM_TERVERIFIKASI menghentikan batch",
+      [s in STATUS_BERHENTI_SEGERA for s in ("RATE_LIMIT", "DIUBAH_BELUM_TERVERIFIKASI")], [True, True])
+check("DIUBAH_MENUNGGU: tidak tuntas & tidak menghentikan",
+      ["DIUBAH_MENUNGGU" in STATUS_TUNTAS_LIVE, "DIUBAH_MENUNGGU" in STATUS_BERHENTI_SEGERA], [False, False])
 
 # --- baca file daftar (.txt & .xlsx) ---
 import tempfile
