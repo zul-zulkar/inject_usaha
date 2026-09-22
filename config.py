@@ -20,7 +20,9 @@ from __future__ import annotations
 SURVEY_ID = "a0429e96-51a5-477b-a415-485f9c153004"
 
 # Password SSO eksternal fasih-web — SAMA utk semua akun (dikonfirmasi user).
-FIXED_PASSWORD = "Mitra5108"
+# SENGAJA kosong: repo ini publik. Isi di inti/config_lokal.py (di .gitignore)
+# atau env FASIH_PASSWORD — lihat README.md.
+FIXED_PASSWORD = ""
 
 FASIH_WEB_LOGIN_URL = "https://fasih-web.bps.go.id/login"
 FASIH_WEB_BASE = "https://fasih-web.bps.go.id"
