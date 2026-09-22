@@ -483,6 +483,16 @@ class GabunganRow:
         return nama_muat(nama_tampil(self["nama_komersial"], self.akhiran_badan), self["pengusaha"])
 
     @property
+    def nama_lama_dicari(self) -> str:
+        """Nama yang dicari create_document sbg pengaman "dokumen bernama format
+        LAMA sudah ada" (lihat DokumenNamaLamaAda). Format standar: nama mentah
+        sheet, karena dokumen Buleleng sempat dibuat dgn nama itu sebelum aturan
+        "<nama> (<12a>)" berlaku. Format yang belum pernah dipakai membuat
+        dokumen mengembalikan "" -> pengaman dilewati (kalau tidak, dua usaha
+        bernama sama di sheet saling menyandera)."""
+        return self.nama
+
+    @property
     def akun_ppl(self) -> str:
         return self["akun_ppl"].strip().lower()
 
@@ -845,7 +855,8 @@ def periksa_semua(rows: list[GabunganRow], tahun_berjalan: int | None = None,
                     continue
                 # Mode satu subsls: nama mentah tidak pernah dipakai mencari (dokumen
                 # di list satu akun ini selalu bernama nama_dokumen) -> cukup tanda di bawah.
-                pasangan = [(a.nama_dokumen, b.nama_dokumen)] + ([] if mode_satu_subsls else [(a.nama, b.nama)])
+                pakai_nama_lama = bool(a.nama_lama_dicari) and not mode_satu_subsls
+                pasangan = [(a.nama_dokumen, b.nama_dokumen)] + ([(a.nama, b.nama)] if pakai_nama_lama else [])
                 for na, nb in pasangan:
                     if na.upper() in nb.upper() and (na.upper() != nb.upper() or a.baris < b.baris):
                         for x, y in ((a, b), (b, a)):
@@ -858,7 +869,7 @@ def periksa_semua(rows: list[GabunganRow], tahun_berjalan: int | None = None,
                     # Pengaman dokumen-bernama-lama di create_document mencari
                     # nama MENTAH sbg substring; kalau dokumen baris b sudah
                     # dibuat duluan, baris a akan berhenti SKIP_DOKUMEN_NAMA_LAMA.
-                    if mode_satu_subsls and a.nama.upper() in b.nama_dokumen.upper():
+                    if mode_satu_subsls and a.nama_lama_dicari and a.nama.upper() in b.nama_dokumen.upper():
                         hasil[a.baris].tanda.append(
                             f"nama '{a.nama}' terkandung di nama dokumen baris {b.baris} — bisa "
                             "SKIP_DOKUMEN_NAMA_LAMA kalau dokumen baris itu dibuat lebih dulu")

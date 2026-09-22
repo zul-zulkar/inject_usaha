@@ -452,6 +452,13 @@ class FasihWebSession:
         # Versi sebelumnya mencari teks "Keluar" di halaman & selalu gagal.
         try:
             pemicu = self._visible(self.page.locator('[aria-haspopup="menu"]'))
+            # Dasbor bisa masih "Memuat Halaman..." 1,2 dtk setelah goto — dulu
+            # count() langsung 0 & logout UI dilewati ("Tombol menu akun tidak
+            # ketemu", run 2026-09-22), sehingga sesi fasih-web tidak ditutup.
+            try:
+                pemicu.first.wait_for(state="visible", timeout=10_000)
+            except Exception:
+                pass
             if pemicu.count() == 0:
                 pemicu = self._visible(self.page.get_by_role(
                     "button", name=re.compile(r"^\s*[A-Za-z]{1,2}\s*$")))
@@ -485,6 +492,27 @@ class FasihWebSession:
         except Exception as e:
             self._log(f"⚠️ clear_cookies gagal: {e}")
 
+    def _buka_halaman_login(self, percobaan: int = 3, timeout_ms: int = 60_000):
+        """Buka halaman login dgn timeout LEBIH PANJANG dari default (15 dtk)
+        & diulang beberapa kali.
+
+        Alasan (run 2026-09-22): dua batch berhenti dgn "Page.goto: Timeout
+        15000ms exceeded" ke /login padahal servernya membalas 200 utk request
+        biasa — halaman login fasih-web memang kadang lebih lambat dari 15 dtk
+        saat server sibuk. Kegagalannya transien (percobaan berikutnya lancar),
+        jadi sama seperti pencarian KBLI & "+Dokumen Baru": di-retry, bukan
+        dibiarkan menggugurkan seluruh sesi login."""
+        for ke in range(1, percobaan + 1):
+            try:
+                self.page.goto(FASIH_WEB_LOGIN_URL, wait_until="domcontentloaded", timeout=timeout_ms)
+                return
+            except Exception as e:
+                if ke == percobaan:
+                    raise
+                self._log(f"Halaman login tidak terbuka dlm {timeout_ms // 1000} dtk "
+                          f"(percobaan {ke}/{percobaan}): {str(e).splitlines()[0]} — coba lagi 10 dtk lagi.")
+                self.page.wait_for_timeout(10_000)
+
     def login(self, email: str, password: str = FIXED_PASSWORD, _percobaan: int = 1):
         """Login sbg `email`, lalu VERIFIKASI bahwa yang benar-benar masuk
         memang akun itu (lihat catatan panjang di atas logout()).
@@ -498,7 +526,7 @@ class FasihWebSession:
         if not password:
             raise SystemExit(PESAN_PASSWORD_KOSONG)
         self._log(f"Login sbg {email} (percobaan {_percobaan}) ...")
-        self.page.goto(FASIH_WEB_LOGIN_URL, wait_until="domcontentloaded")
+        self._buka_halaman_login()
         sso_loc = self.page.get_by_text(L["sso_eksternal_btn"], exact=False)
         try:
             count = sso_loc.count()
@@ -580,10 +608,28 @@ class FasihWebSession:
         # Verifikasi nyata: sudah keluar dari halaman login SSO?
         # SSO BPS kadang butuh puluhan detik utk menyelesaikan redirect —
         # jangan simpulkan gagal terlalu cepat.
-        for _ in range(20):
+        # Run 2026-09-22 (login ulang setelah sesi pertama): form SSO terisi &
+        # terkirim, tapi redirect berakhir di halaman login fasih-web LAGI
+        # (tombol SSO Pegawai/Eksternal tampil) sehingga 3 percobaan gagal
+        # beruntun. Sesi Keycloak sudah terbentuk pada titik itu, jadi klik
+        # "SSO Eksternal" sekali lagi biasanya langsung tembus ke Dasbor —
+        # dicoba SEKALI, akunnya tetap diverifikasi di bawah.
+        klik_ulang_sso = False
+        for ke in range(20):
             u = self.page.url.lower()
             if "/login" not in u and "auth" not in u and "fasih-web.bps.go.id" in u:
                 break
+            if (not klik_ulang_sso and ke >= 4 and "fasih-web.bps.go.id" in u and "/login" in u
+                    and "sso." not in u):
+                tombol = self._visible(self.page.get_by_text(L["sso_eksternal_btn"], exact=False))
+                if tombol.count():  # cabang opsional (aturan #6): tidak ada -> tunggu biasa
+                    klik_ulang_sso = True
+                    self._log("⚠️ Kembali ke halaman login fasih-web setelah form SSO — klik "
+                              f"'{L['sso_eksternal_btn']}' sekali lagi.")
+                    try:
+                        tombol.first.click(timeout=10_000, no_wait_after=True)
+                    except Exception as e:
+                        self._log(f"  klik ulang SSO gagal: {str(e).splitlines()[0][:120]}")
             self.page.wait_for_timeout(2_000)
         else:
             self._shot(f"login_masih_di_halaman_login_{email}")
@@ -2012,6 +2058,36 @@ class FasihWebSession:
         self.select_radio_by_datakey("kbli_radio", L["pilih_master_kbli_radio"])
         kbli_comp = self._komponen_wajib("kbli_pilihan", timeout_ms=15_000)
 
+        def kbli_tampil() -> str:
+            """Teks KBLI terpilih. Combobox menampilkannya di value DAN
+            placeholder textarea, format "[G][47241]Perdagangan Eceran Beras"
+            (dibaca dari dokumen asli 2026-09-22); kosong = placeholder
+            "Pilih salah satu..."."""
+            try:
+                ta = self._visible(kbli_comp.locator("textarea")).first
+                return " ".join(f"{ta.input_value() or ''} {ta.get_attribute('placeholder') or ''}".split())
+            except Exception:
+                return ""
+
+        def kategori_13h(tunggu_ms: int = 8_000) -> str:
+            """13h terisi OTOMATIS dari KBLI terpilih — "" kalau tidak ada."""
+            try:
+                kat = self._visible(self.komponen("kategori_lapangan_usaha").locator("input")).first
+                kat.wait_for(state="visible", timeout=tunggu_ms)
+                return (kat.input_value() or "").strip()
+            except Exception:
+                return ""
+
+        # Pengisian ulang: KBLI yang SAMA sudah terpilih -> JANGAN diklik lagi.
+        # Run 2026-09-22 tahap 2 baris 2: memilih ulang opsi yang sudah
+        # terpilih justru MEMBATALKAN pilihan (13h jadi kosong, 20 & 26c
+        # hilang dari DOM -> SKIP_26C_TIDAK_DIRENDER). Pola sama dgn radio
+        # (_radio_tercentang); kasus sama tadi paginya di input_usaha baris 2.
+        if f"[{kbli_code}]" in kbli_tampil():
+            self._log(f"  [kbli] sudah '{kbli_tampil()[:70]}' — tidak dipilih ulang.")
+            self._log(f"  [kategori] 13h: '{kategori_13h()}'")
+            return True
+
         pemicu = self._visible(kbli_comp.locator("textarea, input, button")).first
         try:
             pemicu.wait_for(state="visible", timeout=10_000)
@@ -2031,16 +2107,40 @@ class FasihWebSession:
             return [" ".join((o.nth(i).inner_text() or "").split())[:70]
                     for i in range(min(o.count(), 6))]
 
+        def batalkan_hapus_pilihan(setelah: str) -> None:
+            """Dialog "Konfirmasi Hapus Pilihan" (tombol Reset combobox) menutupi
+            form & menelan semua ketikan berikutnya. Run 2026-09-22 tahap 2
+            baris 2: dialog ini terbuka di tengah pencarian -> ketiga percobaan
+            + frasa deskriptif gagal dgn "opsi terlihat []" padahal KBLI 47241
+            ada di master. "Batal" = tidak menghapus apa pun, jadi aman.
+            count() di sini cabang opsional (lihat aturan keselamatan #6)."""
+            dlg = self._visible(self.page.get_by_role("dialog").filter(has_text=L["kbli_clear_x"]))
+            if dlg.count() == 0:
+                return
+            self._log(f"⚠️ Dialog '{L['kbli_clear_x']}' terbuka setelah {setelah} — klik Batal.")
+            try:
+                dlg.first.get_by_role("button", name="Batal", exact=True).click(timeout=5_000)
+                self.page.wait_for_timeout(600)
+            except Exception as e:
+                self._log(f"⚠️ Gagal menutup dialog hapus pilihan: {str(e)[:120]}")
+
         def pilih(term: str, jeda_ms: int) -> bool:
             """Ketik `term` di kotak cari lalu klik opsi yang memuat kode.
             `jeda_ms` = waktu tunggu hasil pencarian (pencarian ini jalan di
-            SERVER, jadi lambatnya jaringan langsung terasa)."""
+            SERVER, jadi lambatnya jaringan langsung terasa).
+
+            Kotak dikosongkan lewat fill("") — BUKAN Ctrl+A + Delete: tombol
+            hapus di combobox fasih-web bisa memicu dialog "Konfirmasi Hapus
+            Pilihan" (lihat batalkan_hapus_pilihan)."""
+            batalkan_hapus_pilihan("percobaan sebelumnya")
             kotak.click()
-            self.page.keyboard.press("Control+A")
-            self.page.keyboard.press("Delete")
-            self.page.wait_for_timeout(300)
+            if (kotak.input_value() or "").strip():
+                kotak.fill("")
+                self.page.wait_for_timeout(300)
+            batalkan_hapus_pilihan("mengosongkan kotak cari")
             kotak.type(term, delay=40)
             self.page.wait_for_timeout(jeda_ms)
+            batalkan_hapus_pilihan(f"mengetik '{term}'")
             opsi = self._visible(self.page.get_by_role("option")).filter(has_text=kbli_code)
             try:
                 opsi.first.wait_for(state="visible", timeout=8_000)
@@ -2079,14 +2179,19 @@ class FasihWebSession:
 
         # 13h Kategori Lapangan Usaha terisi OTOMATIS dari KBLI yang dipilih.
         # Itu bukti terkuat bahwa pilihannya benar-benar tersimpan — sekaligus
-        # penentu pemetaan rincian 26 (lihat catatan proyek).
-        try:
-            kat = self._visible(self.komponen("kategori_lapangan_usaha").locator("input")).first
-            kat.wait_for(state="visible", timeout=8_000)
-            nilai = (kat.input_value() or "").strip()
-            self._log(f"  [kategori] 13h terisi otomatis: '{nilai}'")
-        except Exception:
-            self._log("⚠️ 13h Kategori Lapangan Usaha tidak terbaca — verifikasi manual.")
+        # penentu pemetaan rincian 26 (lihat catatan proyek). 13h kosong =
+        # pilihan tidak menempel (atau terbatalkan, lihat di atas): lanjut
+        # mengisi berarti 20/26c salah dirender -> berhenti di sini saja.
+        nilai = kategori_13h()
+        for _ in range(4):
+            if nilai and f"[{kbli_code}]" in kbli_tampil():
+                break
+            self.page.wait_for_timeout(1_500)
+            nilai = kategori_13h(tunggu_ms=2_000)
+        self._log(f"  [kategori] 13h terisi otomatis: '{nilai}'")
+        if not nilai or f"[{kbli_code}]" not in kbli_tampil():
+            self._fail(f"fill_kbli_master: KBLI {kbli_code} tidak menempel setelah diklik "
+                       f"(tampil '{kbli_tampil()[:70]}', 13h '{nilai}')")
         return True
 
     def check_ringkasan(self) -> Ringkasan:

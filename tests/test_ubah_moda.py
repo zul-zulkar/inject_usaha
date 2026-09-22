@@ -12,8 +12,9 @@ os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak berg
 from inti.gabungan_loader import GabunganRow, Pemeriksaan
 from ganti_moda.ubah_moda import (
     STATUS_BERHENTI_SEGERA, STATUS_TUNTAS_LIVE, BarisAssignment, Berhenti, Target, angka_item_menu, bangun_target,
-    baca_daftar, baris_dari_tabel, jeda_cek_verifikasi, jeda_rate_limit, normalisasi_kode, pilih_tombol_konfirmasi,
-    putuskan_verifikasi, rencanakan, target_dari_daftar_kode,
+    baca_daftar, baris_dari_tabel, dialog_sesuai, diulang_per_subsls, jeda_cek_verifikasi, jeda_rate_limit,
+    masih_tuntas, normalisasi_kode, pilih_tombol_konfirmasi, pola_item_ganti_mode, putuskan_verifikasi, rencanakan,
+    target_dari_daftar_kode, target_dari_daftar_subsls, tulis_console,
 )
 
 ok_all = True
@@ -188,6 +189,76 @@ check("RATE_LIMIT & DIUBAH_BELUM_TERVERIFIKASI menghentikan batch",
 check("DIUBAH_MENUNGGU: tidak tuntas & tidak menghentikan",
       ["DIUBAH_MENUNGGU" in STATUS_TUNTAS_LIVE, "DIUBAH_MENUNGGU" in STATUS_BERHENTI_SEGERA], [False, False])
 
+# --- arah balik PAPI -> CAPI utk subsls tertentu (permintaan user 2026-09-22). Kembar dgn test_ubah_moda_console.js ---
+TC = Target(S, (), [1], ke="CAPI")
+TKC = Target(S, (), [2], kode=f"{S} - UMK - 4", ke="CAPI")
+check("arah: target bawaan = PAPI", (T.ke, TC.ke), ("PAPI", "CAPI"))
+check("kunci: arah CAPI berawalan, PAPI tetap", (TC.kunci, TKC.kunci, T.kunci), (f"CAPI:{S}", f"CAPI:{S} - UMK - 4", S))
+check("pola item menu per arah", [bool(pola_item_ganti_mode("CAPI").search("Ganti Mode (Ke CAPI) (3)")),
+                                  bool(pola_item_ganti_mode("CAPI").search("Ganti Mode (Ke PAPI) (3)")),
+                                  bool(pola_item_ganti_mode("PAPI").search("Ganti Mode ( Ke PAPI )"))], [True, False, True])
+ds_t, ds_tidak, ds_ganda, ds_kode = target_dari_daftar_subsls([
+    "idsubsls\tnama SLS",
+    f"{S}\tBANJAR A",
+    f"{LAIN}, 5108070013000902;5108070013000903",
+    f"{S}",
+    f"{S} - UMK - 4",
+    "5.10807E+15\t510807001300090",
+    "3 orang",
+], "CAPI")
+check("daftar subsls: dimuat berurutan, ber-arah", [(t.idsubsls, t.ke, t.baris_sheet) for t in ds_t],
+      [(S, "CAPI", [2]), (LAIN, "CAPI", [3]), ("5108070013000902", "CAPI", [3]), ("5108070013000903", "CAPI", [3])])
+check("daftar subsls: ganda / kode identitas / tidak dikenali", (ds_ganda, [x[0] for x in ds_kode], ds_tidak),
+      ([(4, S)], [5], [(6, "5.10807E+15"), (6, "510807001300090")]))
+r = rencanakan(TC, [b(1, "PAPI"), b(2), b(3, "PAPI", "x@gmail.com"), b(4, "PAPI", sub=LAIN)])
+check("CAPI subsls: SEMUA PAPI subsls ini (petugas siapa pun), subsls lain diabaikan",
+      (r.status, [x.kode for x in r.pilih]), ("PERLU_DIUBAH", [f"{S} - UMK - 1", f"{S} - UMK - 3"]))
+check("CAPI subsls: cakupan diabaikan", len(rencanakan(TC, [b(1, "PAPI"), b(2, "PAPI")], cakupan="satu").pilih), 2)
+check("CAPI subsls: semua sudah CAPI -> TIDAK_ADA_PAPI (tuntas)",
+      (rencanakan(TC, [b(1), b(2)]).status, "TIDAK_ADA_PAPI" in STATUS_TUNTAS_LIVE), ("TIDAK_ADA_PAPI", True))
+r = rencanakan(TC, [b(1), b(2)], ada_halaman_lain=True)
+check("CAPI subsls: >1 halaman tanpa PAPI tampil -> CEK_HALAMAN_LAIN (lanjut, tidak tuntas)",
+      (r.status, r.status in STATUS_TUNTAS_LIVE, r.status in STATUS_BERHENTI_SEGERA), ("CEK_HALAMAN_LAIN", False, False))
+check("CAPI subsls: >1 halaman & PAPI tampil -> tetap diubah",
+      rencanakan(TC, [b(1, "PAPI")], ada_halaman_lain=True).status, "PERLU_DIUBAH")
+check("CAPI subsls: hanya subsls lain -> SUBSLS_TIDAK_TAMPIL (berhenti)",
+      rencanakan(TC, [b(1, "PAPI", sub=LAIN)]).status, "SUBSLS_TIDAK_TAMPIL")
+check("CAPI subsls: kosong -> TIDAK_ADA_ASSIGNMENT", rencanakan(TC, []).status, "TIDAK_ADA_ASSIGNMENT")
+check("CAPI subsls: mode aneh", rencanakan(TC, [b(1, "CAWI")]).status, "MODE_TIDAK_DIKENAL")
+r = rencanakan(TKC, [b(41, "PAPI"), b(4, "PAPI")])
+check("CAPI kode: PAPI persis -> diubah", (r.status, [x.kode for x in r.pilih]), ("PERLU_DIUBAH", [f"{S} - UMK - 4"]))
+check("CAPI kode: sudah CAPI -> KODE_SUDAH_CAPI (tuntas)",
+      (rencanakan(TKC, [b(4)]).status, "KODE_SUDAH_CAPI" in STATUS_TUNTAS_LIVE), ("KODE_SUDAH_CAPI", True))
+check("diulang per subsls: CAPI subsls & cakupan semua saja",
+      [diulang_per_subsls(TC, "satu"), diulang_per_subsls(T, "satu"), diulang_per_subsls(T, "semua"),
+       diulang_per_subsls(TKC, "semua")], [True, False, True, False])
+check("verifikasi arah CAPI", [putuskan_verifikasi({"a": "CAPI"}, 1000, 60_000, "CAPI"),
+                               putuskan_verifikasi({"a": "PAPI"}, 1000, 60_000, "CAPI"),
+                               putuskan_verifikasi({"a": "CAPI"}, 1000, 60_000)],
+      ["TERVERIFIKASI", "MENUNGGU", "MENUNGGU"])
+check("dialog sesuai arah", [
+    dialog_sesuai("Apakah Anda yakin mengubah mode 3 assignment ke CAPI?", "CAPI"),
+    dialog_sesuai("Ubah mode ke PAPI?", "CAPI"),
+    dialog_sesuai("Ganti Mode (Ke PAPI)", "PAPI"),
+    dialog_sesuai("Ubah mode dari PAPI menjadi CAPI?", "CAPI"),
+    dialog_sesuai("Apakah Anda yakin mengganti mode assignment?", "CAPI"),
+    dialog_sesuai("Assignment PAPI akan diubah", "CAPI"),
+    dialog_sesuai("Hapus assignment?", "CAPI"),
+], [True, False, True, True, True, False, False])
+# masih_tuntas (padanan masihTuntas Console, di sini dgn urutan baris audit)
+papi_ok = {"idsubsls": S, "status": "SUDAH_ADA_PAPI", "kode_target": "", "ke": ""}
+check("masih tuntas: tanpa klik arah lawan", masih_tuntas(T, [papi_ok], STATUS_TUNTAS_LIVE), True)
+check("masih tuntas: klik ke CAPI sesudahnya -> diperiksa lagi",
+      masih_tuntas(T, [papi_ok, {"idsubsls": S, "status": "DIUBAH_TERVERIFIKASI", "ke": "CAPI"},
+                       {"idsubsls": S, "status": "TIDAK_ADA_PAPI", "ke": "CAPI"}], STATUS_TUNTAS_LIVE), False)
+check("masih tuntas: klik ke CAPI SEBELUMNYA tidak berpengaruh",
+      masih_tuntas(T, [{"idsubsls": S, "status": "DIUBAH_TERVERIFIKASI", "ke": "CAPI"}, papi_ok], STATUS_TUNTAS_LIVE), True)
+check("masih tuntas: klik ke CAPI di subsls LAIN tidak berpengaruh",
+      masih_tuntas(T, [papi_ok, {"idsubsls": LAIN, "status": "DIUBAH_TERVERIFIKASI", "ke": "CAPI"}], STATUS_TUNTAS_LIVE), True)
+check("masih tuntas: kunci arah CAPI terpisah dari PAPI",
+      [masih_tuntas(TC, [papi_ok], STATUS_TUNTAS_LIVE),
+       masih_tuntas(TC, [{"idsubsls": S, "status": "TIDAK_ADA_PAPI", "ke": "CAPI"}], STATUS_TUNTAS_LIVE)], [False, True])
+
 # --- baca file daftar (.txt & .xlsx) ---
 import tempfile
 with tempfile.TemporaryDirectory() as tmp:
@@ -205,6 +276,31 @@ with tempfile.TemporaryDirectory() as tmp:
           [f"{S} - UMK - 4"])
     check("baca daftar .xlsx: --sheet", [t.idsubsls for t in target_dari_daftar_kode(baca_daftar(xl, "lain"))[0]],
           [LAIN])
+    # idsubsls tersimpan sbg ANGKA di Excel -> TIDAK dimuat (Excel memotong jadi 15 digit: …0901 -> …0900,
+    # openpyxl membacanya sbg int 16 digit yang tampak sah). Hanya sel TEKS yang dimuat.
+    wb2 = openpyxl.Workbook()
+    wb2.active.append(["idsubsls"])
+    wb2.active.append([S])
+    wb2.active.append([int(S)])
+    wb2.active.append([5.1080700130009e15])
+    xl2 = Path(tmp) / "subsls.xlsx"
+    wb2.save(xl2)
+    t2, tidak2, _, _ = target_dari_daftar_subsls(baca_daftar(xl2), "CAPI")
+    check("baca subsls .xlsx: teks dimuat, sel angka dilaporkan", ([t.idsubsls for t in t2], [x[0] for x in tidak2]),
+          ([S], [3, 4]))
+
+    # file siap-tempel memuat arah per target (Console menolak jalan ke arah lain)
+    import json
+    import re as _re
+    import ganti_moda.ubah_moda as um
+    um_siap_lama = um.KONSOL_SIAP
+    um.KONSOL_SIAP = Path(tmp) / "siap.js"
+    try:
+        teks = tulis_console([TC]).read_text(encoding="utf-8")
+        data = json.loads(_re.search(r"const TARGET = (\[.*?\]);", teks).group(1))
+        check("siap.js: target subsls ber-arah CAPI", data, [{"idsubsls": S, "ppl": [], "baris": [1], "siap": False, "ke": "CAPI"}])
+    finally:
+        um.KONSOL_SIAP = um_siap_lama
 
 # --- menu & dialog ---
 check("angka item menu (spasi)", angka_item_menu("Ganti Mode (Ke PAPI) (3)"), 3)

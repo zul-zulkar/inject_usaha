@@ -26,6 +26,9 @@ Contoh:
     python input_gabungan/sinkron_list.py --sumber input_usaha.xlsx --sumber input_usaha_2.xlsx \
         --akun-tunggal ppl.kedua@gmail.com --subsls-tunggal 5108060014000403
     (tambahkan --tulis setelah laporan ditinjau; --dari-json utk memakai hasil unduhan terakhir)
+
+    Format tahap 2 (hasil pendataan kertas): tambahkan --format tahap2, mis.
+    python input_gabungan/sinkron_list.py --format tahap2 --sumber bahan/input_tahap2.xlsx         --akun-tunggal ppl.contoh@gmail.com --subsls-tunggal 5108010010000105
 """
 from __future__ import annotations
 
@@ -41,7 +44,7 @@ from pathlib import Path
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from inti.config import ASSIGNMENT_ID_GABUNGAN, FASIH_WEB_BASE, FIXED_PASSWORD, SURVEY_ID
-from inti.gabungan_loader import GabunganRow, load_gabungan, periksa_semua
+from inti.gabungan_loader import GabunganRow
 import input_gabungan.main_gabungan as mg
 
 for _stream in (sys.stdout, sys.stderr):
@@ -226,6 +229,8 @@ def ambil_items(akun: str, assignment_id: str) -> list[dict]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sumber", action="append", required=True, help="xlsx/csv sheet gabungan (boleh berulang)")
+    ap.add_argument("--format", choices=("standar", "tahap2"), default="standar",
+                    help="Format SEMUA --sumber: standar (input_usaha.xlsx) / tahap2 (bahan/input_tahap2.xlsx)")
     ap.add_argument("--akun-tunggal", required=True)
     ap.add_argument("--subsls-tunggal", required=True)
     ap.add_argument("--assignment-id", default=ASSIGNMENT_ID_GABUNGAN)
@@ -253,8 +258,7 @@ def main() -> int:
 
         sumber_rows = []
         for sumber in args.sumber:
-            rows = load_gabungan(sumber)
-            cek = periksa_semua(rows, mode_satu_subsls=True)
+            rows, cek = mg.muat_sumber(sumber, args.format, mode_satu_subsls=True)
             sumber_rows += [(sumber, r, cek[r.baris].status) for r in rows]
         laporan, tulis, tak_dikenal = rencana_sinkron(sumber_rows, items, akun, args.subsls_tunggal,
                                                       args.assignment_id, mg._baca_audit(), lengkap)

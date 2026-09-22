@@ -68,6 +68,23 @@ kode itu dicari ulang utk verifikasi. Sudah PAPI -> KODE_SUDAH_PAPI; tidak ada
        python ubah_moda.py --daftar list.xlsx --cek
        python ubah_moda.py --daftar list.xlsx --console
 Jalur Playwright di file ini tetap ada sbg cadangan & sumber logika bersama.
+
+ARAH BALIK: PAPI -> CAPI UNTUK SUBSLS TERTENTU (2026-09-22)
+----------------------------------------------------------
+--subsls <file/daftar koma> --ke CAPI: tiap subsls dicari, SEMUA assignment PAPI
+subsls itu di halaman tampil dicentang -> "Ganti Mode (Ke CAPI) (N)", ditunggu
+sampai terbaca CAPI, lalu dicari lagi sampai tidak ada PAPI tersisa (TIDAK_ADA_PAPI).
+Hasil >1 halaman tanpa PAPI yang tampil -> CEK_HALAMAN_LAIN (paginasi tidak
+dipindah; sisanya lewat --daftar kode identitas --ke CAPI). --ke WAJIB ditulis utk
+--subsls; --sumber hanya ke PAPI. Arah ikut tertulis di file siap-tempel, jadi
+Console tidak bisa jalan ke arah lain. Kunci hasil/audit arah CAPI berawalan "CAPI:".
+       python ganti_moda/ubah_moda.py --subsls daftar_subsls.txt --ke CAPI --cek
+       python ganti_moda/ubah_moda.py --subsls daftar_subsls.txt --ke CAPI --console
+Ke CAPI dikerjakan PER BARIS lewat menu ⋮ (cara manual user): ⋮ -> "Ganti Mode" ->
+dialog "Mode Pendataan" -> pilih CAPI -> "Ubah Mode Pendataan". Struktur itu dilihat
+langsung 2026-09-22 dan HANYA diimplementasikan di ubah_moda_console.js; jalur
+Playwright file ini menolak --ke CAPI selain --cek/--console. Mulai dari petakan ->
+dryrun -> otomatis limit:1.
 """
 
 from __future__ import annotations
@@ -111,19 +128,31 @@ AUDIT_FIELDS = [
     "timestamp", "jalan", "idsubsls", "akun_ppl", "baris_sheet", "status",
     "jumlah_assignment", "capi", "papi", "dipilih", "petugas_dipilih", "pesan",
     "kode_target",  # di BELAKANG: baris audit lama tetap terbaca benar
+    "ke",           # mode tujuan (kosong di baris lama = PAPI)
 ]
 
 KOLOM_TABEL = {
     "kode": "Kode Identitas", "status": "Status", "mode": "Mode",
     "petugas": "Petugas Saat Ini", "keterangan": "Keterangan",
 }
-POLA_ITEM_GANTI_MODE = re.compile(r"Ganti Mode\s*\(\s*Ke PAPI\s*\)", re.I)
+MODE = ("CAPI", "PAPI")
 POLA_ANGKA_ITEM = re.compile(r"\(\s*(\d+)\s*\)\s*$")
 POLA_TOMBOL_KONFIRMASI = re.compile(
     r"^\s*(ya|konfirmasi|ganti|ubah|lanjut|lanjutkan|simpan|ok|oke|proses)\b", re.I)
 POLA_TOMBOL_BATAL = re.compile(r"batal|tutup|cancel|kembali|^\s*tidak\b", re.I)
 
-STATUS_TUNTAS_LIVE = {"DIUBAH_TERVERIFIKASI", "SUDAH_ADA_PAPI", "TIDAK_ADA_CAPI", "KODE_SUDAH_PAPI"}
+
+def lawan_mode(m: str) -> str:
+    return "PAPI" if m == "CAPI" else "CAPI"
+
+
+def pola_item_ganti_mode(ke: str) -> re.Pattern:
+    """Item massal menu "Aksi Lainnya": "Ganti Mode (Ke PAPI) (N)" / "Ganti Mode (Ke CAPI) (N)"."""
+    return re.compile(rf"Ganti Mode\s*\(\s*Ke {ke}\s*\)", re.I)
+
+
+STATUS_TUNTAS_LIVE = {"DIUBAH_TERVERIFIKASI", "SUDAH_ADA_PAPI", "TIDAK_ADA_CAPI", "KODE_SUDAH_PAPI",
+                      "KODE_SUDAH_CAPI", "TIDAK_ADA_PAPI"}
 STATUS_TUNTAS_DRY = STATUS_TUNTAS_LIVE | {"DRY_RUN_AKAN_DIUBAH"}
 # Status yang membuktikan cara kerja skrip tidak cocok dgn halaman — batch
 # berhenti SEKETIKA, bukan lanjut ke subsls berikutnya dgn asumsi yang sama.
@@ -143,6 +172,11 @@ JADWAL_CEK_VERIFIKASI_MS = (30_000, 45_000, 60_000, 90_000, 120_000)
 JEDA_CEK_VERIFIKASI_MAKS_MS = 180_000
 BATAS_TUNGGU_VERIFIKASI_MS = 15 * 60_000
 BATAS_ULANG_429 = 6
+# Target subsls: kode yang diklik tapi tidak tampil di halaman hasil pencarian subsls dicari satu
+# per satu, paling banyak sekian per cek; hasil >1 halaman -> klik per putaran juga dibatasi segini.
+MAKS_CARI_PER_KODE = 10
+# Status yang berarti item "Ganti Mode" sudah diklik (dipakai masih_tuntas).
+STATUS_SETELAH_KLIK = {"DIUBAH_TERVERIFIKASI", "DIUBAH_BELUM_TERVERIFIKASI"}
 
 
 class Berhenti(RuntimeError):
@@ -162,14 +196,18 @@ class Target:
     baris_sheet: list[int] = field(default_factory=list)
     siap_input: bool = False
     # Kode identitas (bentuk baku) yang HARUS diubah persis — target list milik
-    # user, dicari dgn kode itu sendiri. Kosong = target sheet: dicari per
-    # idsubsls, skrip memilih sendiri menurut cakupan.
+    # user, dicari dgn kode itu sendiri. Kosong = target sheet/subsls: dicari per
+    # idsubsls, skrip memilih sendiri menurut cakupan (atau semua PAPI utk ke CAPI).
     kode: str = ""
+    # Mode TUJUAN. "CAPI" = arah balik (permintaan user 2026-09-22).
+    ke: str = "PAPI"
 
     @property
     def kunci(self) -> str:
-        """Kunci hasil/audit: kode identitas, atau idsubsls utk target sheet."""
-        return self.kode or self.idsubsls
+        """Kunci hasil/audit: kode identitas, atau idsubsls utk target sheet/subsls.
+        Arah CAPI diberi awalan "CAPI:" supaya hasil arah PAPI (mis. SUDAH_ADA_PAPI)
+        tidak membuat subsls/kode yang sama dilewati. Kunci PAPI tetap."""
+        return ("CAPI:" if self.ke == "CAPI" else "") + (self.kode or self.idsubsls)
 
     @property
     def istilah_cari(self) -> str:
@@ -226,6 +264,53 @@ def target_dari_daftar_kode(baris_teks: list[str]):
     return targets, tidak_dikenali, ganda
 
 
+_POLA_KODE_DI_BARIS = re.compile(r"\d{16}\s*-\s*\S")
+_POLA_ILMIAH = re.compile(r"^\d(\.\d+)?e\+?\d+$", re.I)
+
+
+def target_dari_daftar_subsls(baris_teks: list[str], ke: str):
+    """List idsubsls (satu teks = satu baris file) -> (targets, tidak_dikenali, ganda,
+    kode_identitas). Target subsls ber-arah `ke`; utk ke CAPI SEMUA assignment PAPI
+    subsls itu yang tampil diubah. Hanya angka 16 digit UTUH yang dimuat. Baris berpola
+    kode identitas ("<16 digit> - …") TIDAK dimuat: list kode yang tertempel ke sini
+    akan melebar jadi satu subsls penuh. Angka panjang lain (15/17 digit, notasi ilmiah
+    Excel "5.10806E+15") dilaporkan, tidak ditebak. HARUS sama dgn ubah_moda_console.js."""
+    targets: list[Target] = []
+    sudah: set[str] = set()
+    tidak_dikenali, ganda, kode_identitas = [], [], []
+    for no, teks in enumerate(baris_teks, start=1):
+        s = str(teks or "")
+        if _POLA_KODE_DI_BARIS.search(s):
+            kode_identitas.append((no, " ".join(s.split())[:80]))
+            continue
+        for tok in (x for x in re.split(r"[\s,;]+", s) if x):
+            if re.fullmatch(r"\d{16}", tok):
+                if tok in sudah:
+                    ganda.append((no, tok))
+                else:
+                    sudah.add(tok)
+                    targets.append(Target(tok, (), [no], ke=ke))
+            elif len(re.sub(r"\D", "", tok)) >= 10 or _POLA_ILMIAH.match(tok):
+                tidak_dikenali.append((no, tok[:80]))
+    return targets, tidak_dikenali, ganda, kode_identitas
+
+
+def diulang_per_subsls(t: Target, cakupan: str) -> bool:
+    """Target subsls yang diulang per putaran sampai habis (cakupan "semua", atau arah CAPI)."""
+    return not t.kode and (t.ke == "CAPI" or cakupan == "semua")
+
+
+def _teks_sel(v) -> str:
+    """Sel xlsx -> teks. Angka panjang (idsubsls/NIK yang tersimpan sbg NUMBER) diberi awalan
+    ANGKA_EXCEL: supaya TIDAK dimuat sbg idsubsls: Excel memotong angka jadi 15 digit
+    ("5108070013000901" -> 5108070013000900), dan hasilnya bisa saja subsls LAIN yang ada."""
+    if v is None:
+        return ""
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) >= 1e9:
+        return f"ANGKA_EXCEL:{v}"
+    return str(v)
+
+
 def baca_daftar(path: str | Path, sheet: Optional[str] = None) -> list[str]:
     """File list -> satu teks per baris. .xlsx: sheet pertama (atau `sheet`),
     sel sebaris digabung tab; lainnya dibaca sbg teks."""
@@ -243,7 +328,7 @@ def baca_daftar(path: str | Path, sheet: Optional[str] = None) -> list[str]:
             else:
                 raise ValueError(f"sheet '{sheet}' tidak ada di {path.name} (ada: {wb.sheetnames})")
             print(f"Membaca sheet '{ws.title}' dari {path.name}")
-            return ["\t".join("" if v is None else str(v) for v in row) for row in ws.iter_rows(values_only=True)]
+            return ["\t".join(_teks_sel(v) for v in row) for row in ws.iter_rows(values_only=True)]
         finally:
             wb.close()
     data = path.read_bytes()
@@ -338,9 +423,12 @@ def rencanakan(target: Target, baris: list[BarisAssignment], cakupan: str = "sat
     SENGAJA tidak dibaca (paginasi fasih-sm tidak memuat data dgn benar saat
     dipindah — temuan user 2026-09-14), jadi PAPI di sana tidak terlihat.
 
-    Target kode identitas -> _rencanakan_kode (cakupan diabaikan)."""
+    Target kode identitas -> _rencanakan_kode (cakupan diabaikan).
+    Target subsls arah CAPI -> _rencanakan_subsls_ke_capi (cakupan diabaikan)."""
     if target.kode:
         return _rencanakan_kode(target, baris, ada_halaman_lain)
+    if target.ke == "CAPI":
+        return _rencanakan_subsls_ke_capi(target, baris, ada_halaman_lain)
     milik = [b for b in baris if b.idsubsls == target.idsubsls]
     n_asing = len(baris) - len(milik)
     catatan = (f" | {n_asing} baris subsls lain diabaikan" if n_asing else "") + \
@@ -377,10 +465,41 @@ def rencanakan(target: Target, baris: list[BarisAssignment], cakupan: str = "sat
         f"1 dari {len(capi)} assignment CAPI (petugas {pilih.petugas}{' = PPL sheet' if punya_ppl else ''}){catatan}"))
 
 
+def _rencanakan_subsls_ke_capi(target: Target, baris: list[BarisAssignment],
+                               ada_halaman_lain: bool = False) -> Rencana:
+    """Target subsls arah CAPI (permintaan user 2026-09-22: "subsls tertentu saja, dari
+    PAPI ke CAPI") -> SEMUA assignment PAPI subsls itu di halaman tampil. Baris subsls
+    lain diabaikan. Paginasi tetap tidak dipindah: hasil >1 halaman tanpa PAPI yang
+    tampil -> CEK_HALAMAN_LAIN (lanjut, tidak tuntas; ubah lewat list kode identitas)."""
+    milik = [b for b in baris if b.idsubsls == target.idsubsls]
+    n_asing = len(baris) - len(milik)
+    catatan = (f" | {n_asing} baris subsls lain diabaikan" if n_asing else "") + \
+        (" | >1 halaman, hanya halaman tampil yang dibaca" if ada_halaman_lain else "")
+    if not milik:
+        if n_asing or ada_halaman_lain:
+            return Rencana("SUBSLS_TIDAK_TAMPIL", pesan=(
+                f"halaman hasil pencarian tidak memuat satu pun baris {target.idsubsls} — "
+                f"pencarian tidak menyaring?{catatan}"))
+        return Rencana("TIDAK_ADA_ASSIGNMENT", pesan=f"tidak ada assignment subsls ini di hasil pencarian{catatan}")
+    aneh = sorted({b.mode for b in milik if b.mode.upper() not in MODE})
+    if aneh:
+        return Rencana("MODE_TIDAK_DIKENAL", pesan=f"nilai kolom Mode: {aneh}{catatan}")
+    papi = [b for b in milik if b.mode.upper() == "PAPI"]
+    capi = len(milik) - len(papi)
+    if papi:
+        return Rencana("PERLU_DIUBAH", papi, f"{len(papi)} assignment PAPI yang tampil ({capi} sudah CAPI){catatan}")
+    if ada_halaman_lain:
+        return Rencana("CEK_HALAMAN_LAIN", pesan=(
+            f"tidak ada PAPI di halaman tampil ({capi} CAPI), tapi hasil pencarian >1 halaman — PAPI di halaman "
+            f"lain (kalau ada) tidak terlihat; ubah lewat list kode identitas{catatan}"))
+    return Rencana("TIDAK_ADA_PAPI", pesan=f"{capi} assignment, semua sudah CAPI{catatan}")
+
+
 def _rencanakan_kode(target: Target, baris: list[BarisAssignment], ada_halaman_lain: bool = False) -> Rencana:
     """Target kode identitas (hasil pencarian KODE itu) -> HANYA baris kode itu
-    yang diubah (cakupan diabaikan). Baris lain yang ikut tampil (mis. "…- UMK
-    - 41" saat mencari "…- UMK - 4") diabaikan."""
+    yang diubah ke mode tujuannya (cakupan diabaikan). Baris lain yang ikut tampil
+    (mis. "…- UMK - 41" saat mencari "…- UMK - 4") diabaikan."""
+    ke, asal = target.ke, lawan_mode(target.ke)
     cocok = [b for b in baris if target.cocok(b)]
     n_lain = len(baris) - len(cocok)
     catatan = f" | {n_lain} baris kode lain ikut tampil, diabaikan" if n_lain else ""
@@ -398,11 +517,24 @@ def _rencanakan_kode(target: Target, baris: list[BarisAssignment], ada_halaman_l
         return Rencana("KODE_TIDAK_ADA", pesan=f"kode tidak ditemukan di fasih-sm — cek penulisan kode / periode survei{catatan}")
     b = cocok[0]
     mode = b.mode.upper()
-    if mode == "PAPI":
-        return Rencana("KODE_SUDAH_PAPI", pesan=f"sudah PAPI (petugas {b.petugas}){catatan}")
-    if mode != "CAPI":
+    if mode == ke:
+        return Rencana(f"KODE_SUDAH_{ke}", pesan=f"sudah {ke} (petugas {b.petugas}){catatan}")
+    if mode != asal:
         return Rencana("MODE_TIDAK_DIKENAL", pesan=f"nilai kolom Mode: {b.mode}{catatan}")
-    return Rencana("PERLU_DIUBAH", [b], f"CAPI (petugas {b.petugas}){catatan}")
+    return Rencana("PERLU_DIUBAH", [b], f"{asal} (petugas {b.petugas}){catatan}")
+
+
+def dialog_sesuai(teks: str, ke: str) -> bool:
+    """Teks dialog konfirmasi cocok dgn arah `ke`? Frasa "ke/to/menjadi <MODE>"
+    menentukan (semuanya harus = ke); tanpa frasa itu dialog harus menyebut `ke`,
+    atau menyebut "mode" tanpa menyebut mode lawan. HARUS sama dgn ubah_moda_console.js."""
+    teks = teks or ""
+    tujuan = [m.upper() for m in re.findall(r"\b(?:ke|to|menjadi)\s+(CAPI|PAPI)\b", teks, re.I)]
+    if tujuan:
+        return all(m == ke for m in tujuan)
+    if re.search(rf"\b{ke}\b", teks, re.I):
+        return True
+    return bool(re.search(r"mode", teks, re.I)) and not re.search(rf"\b{lawan_mode(ke)}\b", teks, re.I)
 
 
 def angka_item_menu(teks: str) -> Optional[int]:
@@ -424,13 +556,35 @@ def jeda_cek_verifikasi(ke: int) -> int:
     return JADWAL_CEK_VERIFIKASI_MS[ke] if ke < len(JADWAL_CEK_VERIFIKASI_MS) else JEDA_CEK_VERIFIKASI_MAKS_MS
 
 
-def putuskan_verifikasi(mode: dict, sejak_klik_ms: float, batas_ms: int = BATAS_TUNGGU_VERIFIKASI_MS) -> str:
-    """{kode: mode terbaca} -> 'TERVERIFIKASI' (semua PAPI) | 'MENUNGGU' |
+def putuskan_verifikasi(mode: dict, sejak_klik_ms: float, batas_ms: int = BATAS_TUNGGU_VERIFIKASI_MS,
+                        ke: str = "PAPI") -> str:
+    """{kode: mode terbaca} -> 'TERVERIFIKASI' (semua = mode tujuan `ke`) | 'MENUNGGU' |
     'BELUM_TERVERIFIKASI' (batas tunggu habis). Kode yang tidak tampil
     ('(hilang)') dianggap belum berubah."""
-    if mode and all(str(m).upper() == "PAPI" for m in mode.values()):
+    if mode and all(str(m).upper() == ke for m in mode.values()):
         return "TERVERIFIKASI"
     return "BELUM_TERVERIFIKASI" if sejak_klik_ms >= batas_ms else "MENUNGGU"
+
+
+def kunci_audit(r: dict) -> str:
+    """Kunci baris audit (sama dgn Target.kunci)."""
+    return ("CAPI:" if (r.get("ke") or "").upper() == "CAPI" else "") + (r.get("kode_target") or r.get("idsubsls") or "")
+
+
+def masih_tuntas(t: Target, riwayat: list[dict], tuntas: set) -> bool:
+    """riwayat = baris audit berurutan (lama -> baru). Status terakhir kunci `t` harus
+    tuntas DAN sesudahnya tidak ada klik ganti mode arah LAWAN di subsls yang sama
+    (mis. subsls yang dulu SUDAH_ADA_PAPI lalu PAPI-nya dikembalikan ke CAPI -> periksa
+    lagi). Padanan masihTuntas() di ubah_moda_console.js (di sana dgn waktu klik)."""
+    idx = None
+    for i, r in enumerate(riwayat):
+        if kunci_audit(r) == t.kunci:
+            idx = i
+    if idx is None or riwayat[idx].get("status") not in tuntas:
+        return False
+    lawan = lawan_mode(t.ke)
+    return not any((r.get("ke") or "PAPI").upper() == lawan and r.get("idsubsls") == t.idsubsls
+                   and r.get("status") in STATUS_SETELAH_KLIK for r in riwayat[idx + 1:])
 
 
 def jeda_rate_limit(ke: int, retry_after=None) -> int:
@@ -647,20 +801,29 @@ class FasihSm:
         sekarang = [b for b in self.baca_tabel()[0] if b.kode in kode]
         self.atur_centang(sekarang, False)
 
-    def buka_menu_ganti_mode(self):
-        """Buka 'Aksi Lainnya' -> (item 'Ganti Mode (Ke PAPI)', angka N)."""
+    def buka_menu_ganti_mode(self, ke: str = "PAPI", wajib: bool = True):
+        """Buka 'Aksi Lainnya' -> (item 'Ganti Mode (Ke <ke>)', angka N). wajib=False
+        (petakan): item yang tidak ada -> (None, None) & menu ditutup, bukan berhenti."""
         self.tutup_menu()
         self._tombol_aksi_lainnya().click()
-        item = self.page.get_by_role("menuitem").filter(has_text=POLA_ITEM_GANTI_MODE).locator("visible=true").first
+        item = self.page.get_by_role("menuitem").filter(has_text=pola_item_ganti_mode(ke)).locator("visible=true").first
         try:
             item.wait_for(state="visible", timeout=8_000)
         except PWTimeout:
+            try:
+                terlihat = [" ".join(t.split()) for t in self.page.get_by_role("menuitem").all_inner_texts()][:30]
+            except Exception:  # noqa: BLE001
+                terlihat = []
             self.dump("menu_tanpa_ganti_mode")
             self.tutup_menu()
-            raise Berhenti("ITEM_MENU_TIDAK_ADA", "item 'Ganti Mode (Ke PAPI)' tidak ada di menu 'Aksi Lainnya'")
+            if not wajib:
+                self._log(f"Item 'Ganti Mode (Ke {ke})' tidak tampil (0 dicentang). Item terlihat: {terlihat}")
+                return None, None
+            raise Berhenti("ITEM_MENU_TIDAK_ADA",
+                           f"item 'Ganti Mode (Ke {ke})' tidak ada di menu 'Aksi Lainnya'. Item yang terlihat: {terlihat}")
         return item, angka_item_menu(item.inner_text())
 
-    def klik_ganti_mode(self, item) -> str:
+    def klik_ganti_mode(self, item, ke: str = "PAPI") -> str:
         """⚠️ IRREVERSIBLE. Klik item massal lalu tangani dialog konfirmasi
         kalau ada. -> 'DIKONFIRMASI' | 'TANPA_DIALOG'."""
         item.click()
@@ -676,9 +839,9 @@ class FasihSm:
         self._log(f"Dialog: {teks[:200]}")
         tombol = dialog.get_by_role("button")
         teks_tombol = [" ".join(t.split()) for t in tombol.all_inner_texts()]
-        if not re.search(r"papi|mode", teks, re.I):
+        if not dialog_sesuai(teks, ke):
             self.page.keyboard.press("Escape")
-            raise Berhenti("DIALOG_TIDAK_DIKENAL", f"dialog tidak menyebut PAPI/mode: {teks[:200]}")
+            raise Berhenti("DIALOG_TIDAK_DIKENAL", f"dialog tidak cocok dgn arah ke {ke}: {teks[:200]}")
         i = pilih_tombol_konfirmasi(teks_tombol)
         if i is None:
             self.page.keyboard.press("Escape")
@@ -692,21 +855,29 @@ class FasihSm:
         self.page.wait_for_timeout(2_000)
         return "DIKONFIRMASI"
 
-    def verifikasi_papi(self, istilah: str, kode: list[str], batas_ms: int = BATAS_TUNGGU_VERIFIKASI_MS) -> bool:
+    def verifikasi_mode(self, istilah: str, kode: list[str], ke: str = "PAPI", per_kode: bool = False,
+                        batas_ms: int = BATAS_TUNGGU_VERIFIKASI_MS) -> bool:
         """Mode baru TIDAK langsung terbaca (run user 2026-09-15). Cari ulang
-        menurut jeda_cek_verifikasi sampai semua PAPI atau batas_ms habis.
+        menurut jeda_cek_verifikasi sampai semua = `ke` atau batas_ms habis.
+        per_kode (target subsls): kode yang tidak tampil di halaman hasil
+        pencarian subsls dicari satu per satu (maks MAKS_CARI_PER_KODE).
         Berbeda dgn Console (antrean, batch lanjut), jalur cadangan ini
-        MENUNGGU per kode."""
+        MENUNGGU per target."""
         mulai = time.monotonic()
-        ke = 0
+        n_cek = 0
         while True:
-            self.page.wait_for_timeout(jeda_cek_verifikasi(ke))
-            ke += 1
+            self.page.wait_for_timeout(jeda_cek_verifikasi(n_cek))
+            n_cek += 1
             baris = {b.kode: b for b in self.cari(istilah)[0]}
             mode = {k: (baris[k].mode if k in baris else "(hilang)") for k in kode}
+            hilang = [k for k, m in mode.items() if m == "(hilang)"]
+            if per_kode and hilang and len(hilang) <= MAKS_CARI_PER_KODE:
+                for k in hilang:
+                    ketemu = [b for b in self.cari(k)[0] if b.kode == k]
+                    mode[k] = ketemu[0].mode if ketemu else "(hilang)"
             sejak = (time.monotonic() - mulai) * 1000
-            keputusan = putuskan_verifikasi(mode, sejak, batas_ms)
-            self._log(f"Verifikasi ke-{ke} ({sejak / 60_000:.1f} mnt sejak diklik): {mode} -> {keputusan}")
+            keputusan = putuskan_verifikasi(mode, sejak, batas_ms, ke)
+            self._log(f"Verifikasi ke-{n_cek} ({sejak / 60_000:.1f} mnt sejak diklik): {mode} -> {keputusan}")
             if keputusan != "MENUNGGU":
                 return keputusan == "TERVERIFIKASI"
 
@@ -724,58 +895,66 @@ def append_audit(row: dict):
         w.writerow({k: row.get(k, "") for k in AUDIT_FIELDS})
 
 
-def status_terakhir() -> dict:
+def riwayat_audit() -> list[dict]:
+    """Seluruh baris audit, berurutan lama -> baru (bahan masih_tuntas)."""
     if not AUDIT_PATH.exists():
-        return {}
+        return []
     with AUDIT_PATH.open(newline="", encoding="utf-8") as f:
-        # Kunci sama dgn Target.kunci: kode identitas, atau idsubsls utk target sheet.
-        return {(r.get("kode_target") or r["idsubsls"]): r["status"]
-                for r in csv.DictReader(f) if r.get("idsubsls")}
+        return [r for r in csv.DictReader(f) if r.get("idsubsls")]
 
 
-def proses_target(sm: FasihSm, t: Target, args, jalan: str) -> dict:
+def proses_target(sm: FasihSm, t: Target, args, jalan: str, maks_per_klik: int = 50) -> dict:
     hasil = {"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "jalan": jalan, "idsubsls": t.idsubsls,
              "akun_ppl": ",".join(t.akun_ppl), "baris_sheet": ",".join(map(str, t.baris_sheet)),
-             "kode_target": t.kode}
-    rencana = None
+             "kode_target": t.kode, "ke": t.ke}
+    pilih: list[BarisAssignment] = []
     try:
         baris, ada_halaman_lain = sm.cari(t.istilah_cari)
         rencana = rencanakan(t, baris, args.cakupan, ada_halaman_lain)
-        # Target kode: baris kode persis itu saja; target sheet: semua baris subsls-nya.
+        pilih, pesan = list(rencana.pilih), rencana.pesan
+        # Hasil >1 halaman: baris yang diklik bisa pindah halaman setelah modenya berubah ->
+        # diverifikasi per kode, jadi per klik paling banyak MAKS_CARI_PER_KODE.
+        maks = min(maks_per_klik, MAKS_CARI_PER_KODE) if ada_halaman_lain else maks_per_klik
+        if len(pilih) > maks:
+            pesan += f" | {len(pilih) - maks} sisanya di putaran berikutnya (maks {maks} per klik)"
+            pilih = pilih[:maks]
+        # Target kode: baris kode persis itu saja; target sheet/subsls: semua baris subsls-nya.
         milik = [b for b in baris if t.cocok(b)]
         hasil.update(jumlah_assignment=len(milik), capi=sum(b.mode.upper() == "CAPI" for b in milik),
-                     papi=sum(b.mode.upper() == "PAPI" for b in milik), pesan=rencana.pesan,
-                     dipilih=" | ".join(b.kode for b in rencana.pilih),
-                     petugas_dipilih=" | ".join(b.petugas for b in rencana.pilih))
+                     papi=sum(b.mode.upper() == "PAPI" for b in milik), pesan=pesan,
+                     dipilih=" | ".join(b.kode for b in pilih),
+                     petugas_dipilih=" | ".join(b.petugas for b in pilih))
         for b in baris:
             sm._log(f"  {b.kode:28s} {b.mode:5s} {b.status:24s} {b.petugas} ({b.keterangan})")
         if jalan == "petakan":
             sm.dump(f"petakan_tabel_{t.idsubsls}")
-            item, n = sm.buka_menu_ganti_mode()
+            pilih = []
+            item, n = sm.buka_menu_ganti_mode(t.ke, wajib=False)
             sm.dump("petakan_menu_aksi_lainnya")
             sm.tutup_menu()
             hasil["status"] = f"PETAKAN_{rencana.status}"
-            hasil["pesan"] = f"{rencana.pesan} | angka menu saat 0 dicentang = {n}"
+            hasil["pesan"] = f"{pesan} | angka menu 'Ke {t.ke}' saat 0 dicentang = {n if item else '(item tidak tampil)'}"
             return hasil
         if rencana.status != "PERLU_DIUBAH":
             hasil["status"] = rencana.status
             return hasil
 
-        sm.atur_centang(rencana.pilih, True)
-        item, n = sm.buka_menu_ganti_mode()
-        if n != len(rencana.pilih):
-            raise Berhenti("JUMLAH_TERCENTANG_BEDA", f"menu menunjukkan ({n}), yang dicentang {len(rencana.pilih)}")
+        sm.atur_centang(pilih, True)
+        item, n = sm.buka_menu_ganti_mode(t.ke)
+        if n != len(pilih):
+            raise Berhenti("JUMLAH_TERCENTANG_BEDA", f"menu menunjukkan ({n}), yang dicentang {len(pilih)}")
         if jalan == "dry-run":
             sm.tutup_menu()
-            sm.atur_centang(rencana.pilih, False)
+            sm.atur_centang(pilih, False)
+            pilih = []
             hasil["status"] = "DRY_RUN_AKAN_DIUBAH"
             return hasil
 
-        cara = sm.klik_ganti_mode(item)
-        kode = [b.kode for b in rencana.pilih]
-        ok = sm.verifikasi_papi(t.istilah_cari, kode)
+        cara = sm.klik_ganti_mode(item, t.ke)
+        kode = [b.kode for b in pilih]
+        ok = sm.verifikasi_mode(t.istilah_cari, kode, t.ke, per_kode=not t.kode)
         hasil["status"] = "DIUBAH_TERVERIFIKASI" if ok else "DIUBAH_BELUM_TERVERIFIKASI"
-        hasil["pesan"] = f"{rencana.pesan} | {cara}"
+        hasil["pesan"] = f"{pesan} | {cara}"
         # Centang yang tertinggal bisa ikut terkirim di aksi massal subsls
         # berikutnya. Indeks baris bisa bergeser setelah pencarian ulang,
         # jadi dicocokkan lewat kode.
@@ -791,10 +970,10 @@ def proses_target(sm: FasihSm, t: Target, args, jalan: str) -> dict:
         sm.dump(f"ERROR_{t.idsubsls}")
     # Setelah kegagalan: jangan tinggalkan centang yang bisa ikut terkirim
     # di aksi massal subsls berikutnya.
-    if rencana and rencana.pilih:
+    if pilih:
         try:
             sm.tutup_menu()
-            sm.lepas_centang_kode([b.kode for b in rencana.pilih])
+            sm.lepas_centang_kode([b.kode for b in pilih])
         except Exception as e:  # noqa: BLE001
             # Centang yang tertinggal bisa ikut terkirim di aksi massal
             # berikutnya -> paksa batch berhenti (CENTANG_GAGAL).
@@ -810,14 +989,43 @@ def tulis_console(targets) -> Path:
     if teks.count(PENANDA_TARGET) != 1:
         raise ValueError(f"Penanda {PENANDA_TARGET} harus muncul tepat 1x di {KONSOL_TEMPLATE.name}")
     data = [{"idsubsls": t.idsubsls, "ppl": list(t.akun_ppl), "baris": t.baris_sheet, "siap": t.siap_input,
-             **({"kode": t.kode} if t.kode else {})}
+             **({"kode": t.kode} if t.kode else {}), "ke": t.ke}
             for t in targets]
     KONSOL_SIAP.write_text(teks.replace(PENANDA_TARGET, json.dumps(data, ensure_ascii=False)), encoding="utf-8")
     return KONSOL_SIAP
 
 
-def laporan_cek_daftar(targets, tidak_dikenali, ganda, sumber: str):
-    print(f"=== TARGET GANTI MODE (kode identitas) dari {sumber} ===")
+def laporan_cek_subsls(targets, tidak_dikenali, ganda, kode_identitas, sumber: str, ke: str):
+    print(f"=== TARGET GANTI MODE (idsubsls) -> {ke} dari {sumber} ===")
+    if ke == "CAPI":
+        print(f"  {len(targets)} subsls — SEMUA assignment PAPI yang tampil di tiap subsls diubah ke CAPI")
+    else:
+        print(f"  {len(targets)} subsls — diubah ke PAPI menurut --cakupan")
+    if ganda:
+        print(f"  {len(ganda)} subsls GANDA dilewati (hanya diproses sekali), mis.: "
+              + ", ".join(f"baris {no}: {k}" for no, k in ganda[:5]))
+    if kode_identitas:
+        print(f"  !! {len(kode_identitas)} baris berisi KODE IDENTITAS, bukan idsubsls — TIDAK dimuat "
+              "(kalau hanya kode itu yang ingin diubah, pakai --daftar):")
+        for no, isi in kode_identitas[:10]:
+            print(f"       baris {no}: {isi}")
+    if tidak_dikenali:
+        print(f"  !! {len(tidak_dikenali)} angka panjang BUKAN idsubsls 16 digit — TIDAK dimuat "
+              "(kolom Excel berformat angka/notasi ilmiah? simpan sbg teks):")
+        for no, isi in tidak_dikenali[:10]:
+            print(f"       baris {no}: {isi}")
+    with TARGET_CSV.open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["idsubsls", "ke", "baris_daftar"])
+        for t in targets:
+            w.writerow([t.idsubsls, t.ke, ",".join(map(str, t.baris_sheet))])
+    print(f"\nDaftar lengkap: {TARGET_CSV}")
+    print("Berikutnya (file siap-tempel utk Console Chrome):")
+    print(f"  python ganti_moda/ubah_moda.py --subsls {sumber} --ke {ke} --console")
+
+
+def laporan_cek_daftar(targets, tidak_dikenali, ganda, sumber: str, ke: str = "PAPI"):
+    print(f"=== TARGET GANTI MODE (kode identitas) -> {ke} dari {sumber} ===")
     print(f"  {len(targets)} kode identitas (tiap kode dicari sendiri), "
           f"tersebar di {len({t.idsubsls for t in targets})} idsubsls")
     if ganda:
@@ -834,7 +1042,7 @@ def laporan_cek_daftar(targets, tidak_dikenali, ganda, sumber: str):
             w.writerow([t.kode, t.idsubsls, ",".join(map(str, t.baris_sheet))])
     print(f"\nDaftar lengkap: {TARGET_CSV}")
     print("Berikutnya (file siap-tempel utk Console Chrome):")
-    print(f"  python ganti_moda/ubah_moda.py --daftar {sumber} --console")
+    print(f"  python ganti_moda/ubah_moda.py --daftar {sumber}{' --ke CAPI' if ke == 'CAPI' else ''} --console")
 
 
 def laporan_cek(targets, dikeluarkan, sumber: str):
@@ -858,13 +1066,18 @@ def laporan_cek(targets, dikeluarkan, sumber: str):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Ganti mode assignment CAPI -> PAPI di fasih-sm per idsubsls")
+    ap = argparse.ArgumentParser(description="Ganti mode assignment fasih-sm: CAPI -> PAPI (bawaan) atau PAPI -> CAPI (--ke CAPI)")
     sumber = ap.add_mutually_exclusive_group(required=True)
     sumber.add_argument("--sumber", help="input_usaha.xlsx (tab input_usaha) atau .csv-nya — skrip memilih 1 CAPI per subsls")
     sumber.add_argument("--daftar",
                         help="List KODE IDENTITAS milikmu (.xlsx/.csv/.txt, mis. '5108060003000402 - UMK - 4'); "
                              "HANYA kode itu yang diubah, --cakupan diabaikan")
-    ap.add_argument("--sheet", default=None, help="Nama sheet utk --daftar .xlsx (default: sheet pertama)")
+    sumber.add_argument("--subsls",
+                        help="List IDSUBSLS (.xlsx/.csv/.txt, atau langsung '5108...,5108...'); WAJIB dgn --ke. "
+                             "--ke CAPI: SEMUA assignment PAPI tiap subsls diubah ke CAPI")
+    ap.add_argument("--ke", choices=MODE, default=None,
+                    help="Mode tujuan. Bawaan PAPI utk --sumber/--daftar; WAJIB ditulis utk --subsls")
+    ap.add_argument("--sheet", default=None, help="Nama sheet utk --daftar/--subsls .xlsx (default: sheet pertama)")
     ap.add_argument("--cek", action="store_true", help="Hanya daftar target, tanpa browser")
     ap.add_argument("--console", action="store_true",
                     help=f"Tulis {KONSOL_SIAP} utk ditempel di DevTools Console Chrome biasa (DISARANKAN)")
@@ -883,11 +1096,29 @@ def main():
     ap.add_argument("--per-page", type=int, default=100)
     ap.add_argument("--jeda-detik", type=float, default=4.0, help="Jeda antar subsls (jangan terlalu cepat)")
     ap.add_argument("--maks-error-beruntun", type=int, default=3)
+    ap.add_argument("--maks-per-klik", type=int, default=50,
+                    help="Baris maksimal per klik Ganti Mode (target subsls). Sebelum ada satu perubahan terbukti "
+                         "ke arah itu di audit: 1. Hasil pencarian >1 halaman: maks 10")
     args = ap.parse_args()
 
+    # Arah melekat pada target. --subsls tanpa --ke ditolak: salah arah = seluruh subsls terbalik.
+    if args.subsls and not args.ke:
+        ap.error("--subsls wajib dgn --ke CAPI (PAPI -> CAPI) atau --ke PAPI")
+    if args.sumber and args.ke == "CAPI":
+        ap.error("--sumber hanya utk ke PAPI (membuka '+Dokumen Baru'); utk ke CAPI pakai --subsls atau --daftar")
+    # Ke CAPI lewat menu ⋮ per baris (item massal "Ganti Mode (Ke CAPI)" tidak diketahui ada) — alur itu
+    # hanya ada di Console. Jalur Playwright di file ini cuma mengenal item massal.
+    if args.ke == "CAPI" and not (args.cek or args.console):
+        ap.error("ke CAPI hanya lewat Console Chrome: tambahkan --cek atau --console")
+    ke = args.ke or "PAPI"
+    tidak_dikenali, ganda, kode_identitas, dikeluarkan = [], [], [], []
     if args.daftar:
         targets, tidak_dikenali, ganda = target_dari_daftar_kode(baca_daftar(args.daftar, args.sheet))
-        dikeluarkan = []
+        for t in targets:
+            t.ke = ke
+    elif args.subsls:
+        baris_teks = baca_daftar(args.subsls, args.sheet) if Path(args.subsls).exists() else [args.subsls]
+        targets, tidak_dikenali, ganda, kode_identitas = target_dari_daftar_subsls(baris_teks, ke)
     else:
         rows = load_gabungan(args.sumber)
         targets, dikeluarkan = bangun_target(rows, periksa_semua(rows), args.hanya_siap)
@@ -899,15 +1130,22 @@ def main():
         targets = [t for t in targets if t.idsubsls in ingin]
     if args.cek:
         if args.daftar:
-            laporan_cek_daftar(targets, tidak_dikenali, ganda, args.daftar)
+            laporan_cek_daftar(targets, tidak_dikenali, ganda, args.daftar, ke)
+        elif args.subsls:
+            laporan_cek_subsls(targets, tidak_dikenali, ganda, kode_identitas, args.subsls, ke)
         else:
             laporan_cek(targets, dikeluarkan, args.sumber)
         return 0
     if args.console:
+        if not targets:
+            print("Tidak ada target — file siap-tempel TIDAK ditulis. Periksa dgn --cek.")
+            return 1
         path = tulis_console(targets)
-        if args.daftar:
-            print(f"{path} ditulis: {len(targets)} kode identitas"
-                  + (f" — ⚠️ {len(tidak_dikenali)} baris tidak dikenali, lihat --cek" if tidak_dikenali else "") + ".")
+        if args.daftar or args.subsls:
+            satuan = "kode identitas" if args.daftar else "subsls"
+            ditolak = len(tidak_dikenali) + len(kode_identitas)
+            print(f"{path} ditulis: {len(targets)} {satuan} -> {ke}"
+                  + (f" — ⚠️ {ditolak} baris tidak dimuat, lihat --cek" if ditolak else "") + ".")
         else:
             print(f"{path} ditulis: {len(targets)} subsls ({len(dikeluarkan)} baris sheet dikeluarkan — lihat --cek).")
         print("Chrome biasa -> login fasih-sm -> buka list dgn perPage=100 -> F12 Console -> tempel isi file itu ->")
@@ -915,26 +1153,30 @@ def main():
         return 0
 
     jalan = "petakan" if args.petakan else ("live" if args.eksekusi else "dry-run")
+    riwayat = riwayat_audit()
     if args.lewati_selesai and jalan != "petakan":
-        sudah = status_terakhir()
         tuntas = STATUS_TUNTAS_LIVE if jalan == "live" else STATUS_TUNTAS_DRY
         sebelum = len(targets)
-        targets = [t for t in targets if sudah.get(t.kunci) not in tuntas]
-        print(f"--lewati-selesai: {sebelum - len(targets)} idsubsls dilewati.")
+        targets = [t for t in targets if not masih_tuntas(t, riwayat, tuntas)]
+        print(f"--lewati-selesai: {sebelum - len(targets)} target dilewati.")
     if args.petakan:
         targets = targets[:1]
     elif args.limit:
         targets = targets[: args.limit]
     if not targets:
-        print("Tidak ada idsubsls yang perlu diproses.")
+        print("Tidak ada target yang perlu diproses.")
         return 0
 
-    print(f"{jalan.upper()} — {len(targets)} idsubsls, cakupan '{args.cakupan}'.")
+    rincian = "SEMUA PAPI tiap subsls" if (ke == "CAPI" and not args.daftar) else f"cakupan '{args.cakupan}'"
+    print(f"{jalan.upper()} — {len(targets)} target -> {ke}, {rincian}.")
     if jalan == "live":
-        jawab = input(f"⚠️ Ketik 'YA' utk MENGUBAH MODE assignment di {len(targets)} subsls SUNGGUHAN: ")
+        jawab = input(f"⚠️ Ketik 'YA' utk MENGUBAH MODE assignment ke {ke} di {len(targets)} target SUNGGUHAN: ")
         if jawab.strip().upper() != "YA":
             print("Dibatalkan.")
             return 1
+    # Sebelum ada satu perubahan terbukti ke arah ini, tiap klik hanya 1 baris.
+    bukti = any(r.get("jalan") == "live" and r.get("status") == "DIUBAH_TERVERIFIKASI"
+                and (r.get("ke") or "PAPI").upper() == ke for r in riwayat)
 
     from playwright.sync_api import sync_playwright
 
@@ -951,10 +1193,20 @@ def main():
             sm.buka_list(url)
             error_beruntun = 0
             for i, t in enumerate(targets, start=1):
-                siapa = f"kode {t.kode}" if t.kode else f"{t.idsubsls} — PPL {', '.join(t.akun_ppl)}"
-                print(f"\n=== [{i}/{len(targets)}] {siapa} ===")
-                hasil = proses_target(sm, t, args, jalan)
-                append_audit(hasil)
+                siapa = f"kode {t.kode}" if t.kode else f"{t.idsubsls}" + (f" — PPL {', '.join(t.akun_ppl)}" if t.akun_ppl else "")
+                print(f"\n=== [{i}/{len(targets)}] {siapa} -> {t.ke} ===")
+                # Target subsls diulang per putaran (tiap putaran sudah diverifikasi) sampai tidak ada lagi
+                # yang perlu diubah di halaman tampil.
+                for putaran in range(1, 51):
+                    hasil = proses_target(sm, t, args, jalan, args.maks_per_klik if bukti else 1)
+                    append_audit(hasil)
+                    if hasil["status"] != "DIUBAH_TERVERIFIKASI":
+                        break
+                    bukti = True
+                    if not (jalan == "live" and diulang_per_subsls(t, args.cakupan)):
+                        break
+                    print(f"  (putaran {putaran}) terverifikasi {t.ke} — cari lagi yang tersisa")
+                    page.wait_for_timeout(int(args.jeda_detik * 1000))
                 hitung[hasil["status"]] += 1
                 print(f"  -> {hasil['status']}" + (f" ({hasil['pesan'][:250]})" if hasil.get("pesan") else ""))
                 if hasil["status"] in STATUS_BERHENTI_SEGERA:

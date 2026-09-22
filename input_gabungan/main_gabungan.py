@@ -79,6 +79,7 @@ from inti.gabungan_loader import (
     GabunganRow, Pemeriksaan, cocokkan_wilayah_dokumen, kelompok_per_akun, load_gabungan,
     parse_pilihan_baris, periksa_semua,
 )
+from inti.tahap2_loader import load_tahap2, periksa_semua_tahap2
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -375,7 +376,7 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
             # jumlah dokumen (API list) terbukti tidak bertambah.
             try:
                 dibuat = sess.create_document(assignment_id, subsls_input, row.nama_dokumen,
-                                              nama_lama=row.nama)
+                                              nama_lama=row.nama_lama_dicari)
                 # Jumlah dokumen dibaca create_document sendiri dari respons API
                 # list sebelum "+Dokumen Baru" (dulu muat list terpisah, ±5 dtk).
                 n_awal = getattr(sess, "jumlah_dokumen_awal", None) if mode_satu_list else None
@@ -401,7 +402,7 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
                     if lebih is not None and lebih <= 0:
                         sess._log(f"Jumlah dokumen {n_awal} -> {n_akhir}, semua terjelaskan — aman diulang sekali.")
                         dibuat = sess.create_document(assignment_id, subsls_input, row.nama_dokumen,
-                                                      nama_lama=row.nama)
+                                                      nama_lama=row.nama_lama_dicari)
             except FieldNotFound as e:
                 if "Dropdown" not in str(e):
                     raise
@@ -597,7 +598,7 @@ def rencana_sesi(rows: list[GabunganRow], akun_tunggal: str, per_sesi: int) -> l
 
 
 def laporan_cek(rows: list[GabunganRow], hasil: dict[int, Pemeriksaan], sumber: str,
-                semua: list[GabunganRow], mode: str, n_sesi) -> int:
+                semua: list[GabunganRow], mode: str, n_sesi, perintah: str = "") -> int:
     """Cetak ringkasan pemeriksaan `rows` (pilihan --baris) + tulis rincian
     SELURUH sheet (`semua`) ke CSV — supaya file itu selalu lengkap utk
     dipakai memperbaiki sheet, apa pun pilihan --baris-nya."""
@@ -638,17 +639,50 @@ def laporan_cek(rows: list[GabunganRow], hasil: dict[int, Pemeriksaan], sumber: 
         jam = len(siap) * MENIT_PER_BARIS / 60
         print(f"\n{len(siap)} baris SIAP, {n_sesi(siap)} sesi login, estimasi ±{jam:.1f} jam VPN nonstop.")
         print("Perintah berikutnya (dry-run SATU baris, TIDAK mengirim):")
-        print(f"  python input_gabungan/main_gabungan.py --sumber {sumber} --baris {siap[0].baris}")
+        print(f"  {perintah or 'python input_gabungan/main_gabungan.py'} --sumber {sumber} "
+              f"--baris {siap[0].baris}")
     return 0 if len(siap) == len(rows) else 1
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Otomatisasi input SE2026 dari sheet gabungan")
+def muat_sumber(sumber: str, format_sumber: str = "standar", mode_satu_subsls: bool = True,
+                kodepos: str = "", cek_total: bool = True) -> tuple[list[GabunganRow], dict[int, Pemeriksaan]]:
+    """(baris, hasil pemeriksaan offline) satu file sumber. Pemeriksaan lintas-baris
+    selalu atas SELURUH sheet, apa pun pilihan --baris/--dari/--sampai. Dipakai juga
+    sinkron_list.py supaya format tahap 2 dikenali di kedua skrip."""
+    if format_sumber == "tahap2":
+        rows = load_tahap2(sumber, kodepos=kodepos)
+        return rows, periksa_semua_tahap2(rows, mode_satu_subsls=mode_satu_subsls, cek_total=cek_total)
+    rows = load_gabungan(sumber)
+    return rows, periksa_semua(rows, mode_satu_subsls=mode_satu_subsls)
+
+
+def saring_rentang(rows: list[GabunganRow], dari: int | None, sampai: int | None) -> list[GabunganRow]:
+    """--dari/--sampai: nomor baris sheet (judul = baris 1), kedua ujung ikut."""
+    return [r for r in rows if (dari is None or r.baris >= dari) and (sampai is None or r.baris <= sampai)]
+
+
+def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah: str = ""):
+    """`format_bawaan`/`perintah` dipakai entry point lain (input_tahap2/main_tahap2.py)
+    supaya orkestrasi, audit & pengaman di file ini tidak perlu diduplikasi."""
+    ap = argparse.ArgumentParser(description="Otomatisasi input SE2026 dari sheet format standar / tahap 2")
     ap.add_argument("--sumber", required=True, help="File .xlsx (tab 'gabungan') atau .csv hasil download sheet")
+    ap.add_argument("--format", choices=("standar", "tahap2"), default=format_bawaan,
+                    help="standar = input_usaha.xlsx (92 kolom); tahap2 = hasil pendataan kertas SE2026 "
+                         "tahap 2 (bahan/input_tahap2.xlsx, lihat inti/tahap2_loader.py)")
+    ap.add_argument("--kodepos", default="",
+                    help="Format tahap2: kodepos cadangan utk desa yang belum ada di KODEPOS_BY_IDSUBSLS/"
+                         "KODEPOS_BY_DESA. Dipakai HANYA kalau sumber lain kosong.")
+    ap.add_argument("--abaikan-cek-total", action="store_true",
+                    help="Format tahap2: jangan bandingkan kolom TOTAL sheet (24.Total, Rp26, 27c, 28c) "
+                         "dgn jumlah rinciannya. Pakai kalau kolom total di Excel memang belum diisi.")
     ap.add_argument("--cek", action="store_true", help="Hanya periksa data (tanpa browser/VPN), tulis cek_gabungan.csv")
     ap.add_argument("--submit", action="store_true", help="Mode LIVE — benar2 klik Kirim. Default: dry-run.")
     ap.add_argument("--headless", action="store_true", help="JANGAN DIPAKAI — ditolak (lihat main.py).")
     ap.add_argument("--baris", default=None, help="Nomor baris sheet, mis. 2,5,10-20")
+    ap.add_argument("--dari", type=int, default=None,
+                    help="Mulai dari baris sheet ke-N (judul = baris 1). Boleh digabung --sampai; "
+                         "dipakai membagi pekerjaan antar-PC/proses, mis. --dari 2 --sampai 200")
+    ap.add_argument("--sampai", type=int, default=None, help="Sampai baris sheet ke-N (ikut diproses)")
     ap.add_argument("--limit", type=int, default=None, help="Batasi jumlah baris diproses")
     ap.add_argument("--lewati-selesai", action="store_true",
                     help="Lewati baris yang sudah selesai di audit_log_gabungan.csv (dicocokkan lewat kunci)")
@@ -668,7 +702,7 @@ def main():
     ap.add_argument("--maks-error-beruntun", type=int, default=3,
                     help="Hentikan batch setelah N baris ERROR_* berturut-turut (mis. VPN putus). 0 = jangan berhenti.")
     ap.add_argument("--dump-dom", action="store_true", help="Simpan peta dataKey tiap section ke log_screenshots/")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     if args.headless:
         print("❌ --headless tidak didukung: fasih-web membalas browser headless dgn halaman anti-bot.",
@@ -682,26 +716,44 @@ def main():
         mode = f"MODE SATU SUBSLS: subsls={subsls_tunggal or '(belum diisi)'} akun={akun_tunggal or '(belum diisi)'}"
     else:
         mode = "MODE PER BARIS (alur lama)"
-    mode += " | ISIAN MURNI dari Excel" if GABUNGAN_MODE_MURNI else " | aturan & koreksi Buleleng aktif"
+    mode += f" | format {args.format}"
+    if args.format == "tahap2":
+        mode += " (rincian di luar kuesioner kertas diisi TAHAP2_DEFAULT)"
+    else:
+        mode += " | ISIAN MURNI dari Excel" if GABUNGAN_MODE_MURNI else " | aturan & koreksi Buleleng aktif"
     if satu_subsls and not args.cek and not (re.fullmatch(r"\d{16}", subsls_tunggal) and "@" in akun_tunggal):
         print("❌ Mode satu subsls butuh --subsls-tunggal (16 digit) DAN --akun-tunggal (email PPL), atau isi "
               "GABUNGAN_SUBSLS_TUNGGAL/GABUNGAN_AKUN_TUNGGAL di inti/config_lokal.py. Alur lama: --per-baris.",
               file=sys.stderr)
         return 2
 
-    rows = semua = load_gabungan(args.sumber)
-    hasil = periksa_semua(rows, mode_satu_subsls=satu_subsls)  # lintas-baris -> selalu atas SELURUH sheet
+    if args.format == "tahap2" and args.per_baris:
+        print("❌ Format tahap2 tidak mendukung --per-baris: sheet-nya tidak punya kolom email akun PPL "
+              "(kolom 'Nama PPL' berisi NAMA, bukan email). Pakai --akun-tunggal + --subsls-tunggal, atau "
+              "tambahkan kolom 'Akun PPL' berisi email di sheet.", file=sys.stderr)
+        return 2
+
+    if args.dari is not None and args.sampai is not None and args.dari > args.sampai:
+        print(f"❌ --dari {args.dari} lebih besar dari --sampai {args.sampai}.", file=sys.stderr)
+        return 2
+    rows, hasil = muat_sumber(args.sumber, args.format, satu_subsls, args.kodepos,
+                              cek_total=not args.abaikan_cek_total)
+    semua = rows
     if args.baris:
         ingin = parse_pilihan_baris(args.baris)
         rows = [r for r in rows if r.baris in ingin]
         tak_ada = sorted(ingin - {r.baris for r in rows})
         if tak_ada:
             print(f"⚠️ Baris {tak_ada} kosong/tidak ada di sheet — diabaikan.")
+    if args.dari is not None or args.sampai is not None:
+        rows = saring_rentang(rows, args.dari, args.sampai)
+        print(f"Rentang baris {args.dari or 2}–{args.sampai or 'akhir'}: {len(rows)} baris.")
 
     if args.cek:
         return laporan_cek(rows, hasil, args.sumber, semua, mode,
                            lambda siap: len(rencana_sesi(siap, (akun_tunggal or "-") if satu_subsls else "",
-                                                         args.baris_per_sesi)))
+                                                         args.baris_per_sesi)),
+                           perintah)
 
     ditolak = [r for r in rows if hasil[r.baris].status != "SIAP"]
     if ditolak:

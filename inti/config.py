@@ -250,6 +250,66 @@ GABUNGAN_IZINKAN_JALAN_KOSONG = False
 GABUNGAN_MODE_MURNI = False
 
 # ---------------------------------------------------------------------------
+# FORMAT TAHAP 2 (bahan/input_tahap2.xlsx — hasil pendataan KERTAS SE2026
+# tahap 2, 2026-09-22). Dipakai inti/tahap2_loader.py + input_tahap2/.
+#
+# Format ini JAUH lebih pendek dari FORMAT STANDAR: hanya rincian yang
+# benar-benar ditanyakan di kuesioner kertas. Rincian lain tetap WAJIB di
+# fasih-web, jadi diisi dari TAHAP2_DEFAULT di bawah — NILAINYA KETETAPAN
+# USER (2026-09-22), bukan tebakan skrip, dan setiap pemakaiannya dicatat
+# sbg ASUMSI di kolom review_disarankan audit. Tambahkan kolomnya di Excel
+# (mis. "11a", "13c") kalau suatu baris perlu nilai lain — kolom sheet
+# SELALU menang atas default ini.
+# ---------------------------------------------------------------------------
+TAHAP2_DEFAULT = {
+    "jenis_kawasan": "10. Di luar kawasan",              # 8d
+    "punya_nib": "2. Tidak",                             # 10a
+    "tidak_nib": DEFAULT_10C_ALASAN_TANPA_NIB,           # 10c
+    "badan_usaha": "13. Bukan Badan Usaha",              # 11a
+    "lap_keuangan": "2. Tidak",                          # 11d
+    "lokasi_usaha": DEFAULT_13C_TEMPAT_USAHA,            # 13c
+    "digital": DEFAULT_16C_TEKNOLOGI_DIGITAL,            # 16c (hanya kalau 16a Ya)
+    "produksi_lingkungan": "3. Tidak sama sekali",       # 17a
+    "produk_seni": "2. Tidak",                           # 18
+    "barang_non_pddk": "2. Tidak",                       # 23a
+    "jasa_non_pddk": "2. Tidak",                         # 23b
+    "beli_jasa_non_pddk": "2. Tidak",                    # 23c
+    "nomor_domisili": "-",                               # Blok/Nomor Rumah (SE2026-P)
+    # Rincian 29 (kepemilikan modal): 100% pribadi, sama dgn KEPEMILIKAN_MODAL_DEFAULT.
+    "pribadi": "100", "non_profit": "0", "publik": "0",
+    "non_publik": "0", "pemerintah": "0", "asing": "0",
+    # Nilai yang jalur skrip memang hardcode (lihat gabungan_loader.NILAI_TETAP).
+    "ubah_sls": "2. Tidak",                              # rincian 8
+    "is_new": "Bangunan Lainnya (Selain Tempat Tinggal dan Campuran)",
+    "ada_bang_usaha": "2. Baru",
+    "keberadaan_usaha": "2. Baru",
+    "kode_bang": "1. Bangunan Khusus Usaha",
+    "pilih_umkm_sls": "Tidak Ada",
+    "nama_info_list": "Lainnya",
+}
+
+# Kodepos per DESA (10 digit pertama idsubsls). Kodepos dialokasikan per desa,
+# jadi seluruh SLS dalam satu desa memakai nilai yang sama (lihat
+# export_source.kodepos_dari_export). Template tahap 2 tidak punya kolom
+# kodepos; urutan sumbernya: kolom "kodepos" di sheet -> KODEPOS_BY_IDSUBSLS
+# (persis) -> dict ini -> turunan mayoritas KODEPOS_BY_IDSUBSLS desa itu ->
+# --kodepos di CLI. Semuanya gagal -> baris di-skip, TIDAK ditebak.
+KODEPOS_BY_DESA = {
+    "5108010010": "81155",   # GEROKGAK / PATAS — contoh Buleleng
+}
+
+# 13b1/b2/b3 tidak ada kolomnya di template tahap 2 padahal wajib di form.
+# Ketetapan user 2026-09-22: DITURUNKAN dari golongan KBLI (2 digit pertama),
+# bukan default tetap — mayoritas baris tahap 2 adalah perdagangan eceran.
+# Golongan di luar daftar ini -> ketiganya "2. Tidak" (form lalu merender
+# 13b4, yang diisi dari kategori lapangan usaha 13h seperti alur lama).
+TAHAP2_13B_DARI_KBLI = (
+    ((10, 33), "produk_sendiri"),   # B/C industri pengolahan -> 13b1 memproduksi barang
+    ((56, 56), "layanan_mamin"),    # I gol. 56 penyediaan makan minum -> 13b2
+    ((45, 47), "keg_penjualan"),    # G perdagangan besar/eceran & reparasi -> 13b3
+)
+
+# ---------------------------------------------------------------------------
 # Label / teks yang dicari di halaman (Playwright get_by_label / get_by_text)
 # ---------------------------------------------------------------------------
 # String yang diberi tanda "# EXACT" sudah dikutip persis dari screenshot

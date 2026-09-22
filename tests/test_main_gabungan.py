@@ -295,5 +295,12 @@ with tempfile.TemporaryDirectory() as d:
     finally:
         os.chdir(_cwd)
 
+# --dari/--sampai: pembagian kerja antar-PC/proses per rentang baris sheet.
+_rows = [GabunganRow(n, {}) for n in (2, 3, 7, 10, 11)]
+check("--dari 3 --sampai 10 (kedua ujung ikut)", [r.baris for r in mg.saring_rentang(_rows, 3, 10)], [3, 7, 10])
+check("--dari saja", [r.baris for r in mg.saring_rentang(_rows, 10, None)], [10, 11])
+check("--sampai saja", [r.baris for r in mg.saring_rentang(_rows, None, 3)], [2, 3])
+check("tanpa rentang = semua", len(mg.saring_rentang(_rows, None, None)), 5)
+
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)
