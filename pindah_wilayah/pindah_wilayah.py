@@ -32,6 +32,17 @@ pindah_wilayah_console.siap.js:
     await pindahWilayah.jalankan({mode: "pindah", limit: 1})    // pindah 1 dokumen, cek hasilnya
     await pindahWilayah.jalankan({mode: "pindah"})              // sisanya, satu per satu
 Alur lama dua tahap (petakan -> cek -> eksekusi) tetap ada, lihat docs/PANDUAN_PINDAH_WILAYAH.md.
+
+FORMAT TAHAP 2 (hasil pendataan kertas, bahan/input_tahap2.xlsx)
+---------------------------------------------------------------
+Tambahkan --format tahap2. Tujuan = kolom "5" sheet; target HANYA baris yang
+dokumennya tercatat di audit (--hanya-tercatat otomatis) supaya Console tidak
+mencari ratusan baris yang belum pernah diinput. Dokumen yang diinput di PC
+lain: jalankan dulu `input_gabungan/sinkron_list.py --format tahap2 ... --tulis`.
+    python approve_pml/approve_pml.py --akun-pml <PML> --akun-ppl <PPL> --eksekusi   (approve dulu)
+    python pindah_wilayah/pindah_wilayah.py --format tahap2 --sumber bahan/input_tahap2.xlsx \
+        --dari-approve --daftar-tujuan tujuan_tahap2.txt --console
+    python buka_wilayah/buka_wilayah.py --daftar tujuan_tahap2.txt --console      (kalau tujuan Listing Selesai)
 """
 
 from __future__ import annotations
@@ -48,6 +59,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from inti.config import KODE_KAB
 from inti.gabungan_loader import GabunganRow, load_gabungan
+from inti.tahap2_loader import load_tahap2
 import input_gabungan.main_gabungan as mg
 from input_gabungan.sinkron_list import id_dari_url, norm
 
@@ -86,10 +98,13 @@ def approved_per_kunci(audit_approve: list[dict]) -> tuple[dict[str, dict[str, s
 
 
 def bangun_target(sumber_rows: list[tuple[str, GabunganRow]], audit: list[dict],
-                  approve: dict[str, dict[str, str]] | None = None):
+                  approve: dict[str, dict[str, str]] | None = None, hanya_tercatat: bool = False):
     """Fungsi murni -> (target[], masalah[(sumber, baris, pesan)], ringkasan Counter).
     `approve` (hasil approved_per_kunci) -> target HANYA baris yang dokumennya sudah di-approve,
-    dgn `ids` = id dokumen approve itu (bukan semua id audit)."""
+    dgn `ids` = id dokumen approve itu (bukan semua id audit).
+    `hanya_tercatat` -> baris tanpa id dokumen di audit TIDAK jadi target (format tahap 2: sheet
+    berisi ribuan baris yang sebagian besar belum diinput; mencarinya lewat nama = ratusan
+    request sia-sia & rawan 429)."""
     ids_per_kunci = defaultdict(set)
     asal_per_kunci = defaultdict(set)
     nama_per_kunci = defaultdict(set)
@@ -132,6 +147,9 @@ def bangun_target(sumber_rows: list[tuple[str, GabunganRow]], audit: list[dict],
     for kunci, (sumber, row) in baris_unik.items():
         if approve is not None and kunci not in approve:
             continue
+        if approve is None and hanya_tercatat and not ids_per_kunci.get(kunci):
+            ringkasan["belum_ada_dokumen"] += 1
+            continue
         n = norm(row.nama_dokumen)
         ids = approve[kunci] if approve is not None else ids_per_kunci.get(kunci, ())
         t = {"k": kunci, "s": Path(sumber).name, "b": row.baris, "n": n, "t": row.idsubsls,
@@ -159,6 +177,14 @@ def subsls_asal(audit: list[dict], tambahan: list[str]) -> tuple[list[str], list
     return sorted(k for k in kode if POLA_KODE.fullmatch(k)), sorted(k for k in kode if not POLA_KODE.fullmatch(k))
 
 
+def tulis_daftar_tujuan(target: list[dict], path: Path) -> list[str]:
+    """Subsls tujuan unik (satu per baris) -> bahan `buka_wilayah.py --daftar`."""
+    kode = sorted({t["t"] for t in target})
+    path.write_text("# subsls tujuan pindah wilayah (dibangkitkan pindah_wilayah.py)\n" + "\n".join(kode) + "\n",
+                    encoding="utf-8")
+    return kode
+
+
 def tulis_console(target: list[dict], asal: list[str]) -> Path:
     teks = KONSOL_TEMPLATE.read_text(encoding="utf-8")
     for penanda in (PENANDA_TARGET, PENANDA_ASAL, PENANDA_KODE_KAB):
@@ -174,6 +200,12 @@ def tulis_console(target: list[dict], asal: list[str]) -> Path:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Siapkan pindah wilayah assignment (fasih-sm) dari sheet input usaha")
     ap.add_argument("--sumber", action="append", required=True, help="xlsx/csv sheet input usaha (boleh berulang)")
+    ap.add_argument("--format", choices=("standar", "tahap2"), default="standar",
+                    help="Format SEMUA --sumber: standar (input_usaha.xlsx) / tahap2 (bahan/input_tahap2.xlsx)")
+    ap.add_argument("--hanya-tercatat", action="store_true",
+                    help="Target hanya baris yang dokumennya tercatat di audit (otomatis utk --format tahap2)")
+    ap.add_argument("--daftar-tujuan", default="", metavar="TXT",
+                    help="Tulis subsls tujuan unik ke file ini (bahan buka_wilayah.py --daftar)")
     ap.add_argument("--subsls-asal", action="append", default=[],
                     help="subsls tempat dokumen disuntik, selain yang tercatat di audit (boleh berulang)")
     ap.add_argument("--dari-approve", nargs="?", const=str(AUDIT_APPROVE_PATH), default=None, metavar="CSV",
@@ -184,7 +216,7 @@ def main() -> int:
 
     sumber_rows = []
     for s in args.sumber:
-        rows = load_gabungan(s)
+        rows = load_tahap2(s) if args.format == "tahap2" else load_gabungan(s)
         print(f"{s}: {len(rows)} baris")
         sumber_rows += [(s, r) for r in rows]
     audit = mg._baca_audit()
@@ -199,11 +231,15 @@ def main() -> int:
         print(f"{path_approve}: {sum(len(v) for v in approve.values())} dokumen APPROVED_TERVERIFIKASI ber-kunci input usaha"
               + (f", {ringkas_approve['approved_tanpa_kunci']} tanpa kunci (bukan dokumen suntikan, diabaikan)"
                  if ringkas_approve["approved_tanpa_kunci"] else ""))
-    target, masalah, ringkasan = bangun_target(sumber_rows, audit, approve)
+    target, masalah, ringkasan = bangun_target(sumber_rows, audit, approve,
+                                               hanya_tercatat=args.hanya_tercatat or args.format == "tahap2")
     asal, asal_salah = subsls_asal(audit, args.subsls_asal)
 
     print(f"\n{len(target)} baris unik jadi target | dgn ID audit: {ringkasan['dgn_id_audit']}, "
           f"tanpa ID audit (dicocokkan lewat nama): {ringkasan['tanpa_id_audit']}")
+    if ringkasan["belum_ada_dokumen"]:
+        print(f"  {ringkasan['belum_ada_dokumen']} baris dilewati: belum ada dokumennya di {mg.AUDIT_LOG_PATH} "
+              "(belum diinput, atau diinput di PC lain -> sinkron_list.py --tulis dulu)")
     if approve is not None:
         print(f"  alur SATUAN: {ringkasan['dari_approve']} dokumen sudah di-approve -> "
               'mode "cari" / "pindah" di Console')
@@ -236,6 +272,10 @@ def main() -> int:
     if not target:
         print("⛔ Tidak ada target.")
         return 1
+    if args.daftar_tujuan:
+        kode = tulis_daftar_tujuan(target, Path(args.daftar_tujuan))
+        print(f"\n{args.daftar_tujuan}: {len(kode)} subsls tujuan -> kalau ada yang masih Listing Selesai:\n"
+              f"  python buka_wilayah/buka_wilayah.py --daftar {args.daftar_tujuan} --console")
     if args.console:
         path = tulis_console(target, asal)
         print(f"\n{path} ditulis. Chrome biasa -> login fasih-sm -> halaman Data survei (tab baru) -> F12 Console -> tempel ->")

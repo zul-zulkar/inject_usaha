@@ -70,6 +70,25 @@ pindah_wilayah_console.siap.js ditulis.
 Ada dokumen yang baru di-approve? Jalankan `approve_pml.py` dulu, lalu buat ulang file ini dan tempel
 ulang di Console.
 
+### Format tahap 2 (hasil pendataan kertas, `bahan/input_tahap2.xlsx`)
+
+Sama persis, cukup tambahkan `--format tahap2`. Subsls tujuan = kolom `5` sheet, subsls asal =
+subsls tunggal tempat dokumen dibuat (tercatat di audit). Baris yang belum punya dokumen di audit
+tidak ikut (dokumen yang diinput di PC lain: jalankan `sinkron_list.py --format tahap2 ... --tulis`
+dulu, atau salin audit PC itu).
+
+```bash
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --eksekusi --limit 1
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --eksekusi
+python pindah_wilayah/pindah_wilayah.py --format tahap2 --sumber bahan/input_tahap2.xlsx --dari-approve --daftar-tujuan tujuan_tahap2.txt --console
+```
+
+`--daftar-tujuan` menulis subsls tujuan unik; kalau ada yang masih **Listing Selesai**, buka dulu:
+`python buka_wilayah/buka_wilayah.py --daftar tujuan_tahap2.txt --console` (lihat
+`docs/PANDUAN_BUKA_WILAYAH.md`). ⚠️ Jangan memindah dokumen selagi batch input dengan akun PPL
+yang sama masih berjalan: dokumen yang pindah keluar dari list akun itu, sehingga penghitungan
+"dokumen tanpa URL" di batch input bisa salah menganggap aman lalu membuat dokumen lagi.
+
 ## 2. Buka halaman Data survei di TAB BARU
 
 [https://fasih-sm.bps.go.id/app/surveys/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/data?page=1&amp;perPage=10](https://fasih-sm.bps.go.id/app/surveys/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/data?page=1&perPage=10)

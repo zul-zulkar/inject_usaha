@@ -274,7 +274,17 @@ Aturan yang tidak boleh dilanggar:
 - Audit (`audit_log_gabungan.csv`) juga per PC. Salin file itu ke PC lain kalau
   ingin `--lewati-selesai` melihat pekerjaan yang sudah selesai di sana.
 
-## 10. Uji offline
+## 10. Mengembalikan dokumen ke subsls masing-masing
+
+Semua dokumen dibuat di satu subsls (`--subsls-tunggal`). Setelah terkirim & di-approve PML,
+pindahkan ke subsls aslinya (kolom `5`) lewat fasih-sm — langkah lengkap di
+`docs/PANDUAN_PINDAH_WILAYAH.md` bagian "Format tahap 2":
+
+```bash
+python pindah_wilayah/pindah_wilayah.py --format tahap2 --sumber bahan/input_tahap2.xlsx --dari-approve --daftar-tujuan tujuan_tahap2.txt --console
+```
+
+## 11. Uji offline
 
 ```bash
 python tests/test_tahap2_loader.py

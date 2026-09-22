@@ -84,6 +84,20 @@ audit_nama = audit + [{"kunci": b.kunci, "nama_usaha": "apotek  kembar", "idsubs
 t_nama = {t["k"]: t for t in pw.bangun_target(sumber, audit_nama)[0]}
 check("nama lama dari audit nama_usaha (nama sekarang tidak diulang)", t_nama[b.kunci].get("na"), ["APOTEK KEMBAR LAMA"])
 
+# --- format tahap 2: hanya baris yang dokumennya tercatat di audit ---
+t_tc, _, r_tc = pw.bangun_target(sumber, audit, hanya_tercatat=True)
+check("hanya_tercatat: baris tanpa id audit tidak jadi target", [t["k"] for t in t_tc], [a.kunci])
+check("hanya_tercatat: yang dilewati dihitung", r_tc["belum_ada_dokumen"], 2)
+check("hanya_tercatat tidak berlaku utk alur approve",
+      [t["k"] for t in pw.bangun_target(sumber, audit, approve, hanya_tercatat=True)[0]], [a.kunci])
+import tempfile  # noqa: E402
+with tempfile.TemporaryDirectory() as d:
+    f = Path(d) / "tujuan.txt"
+    check("daftar tujuan unik & terurut", pw.tulis_daftar_tujuan(target, f), sorted({T1, T2}))
+    from buka_wilayah.buka_wilayah import baca_daftar  # noqa: E402
+    check("daftar tujuan terbaca buka_wilayah --daftar", baca_daftar(f.read_text(encoding="utf-8"))[0],
+          sorted({T1, T2}))
+
 asal, salah = pw.subsls_asal(audit, ["5108010001000101", "123"])
 check("subsls asal dari audit + tambahan", asal, ["5108010001000101", "5108010010000105", "5108060014000403"])
 check("asal tidak valid dilaporkan", salah, ["123"])
