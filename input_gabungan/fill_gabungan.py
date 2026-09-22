@@ -20,11 +20,14 @@ from __future__ import annotations
 
 from inti.config import (
     DEFAULT_19A, DEFAULT_19C, DEFAULT_20B_VARIAN_SUDAH_BPOM, DEFAULT_20C_VARIAN_BELUM_BPOM,
-    ISI_PILIH_UMKM_SLS, OPSI_13B4_JASA, OPSI_13B4_PERTANIAN, UMKM_SATU_SLS_KANDIDAT,
+    ISI_PILIH_UMKM_SLS, MIN_KARAKTER_13A, OPSI_13B4_JASA, OPSI_13B4_PERTANIAN, TAHAP2_BULAN_OPERASI,
+    UMKM_SATU_SLS_KANDIDAT,
 )
 from inti.fasih_web import FasihWebSession, FieldNotFound
 from inti.fill_blok2 import read_kategori_lapangan_usaha
-from inti.gabungan_loader import KEY_16B, KEY_26, KEY_29, KEY_PEKERJA, OPSI_FORM, GabunganRow
+from inti.gabungan_loader import (
+    KEY_16B, KEY_26, KEY_29, KEY_PEKERJA, OPSI_FORM, GabunganRow, lengkapi_13a,
+)
 
 
 class BarisPerluManual(RuntimeError):
@@ -34,6 +37,51 @@ class BarisPerluManual(RuntimeError):
     def __init__(self, kode: str, pesan: str):
         super().__init__(pesan)
         self.kode = kode
+
+
+# Varian bulanan (30-33): dataKey tujuan (key DK) utk tiap kolom 26-29 sheet —
+# dari template 2026-09-22 (label "30. a." .. "33. f.").
+PETA_BULANAN_30 = (("gaji", "gaji_bln"), ("biaya_produksi", "biaya_produksi_bln"),
+                   ("biaya_pembelian", "biaya_pembelian_bln"), ("operasional", "operasional_bln"),
+                   ("non_operasional", "non_operasional_bln"))
+PETA_BULANAN_32 = (("aset_usaha_thn", "aset_tanah_bln"), ("aset_lain_thn", "aset_lain_bln"),
+                   ("luas_tanah_thn", "luas_tanah_bln"))
+PETA_BULANAN_33 = dict(zip(KEY_29, ("pribadi_didirikan", "nonprofit_didirikan", "korporasi_publik_didirikan",
+                                    "korporasi_nonpublik_didirikan", "pemerintah_didirikan", "asing_didirikan")))
+
+
+def isi_varian_bulanan(sess: FasihWebSession, row: GabunganRow, asumsi: list[str]) -> None:
+    """Rincian 30-33 (usaha mulai beroperasi tahun berjalan) diisi dari kolom
+    26-29 sheet APA ADANYA — ketetapan user 2026-09-22: kuesioner kertas tahap 2
+    menanyakan versi bulanan dgn kolom yang sama. 31e "bulan beroperasi" hanya
+    mencentang TAHAP2_BULAN_OPERASI (AGUSTUS). Hanya utk baris yang
+    `bulanan_dari_kolom` (format tahap 2); format standar tetap berhenti."""
+    log = sess._log
+    if not sess.komponen_ada("biaya_pembelian_bln", timeout_ms=4000) and row.angka("biaya_pembelian") > 0:
+        raise BarisPerluManual(
+            "26C_TIDAK_DIRENDER",
+            f"30c tidak dirender utk KBLI {row['kbli']} padahal sheet 26c={row['biaya_pembelian']}.")
+    for src, dst in PETA_BULANAN_30:
+        if dst == "biaya_pembelian_bln" and not sess.komponen_ada(dst, timeout_ms=1000):
+            continue
+        sess.fill_by_datakey(dst, row[src])
+    log(f"30f total pengeluaran SEBULAN (sheet) = {sum(row.angka(k) for k in KEY_26):,}")
+    sess.fill_by_datakey("nilai_pendapatan_bln", row["nilai_pendapatan"])
+    sess.fill_by_datakey("pendapatan_lain_bln", row["pendapatan_lain"])
+    if sess.komponen_ada("pendapatan_online_bln", timeout_ms=4000):
+        sess.fill_by_datakey("pendapatan_online_bln", row["pendapatan_online"])
+    else:
+        log("31d (persentase pendapatan online) tidak dirender — dilewati.")
+    for bulan in TAHAP2_BULAN_OPERASI:
+        sess.centang_teks_dalam_komponen("bulan_operasi", bulan)
+    for src, dst in PETA_BULANAN_32:
+        sess.fill_by_datakey(dst, row[src])
+    if sess.komponen_ada("pribadi_didirikan", timeout_ms=8_000):
+        for src in KEY_29:
+            sess.fill_by_datakey(PETA_BULANAN_33[src], row[src])
+    else:
+        log("Rincian 33 (kepemilikan modal saat didirikan) tidak dirender — dilewati.")
+    asumsi.append(f"varian bulanan: 30-33 diisi dari kolom 26-29, 31e = {'/'.join(TAHAP2_BULAN_OPERASI)}")
 
 
 def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
@@ -82,7 +130,15 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
     sess.fill_by_datakey("nik_pengusaha", row["nik_pengusaha"])
 
     # --- 13 -------------------------------------------------------------
-    sess.fill_by_datakey("keg_utama", row["keg_utama"])
+    # 13a < 15 karakter ditolak form -> diisi SETELAH KBLI terpilih, dilengkapi
+    # judul KBLI-nya (LENGKAPI_13A_DGN_KBLI). Aman: field KBLI hanya bergantung
+    # pada radio 13g, bukan pada 13a (enableCondition template, 2026-09-22).
+    keg = " ".join(row["keg_utama"].split())
+    keg_pendek = len(keg) < MIN_KARAKTER_13A
+    if keg_pendek:
+        log(f"13a '{keg}' < {MIN_KARAKTER_13A} karakter — diisi SETELAH KBLI, dilengkapi judul KBLI.")
+    else:
+        sess.fill_by_datakey("keg_utama", row["keg_utama"])
     # 13b1-b3 per-dataKey: opsinya berteks identik ("1. Ya"/"2. Tidak").
     for key in ("produk_sendiri", "layanan_mamin", "keg_penjualan"):
         if not sess.komponen_ada(key):
@@ -113,6 +169,16 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
     sess.page.wait_for_timeout(500)
     kategori = read_kategori_lapangan_usaha(sess.page)
     log(f"13h Kategori Lapangan Usaha (auto) = '{kategori}'")
+
+    if keg_pendek:
+        judul = row.judul_kbli or sess.judul_kbli_terpilih()
+        baru = "" if row.murni else lengkapi_13a(keg, judul)
+        if len(baru) < MIN_KARAKTER_13A:
+            raise BarisPerluManual("13A_KURANG_15_KARAKTER",
+                                   f"13a '{keg}' < {MIN_KARAKTER_13A} karakter & tidak bisa dilengkapi judul KBLI "
+                                   f"('{judul}') — perbaiki 13a di sheet.")
+        sess.fill_by_datakey("keg_utama", baru)
+        asumsi.append(f"13a '{keg}' dilengkapi judul KBLI -> '{baru}'")
 
     # 13b4 diisi SETELAH KBLI (sama dgn fill_blok2): baru ter-render kalau
     # 13b1-b3 semuanya Tidak, dan cadangannya diturunkan dari kategori 13h.
@@ -210,10 +276,15 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
     if varian is None:
         raise FieldNotFound(f"Blok finansial (26-29) tidak dirender (tahun_operasi={row['tahun_operasi']}).")
     if varian == "bulanan":
-        raise BarisPerluManual(
-            "VARIAN_BULANAN",
-            f"Form memakai rincian 30-33 (angka SATU BULAN) utk tahun_operasi={row['tahun_operasi']}; "
-            "angka sheet tahunan — isi manual.")
+        if not row.bulanan_dari_kolom:
+            raise BarisPerluManual(
+                "VARIAN_BULANAN",
+                f"Form memakai rincian 30-33 (angka SATU BULAN) utk tahun_operasi={row['tahun_operasi']}; "
+                "angka sheet tahunan — isi manual.")
+        isi_varian_bulanan(sess, row, asumsi)
+        sess.dump("blok2_gabungan_selesai_terisi")
+        log("BLOK II (varian bulanan) selesai diisi." + (f" ASUMSI: {asumsi}" if asumsi else ""))
+        return asumsi
 
     if not sess.komponen_ada("biaya_pembelian") and row.angka("biaya_pembelian") > 0:
         # Kategori B-F & I gol.56 tidak punya 26c terpisah. Menggabungkannya

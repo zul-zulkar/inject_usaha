@@ -76,8 +76,8 @@ from inti.fasih_web import DokumenNamaLamaAda, FasihWebSession, FieldNotFound
 from inti.fill_blok2 import fill_catatan, fill_keterangan_pemberi_jawaban
 from input_gabungan.fill_gabungan import BarisPerluManual, fill_blok2_gabungan
 from inti.gabungan_loader import (
-    GabunganRow, Pemeriksaan, cocokkan_wilayah_dokumen, kelompok_per_akun, load_gabungan,
-    parse_pilihan_baris, periksa_semua,
+    STATUS_SIAP_TANPA_KOORDINAT, GabunganRow, Pemeriksaan, cocokkan_wilayah_dokumen, kelompok_per_akun,
+    load_gabungan, parse_pilihan_baris, periksa_semua,
 )
 from inti.tahap2_loader import load_tahap2, periksa_semua_tahap2
 
@@ -107,6 +107,12 @@ STATUS_SELESAI_DRY_RUN = STATUS_TERKIRIM | {"DRY_RUN_SIAP_KIRIM"}
 # Ditulis SEGERA setelah dokumen baru terbuat (sebelum diisi), supaya proses
 # yang mati di tengah tidak berujung dokumen duplikat pada run berikutnya.
 STATUS_DIBUAT = "DOKUMEN_DIBUAT"
+# Baris tanpa koordinat (--koordinat otomatis): dokumen diisi lengkap KECUALI
+# geotag lalu DITAHAN sbg DRAFT — juga saat --submit. Validasi form TIDAK
+# menahannya (geotag hanya wajib utk mode CAPI, file-validation 2026-09-22), jadi
+# penahannya skrip ini. Begitu koordinat diisi di sheet, run berikutnya membuka
+# dokumen yang sama lewat URL audit, mengisi geotag, lalu mengirim.
+STATUS_DRAFT_TANPA_KOORDINAT = "DRAFT_TANPA_KOORDINAT"
 # Dokumen tercatat sudah DIHAPUS admin (dibuktikan list API, lihat sinkron_list.py):
 # catatan dokumen kunci itu sebelum baris ini gugur -> baris dibuatkan dokumen baru.
 STATUS_DIHAPUS = "DOKUMEN_DIHAPUS"
@@ -306,14 +312,15 @@ def kunci_lain_bernama_sama(nama_dokumen: str, kunci: str, akun: str = "") -> st
     return ""
 
 
-def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set, nama_dokumen: str = "") -> str:
+def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set, nama_dokumen: str = "",
+                               punya_koordinat: bool = True) -> str:
     """Audit dibaca ULANG tepat sebelum baris dikerjakan (daftar awal dihitung saat
     start). Batch lain (akun lain) bisa sudah membuat/mengirim dokumen baris ini
     selama batch ini berjalan -> membuatnya lagi di sini = duplikat. "" = kerjakan."""
     tercatat = dokumen_per_kunci().get(kunci)
     if tercatat and tercatat[:2] != target:
         return f"dokumennya sudah dibuat proses lain ({tercatat[0]} / {tercatat[1]})"
-    if tuntas and status_terakhir_per_kunci().get(kunci) in tuntas:
+    if tuntas and tuntas_menurut_audit(status_terakhir_per_kunci().get(kunci, ""), tuntas, punya_koordinat):
         return "sudah selesai di audit (dikerjakan proses lain)"
     if nama_dokumen and not tercatat:
         lain = kunci_lain_bernama_sama(nama_dokumen, kunci, target[0])
@@ -473,7 +480,10 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
         # keselamatan #3) — cuma dicatat utk pembanding kalau auto-fix jalan.
         sess.fill_se2026_p(nama_usaha=row.nama_dokumen, nama_jalan=row.jalan_lengkap,
                            blok_nomor=row.nomor_rumah)
-        sess.do_geotagging(row["latitude"], row["longitude"])
+        if cek.tanpa_koordinat:
+            sess._log("Geotagging DILEWATI — koordinat baris ini belum ada (dokumen ditahan sbg DRAFT).")
+        else:
+            sess.do_geotagging(row["latitude"], row["longitude"])
         sess.save()
         if not sess.next_section():
             raise FieldNotFound(f"Section setelah SE2026-P tidak ter-enable. Tersedia: {sess.list_sections()}")
@@ -494,6 +504,25 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
 
         # 5. Ringkasan — pola GALAT sama persis dgn main.py.
         ring = sess.check_ringkasan()
+        if cek.tanpa_koordinat:
+            # TIDAK PERNAH dikirim, apa pun --submit-nya. GALAT tetap dilaporkan
+            # supaya draft yang masih bermasalah ketahuan sebelum koordinatnya
+            # dilengkapi (Nomor Urut Bangunan diperbaiki di run pelengkap).
+            result["status"] = STATUS_DRAFT_TANPA_KOORDINAT
+            result["galat"], result["peringatan"] = ring.galat, ring.peringatan
+            result["catatan_count"], result["kosong"] = ring.catatan, ring.kosong
+            if ring.galat > 0:
+                detail = sess.read_galat_detail()
+                result["error_message"] = f"Draft tanpa koordinat, GALAT {ring.galat}: {detail}"[:1500]
+                tanda.append(f"DRAFT MASIH ADA GALAT ({ring.galat}) — tinjau sebelum koordinat dilengkapi")
+            sess.close_ringkasan_dialog()
+            try:
+                sess.page.keyboard.press("Escape")
+                sess.page.wait_for_selector('[role="dialog"]', state="hidden", timeout=8_000)
+            except Exception:
+                pass
+            _tulis_tanda()
+            return result
         if ring.galat > 0:
             detail = sess.read_galat_detail()
             if "Nomor Urut Bangunan" in detail and detail.count("\n") <= 3:
@@ -602,10 +631,12 @@ def laporan_cek(rows: list[GabunganRow], hasil: dict[int, Pemeriksaan], sumber: 
     """Cetak ringkasan pemeriksaan `rows` (pilihan --baris) + tulis rincian
     SELURUH sheet (`semua`) ke CSV — supaya file itu selalu lengkap utk
     dipakai memperbaiki sheet, apa pun pilihan --baris-nya."""
-    siap = [r for r in rows if hasil[r.baris].status == "SIAP"]
+    siap = [r for r in rows if hasil[r.baris].bisa_diproses]
     print(f"=== PEMERIKSAAN: {len(rows)} baris dari {sumber} — {mode} ===\n")
     for status, n in Counter(hasil[r.baris].status for r in rows).most_common():
-        print(f"  {'OK ' if status == 'SIAP' else '!! '}{n:4d}  {status}")
+        ket = "  (dibuat & diisi TANPA geotag, disimpan DRAFT — tidak dikirim)" \
+            if status == STATUS_SIAP_TANPA_KOORDINAT else ""
+        print(f"  {'OK ' if hasil_ok(status) else '!! '}{n:4d}  {status}{ket}")
 
     semua_kode = Counter(k for r in rows for k, _ in hasil[r.baris].masalah)
     if semua_kode:
@@ -637,23 +668,46 @@ def laporan_cek(rows: list[GabunganRow], hasil: dict[int, Pemeriksaan], sumber: 
 
     if siap:
         jam = len(siap) * MENIT_PER_BARIS / 60
-        print(f"\n{len(siap)} baris SIAP, {n_sesi(siap)} sesi login, estimasi ±{jam:.1f} jam VPN nonstop.")
+        n_draft = sum(hasil[r.baris].tanpa_koordinat for r in siap)
+        print(f"\n{len(siap)} baris bisa diproses ({len(siap) - n_draft} lengkap -> dikirim kalau --submit, "
+              f"{n_draft} tanpa koordinat -> DRAFT), {n_sesi(siap)} sesi login, estimasi ±{jam:.1f} jam VPN nonstop.")
         print("Perintah berikutnya (dry-run SATU baris, TIDAK mengirim):")
         print(f"  {perintah or 'python input_gabungan/main_gabungan.py'} --sumber {sumber} "
               f"--baris {siap[0].baris}")
     return 0 if len(siap) == len(rows) else 1
 
 
+def hasil_ok(status: str) -> bool:
+    return status in ("SIAP", STATUS_SIAP_TANPA_KOORDINAT)
+
+
 def muat_sumber(sumber: str, format_sumber: str = "standar", mode_satu_subsls: bool = True,
-                kodepos: str = "", cek_total: bool = True) -> tuple[list[GabunganRow], dict[int, Pemeriksaan]]:
+                kodepos: str = "", cek_total: bool = True,
+                izinkan_tanpa_koordinat: bool = False) -> tuple[list[GabunganRow], dict[int, Pemeriksaan]]:
     """(baris, hasil pemeriksaan offline) satu file sumber. Pemeriksaan lintas-baris
     selalu atas SELURUH sheet, apa pun pilihan --baris/--dari/--sampai. Dipakai juga
     sinkron_list.py supaya format tahap 2 dikenali di kedua skrip."""
     if format_sumber == "tahap2":
         rows = load_tahap2(sumber, kodepos=kodepos)
-        return rows, periksa_semua_tahap2(rows, mode_satu_subsls=mode_satu_subsls, cek_total=cek_total)
+        return rows, periksa_semua_tahap2(rows, mode_satu_subsls=mode_satu_subsls, cek_total=cek_total,
+                                          izinkan_tanpa_koordinat=izinkan_tanpa_koordinat)
     rows = load_gabungan(sumber)
-    return rows, periksa_semua(rows, mode_satu_subsls=mode_satu_subsls)
+    return rows, periksa_semua(rows, mode_satu_subsls=mode_satu_subsls,
+                               izinkan_tanpa_koordinat=izinkan_tanpa_koordinat)
+
+
+def koordinat_otomatis(pilihan: str | None, format_sumber: str) -> bool:
+    """--koordinat: None = bawaan per format (tahap2 -> otomatis, standar -> wajib)."""
+    return (pilihan or ("otomatis" if format_sumber == "tahap2" else "wajib")) == "otomatis"
+
+
+def tuntas_menurut_audit(status_audit: str, tuntas: set, punya_koordinat: bool) -> bool:
+    """--lewati-selesai: baris sudah tidak perlu dikerjakan? DRAFT_TANPA_KOORDINAT
+    tuntas HANYA selama koordinatnya masih kosong di sheet — begitu diisi, baris
+    diproses lagi (buka dokumen yang sama lewat URL audit, geotag, kirim)."""
+    if status_audit == STATUS_DRAFT_TANPA_KOORDINAT:
+        return not punya_koordinat
+    return status_audit in tuntas
 
 
 def saring_rentang(rows: list[GabunganRow], dari: int | None, sampai: int | None) -> list[GabunganRow]:
@@ -672,6 +726,11 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
     ap.add_argument("--kodepos", default="",
                     help="Format tahap2: kodepos cadangan utk desa yang belum ada di KODEPOS_BY_IDSUBSLS/"
                          "KODEPOS_BY_DESA. Dipakai HANYA kalau sumber lain kosong.")
+    ap.add_argument("--koordinat", choices=("otomatis", "wajib"), default=None,
+                    help="otomatis = baris tanpa latitude/longitude TETAP dibuat & diisi lengkap kecuali "
+                         "geotag, lalu ditahan sbg DRAFT (tidak dikirim walau --submit); jalankan ulang "
+                         "setelah koordinat diisi -> geotag + kirim. wajib = baris tanpa koordinat di-skip. "
+                         "Bawaan: otomatis utk format tahap2, wajib utk standar.")
     ap.add_argument("--abaikan-cek-total", action="store_true",
                     help="Format tahap2: jangan bandingkan kolom TOTAL sheet (24.Total, Rp26, 27c, 28c) "
                          "dgn jumlah rinciannya. Pakai kalau kolom total di Excel memang belum diisi.")
@@ -736,8 +795,12 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
     if args.dari is not None and args.sampai is not None and args.dari > args.sampai:
         print(f"❌ --dari {args.dari} lebih besar dari --sampai {args.sampai}.", file=sys.stderr)
         return 2
+    izinkan_tanpa_koordinat = koordinat_otomatis(args.koordinat, args.format)
+    mode += (" | koordinat OTOMATIS (tanpa koordinat -> DRAFT)" if izinkan_tanpa_koordinat
+             else " | koordinat WAJIB")
     rows, hasil = muat_sumber(args.sumber, args.format, satu_subsls, args.kodepos,
-                              cek_total=not args.abaikan_cek_total)
+                              cek_total=not args.abaikan_cek_total,
+                              izinkan_tanpa_koordinat=izinkan_tanpa_koordinat)
     semua = rows
     if args.baris:
         ingin = parse_pilihan_baris(args.baris)
@@ -755,13 +818,13 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                                                          args.baris_per_sesi)),
                            perintah)
 
-    ditolak = [r for r in rows if hasil[r.baris].status != "SIAP"]
+    ditolak = [r for r in rows if not hasil[r.baris].bisa_diproses]
     if ditolak:
         print(f"{len(ditolak)} baris dilewati karena gagal pemeriksaan data (detail: --cek).")
         if args.baris:
             for r in ditolak:
                 print(f"  baris {r.baris}: {hasil[r.baris].status} — {hasil[r.baris].pesan[:200]}")
-    rows = [r for r in rows if hasil[r.baris].status == "SIAP"]
+    rows = [r for r in rows if hasil[r.baris].bisa_diproses]
 
     def target(row: GabunganRow) -> tuple[str, str]:
         """(akun_login, subsls_input) utk baris ini."""
@@ -782,7 +845,7 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
         sudah = status_terakhir_per_kunci()
         tuntas = tuntas_audit = set(STATUS_TERKIRIM if args.submit else STATUS_SELESAI_DRY_RUN)
         sebelum = len(rows)
-        rows = [r for r in rows if sudah.get(r.kunci) not in tuntas]
+        rows = [r for r in rows if not tuntas_menurut_audit(sudah.get(r.kunci, ""), tuntas, r.punya_koordinat)]
         print(f"--lewati-selesai: {sebelum - len(rows)} baris dilewati (sudah selesai di {AUDIT_LOG_PATH}).")
     if args.limit:
         rows = rows[: args.limit]
@@ -803,10 +866,13 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
         atexit.register(lambda: kunci_akun.unlink(missing_ok=True))
 
     dry_run = not args.submit
+    n_draft = sum(hasil[r.baris].tanpa_koordinat for r in rows)
     print(mode)
-    print(f"{'DRY-RUN' if dry_run else '⚠️ MODE LIVE — akan klik Kirim final'} — {len(rows)} baris.")
-    if not dry_run:
-        konfirmasi = input(f"Ketik 'YA' utk konfirmasi submit {len(rows)} dokumen SUNGGUHAN (irreversible): ")
+    print(f"{'DRY-RUN' if dry_run else '⚠️ MODE LIVE — akan klik Kirim final'} — {len(rows)} baris"
+          + (f" ({n_draft} tanpa koordinat -> hanya disimpan DRAFT, TIDAK dikirim)" if n_draft else "") + ".")
+    if not dry_run and len(rows) > n_draft:
+        konfirmasi = input(f"Ketik 'YA' utk konfirmasi submit {len(rows) - n_draft} dokumen SUNGGUHAN "
+                           "(irreversible): ")
         if konfirmasi.strip().upper() != "YA":
             print("Dibatalkan.")
             return 1
@@ -937,7 +1003,8 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                     berhenti = True
                     break
                 alasan = alasan_lewati_saat_giliran(row.kunci, target(row), tuntas_audit,
-                                                    row.nama_dokumen if satu_subsls else "")
+                                                    row.nama_dokumen if satu_subsls else "",
+                                                    row.punya_koordinat)
                 if alasan:
                     print(f"\n=== baris {row.baris} — dilewati: {alasan} ===")
                     continue

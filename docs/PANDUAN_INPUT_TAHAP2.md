@@ -106,6 +106,25 @@ Kolom `28c1` belum diketahui artinya: **tidak dikirim & tidak diperiksa**.
 Kode opsi yang tidak dikenal atau ambigu **dikosongkan**, sehingga barisnya
 di-skip — tidak pernah ditebak.
 
+### 13a terlalu pendek → dilengkapi judul KBLI
+
+Form menolak 13a (kegiatan utama) yang kurang dari **15 karakter**. 13a seperti
+itu dilengkapi dengan kata dari **judul KBLI**: kolom `Judul KBLI` di sheet,
+atau judul opsi Master KBLI yang terpilih di form kalau kolom itu kosong.
+13a yang sudah 15 karakter atau lebih tidak diubah.
+
+| 13a di sheet | Judul KBLI | Dikirim sebagai |
+|---|---|---|
+| `MENJUAL ROKOK` | PERDAGANGAN ECERAN ROKOK … | `MENJUAL ROKOK (PERDAGANGAN)` |
+| `Menjual Beras` | PERDAGANGAN ECERAN BERAS | `Menjual Beras (Perdagangan)` |
+| `MENJUAL GAS LPG` | — | tidak diubah (sudah 15 karakter) |
+
+Bawaannya kata ditambahkan **seperlunya** sampai 15 karakter. Untuk memakai
+judul KBLI utuh (`MENJUAL ROKOK (PERDAGANGAN ECERAN ROKOK …)`), set
+`LENGKAPI_13A_DGN_KBLI = "penuh"` di `inti/config_lokal.py`; `""` mematikannya
+(baris seperti itu lalu di-skip `13A_KURANG_15_KARAKTER`). Hasil pelengkapan
+terlihat di kolom `tanda` `cek_gabungan.csv`.
+
 ## 5. Kodepos
 
 Template tahap 2 tidak punya kolom kodepos. Urutan sumbernya:
@@ -116,8 +135,33 @@ Template tahap 2 tidak punya kolom kodepos. Urutan sumbernya:
 4. nilai tunggal `KODEPOS_BY_IDSUBSLS` untuk desa yang sama,
 5. `--kodepos` di CLI.
 
-Semuanya kosong → `SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI`. Tambahkan desanya di
-`KODEPOS_BY_DESA` (`inti/config_lokal.py`) supaya tidak perlu diulang.
+Semuanya kosong → `SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI`. `KODEPOS_BY_DESA` bisa
+disusun otomatis dari data yang sudah ada (sheet format standar + export
+fasih-sm, suara terbanyak per desa; desa yang bentrok dicetak):
+
+```bash
+python input_tahap2/kodepos_desa.py --sumber bahan/input_tahap2.xlsx
+python input_tahap2/kodepos_desa.py --sumber bahan/input_tahap2.xlsx --tulis
+```
+
+`--tulis` menulis blok bertanda di `inti/config_lokal.py` (tidak ikut git).
+
+### Penyesuaian otomatis lain (ketetapan pengguna 2026-09-22, data asli)
+
+Semuanya bisa dimatikan di `inti/config_lokal.py`, dan setiap pemakaiannya
+tercatat di kolom `tanda` / `review_disarankan`.
+
+| Keadaan di sheet | Yang dilakukan | Saklar |
+|---|---|---|
+| Jawaban berupa teks: `LAKI-LAKI`, `L`, `P`, `YA`, `TIDAK`, `2. PEREMPUAN` | dicocokkan ke opsi form (harus sama persis, setelah membuang nomor/spasi/tanda baca) | — |
+| `16b1-b6` berisi daftar `1,2,1,1,1,1`, kode `B1,B3`, atau kata `PROMOSI`, `KOMUNIKASI` (→ b6 Lainnya) | diurai per rincian; daftar yang **bukan 6 nilai** → `SKIP_DATA_16B_TIDAK_JELAS` (tidak ditebak) | — |
+| Kolom total beda dengan jumlah rincian | rincian yang dikirim (form menghitung total sendiri) | `TAHAP2_TOTAL_BEDA` |
+| Mulai beroperasi 2026 | 30–33 diisi dari kolom 26–29, 31e hanya **AGUSTUS**; minimal total 10.000 | `TAHAP2_ISI_VARIAN_BULANAN`, `TAHAP2_BULAN_OPERASI` |
+| KBLI industri (13b1 Ya) tanpa kolom 13d/13e | 13d & 13e diisi judul KBLI | `TAHAP2_13DE_DARI_KBLI` |
+| KBLI kategori B–F / golongan 56 dengan 26c > 0 | 26c dijumlahkan ke 26b | `TAHAP2_26C_KE_26B` |
+| 24 laki+perempuan ≠ dibayar+tidak dibayar, atau 1 pekerja beda jenis kelamin dengan pemilik | seluruh pekerja = jenis kelamin pemilik, jumlahnya = dibayar + tidak dibayar | `TAHAP2_PEKERJA_IKUT_JK_PEMILIK` |
+| NIK bukan 16 digit (mis. 15 digit, `5,11E+15`) | diganti `9999` ("lainnya", sesuai pesan form) | `TAHAP2_NIK_TIDAK_VALID_JADI` |
+| Koordinat rusak (`-8.148.438` / `1.145.951`) | diperlakukan belum ada → DRAFT | `--koordinat wajib` |
 
 ## 6. Nama dokumen
 
@@ -132,7 +176,42 @@ pengusaha: nama usaha di kuesioner kertas sering generik (“WARUNG”,
 “TOKO KELONTONG”), jadi tanpa 12a dua responden berbeda akan dikira baris
 ganda.
 
-## 7. Langkah pemakaian
+## 7. Koordinat belum lengkap → otomatis jadi DRAFT
+
+Satu perintah yang sama menyesuaikan diri per baris (`--koordinat otomatis`,
+bawaan format tahap 2):
+
+| Latitude & Longitude di sheet | Yang dilakukan skrip |
+|---|---|
+| keduanya terisi | diisi lengkap + geotagging, **dikirim** kalau pakai `--submit` |
+| salah satu/keduanya kosong, `-`, atau `0` | dibuat & diisi lengkap **kecuali geotagging**, lalu disimpan sebagai **DRAFT** — tidak pernah dikirim, walau pakai `--submit` (status audit `DRAFT_TANPA_KOORDINAT`) |
+
+Form fasih-web **tidak** menolak dokumen PAPI tanpa geotag (geotag hanya wajib
+untuk mode CAPI), jadi yang menahan dokumen itu tetap DRAFT adalah skrip ini.
+`--cek` menampilkan baris seperti ini sebagai `SIAP_TANPA_KOORDINAT`.
+
+**Melengkapi koordinat nanti:** isi Latitude/Longitude di Excel, lalu jalankan
+ulang perintah yang sama dengan `--lewati-selesai`. Skrip membuka **dokumen
+DRAFT yang sama** lewat URL di audit (tidak membuat dokumen baru), mengisi
+geotagging, memeriksa ringkasan, lalu mengirim. Baris yang koordinatnya masih
+kosong dilewati (draftnya sudah ada), baris yang sudah terkirim juga dilewati.
+
+```bash
+python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --akun-tunggal EMAIL_PPL --subsls-tunggal IDSUBSLS16 --lewati-selesai --submit
+```
+
+Kalau draft tanpa koordinat ternyata masih punya GALAT lain, statusnya tetap
+`DRAFT_TANPA_KOORDINAT` tetapi kolom `galat` > 0 dan rinciannya ada di
+`error_message` — perbaiki datanya dulu sebelum koordinat dilengkapi.
+Perilaku lama (baris tanpa koordinat di-skip, tidak dibuatkan dokumen):
+tambahkan `--koordinat wajib`. Format standar (`input_usaha.xlsx`) tetap
+`wajib` kecuali diberi `--koordinat otomatis`.
+
+⚠️ Audit tiap PC terpisah. Kalau draft dibuat di PC A, lengkapi koordinatnya
+juga di PC A (atau salin `audit_log_gabungan.csv` ke PC B dulu) — tanpa catatan
+URL di audit, PC B tidak tahu draft itu ada.
+
+## 8. Langkah pemakaian
 
 ### a. Periksa data (tanpa browser/VPN, beberapa detik)
 
@@ -160,7 +239,7 @@ python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --akun-tungg
 
 Perbesar bertahap: 1 baris → beberapa baris → `--lewati-selesai --limit N`.
 
-## 8. Membagi pekerjaan: rentang baris, beberapa PC, paralel
+## 9. Membagi pekerjaan: rentang baris, beberapa PC, paralel
 
 Rentang baris ditentukan dengan `--dari N --sampai M` (nomor baris sheet,
 judul = baris 1, kedua ujung ikut diproses) atau `--baris 2,5,10-20`. Salah
@@ -195,7 +274,7 @@ Aturan yang tidak boleh dilanggar:
 - Audit (`audit_log_gabungan.csv`) juga per PC. Salin file itu ke PC lain kalau
   ingin `--lewati-selesai` melihat pekerjaan yang sudah selesai di sana.
 
-## 9. Uji offline
+## 10. Uji offline
 
 ```bash
 python tests/test_tahap2_loader.py

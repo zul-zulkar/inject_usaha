@@ -27,6 +27,13 @@ LANGKAH
        python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx ^
            --akun-tunggal <email PPL> --subsls-tunggal <16 digit> --baris 2 --submit
 
+KOORDINAT BELUM LENGKAP (--koordinat otomatis, bawaan)
+=====================================================
+Baris tanpa Latitude/Longitude tetap dibuat & diisi lengkap KECUALI geotag, lalu
+ditahan sbg DRAFT (tidak dikirim walau --submit). Setelah koordinat diisi di Excel,
+jalankan ulang dgn --lewati-selesai --submit: dokumen DRAFT yang sama dibuka lewat
+URL audit, geotag diisi, lalu dikirim. --koordinat wajib = baris tanpa koordinat di-skip.
+
 RENTANG BARIS & PARALEL
 =======================
 --dari N --sampai M (nomor baris sheet, judul = baris 1, kedua ujung ikut;

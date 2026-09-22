@@ -302,5 +302,18 @@ check("--dari saja", [r.baris for r in mg.saring_rentang(_rows, 10, None)], [10,
 check("--sampai saja", [r.baris for r in mg.saring_rentang(_rows, None, 3)], [2, 3])
 check("tanpa rentang = semua", len(mg.saring_rentang(_rows, None, None)), 5)
 
+# --koordinat: bawaan per format & --lewati-selesai utk DRAFT_TANPA_KOORDINAT.
+check("bawaan tahap2 = otomatis", mg.koordinat_otomatis(None, "tahap2"), True)
+check("bawaan standar = wajib", mg.koordinat_otomatis(None, "standar"), False)
+check("--koordinat wajib menang", mg.koordinat_otomatis("wajib", "tahap2"), False)
+check("--koordinat otomatis menang", mg.koordinat_otomatis("otomatis", "standar"), True)
+_tuntas = set(mg.STATUS_TERKIRIM)
+check("draft tanpa koordinat, sheet masih kosong -> dilewati",
+      mg.tuntas_menurut_audit(mg.STATUS_DRAFT_TANPA_KOORDINAT, _tuntas, punya_koordinat=False), True)
+check("draft tanpa koordinat, koordinat SUDAH diisi -> diproses lagi (geotag + kirim)",
+      mg.tuntas_menurut_audit(mg.STATUS_DRAFT_TANPA_KOORDINAT, _tuntas, punya_koordinat=True), False)
+check("terkirim tetap dilewati", mg.tuntas_menurut_audit("TERKIRIM_TERVERIFIKASI", _tuntas, True), True)
+check("error tetap diproses", mg.tuntas_menurut_audit("ERROR_LOGIN", _tuntas, False), False)
+
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

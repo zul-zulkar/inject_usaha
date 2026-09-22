@@ -43,8 +43,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from inti.config import (
-    GABUNGAN_13F_DARI_13A, GABUNGAN_IZINKAN_JALAN_KOSONG, GABUNGAN_MODE_MURNI, MINIMAL_TOTAL_RUPIAH,
-    WILAYAH_BY_IDSUBSLS,
+    GABUNGAN_13F_DARI_13A, GABUNGAN_IZINKAN_JALAN_KOSONG, GABUNGAN_MODE_MURNI, LENGKAPI_13A_DGN_KBLI,
+    MIN_KARAKTER_13A, MINIMAL_TOTAL_RUPIAH, MINIMAL_TOTAL_RUPIAH_BULANAN, WILAYAH_BY_IDSUBSLS,
 )
 
 # Nama tab format standar. "gabungan" = nama lama (sheet "Agenda" BPS Buleleng) — tetap
@@ -170,6 +170,16 @@ KEY_JUMLAH_19_20 = ("sudah_halal", "belum_halal", "sudah_bpom", "belum_bpom")
 # (fill_gabungan berhenti 26C_TIDAK_DIRENDER); ini hanya pencegah dini.
 def kbli_tanpa_26c(kbli: str) -> bool:
     return len(kbli) >= 2 and kbli[:2].isdigit() and (5 <= int(kbli[:2]) <= 43 or kbli[:2] == "56")
+
+
+def kbli_punya_30c(kbli: str) -> bool:
+    """30c (varian bulanan) dirender HANYA utk perdagangan (kategori G, kecuali
+    46100/47901/47909), valas (66125/64994) & pulsa (61209) — enableCondition
+    template biaya_pembelian_bln — dan saat dirender WAJIB > 0."""
+    k = kbli or ""
+    if k in ("66125", "64994", "61209"):
+        return True
+    return k[:2] in ("45", "46", "47") and k not in ("46100", "47901", "47909")
 
 YA_TIDAK = ("1. Ya", "2. Tidak")
 
@@ -349,6 +359,38 @@ def nama_muat(nama: str, pemilik: str) -> str:
     if len(lengkap) <= MAKS_8B:
         return lengkap
     return " ".join(re.sub(r"[()]", " ", nama).split())
+
+
+def judul_dari_opsi_kbli(teks: str) -> str:
+    """"[G][47241]Perdagangan Eceran Beras" (teks opsi/textarea Master KBLI)
+    -> "Perdagangan Eceran Beras". Teks tanpa awalan kode dikembalikan rapi."""
+    t = " ".join(str(teks or "").split())
+    m = re.match(r"^\[[A-Z]\]\s*\[\d{5}\]\s*(.*?)(?=\s*\[[A-Z]\]\s*\[\d{5}\]|$)", t)
+    return m.group(1).strip() if m else t
+
+
+def lengkapi_13a(keg: str, judul_kbli: str, minimal: int = MIN_KARAKTER_13A,
+                 cara: str = LENGKAPI_13A_DGN_KBLI) -> str:
+    """13a < `minimal` karakter -> "<13a> (<kata judul KBLI>)" (lihat
+    LENGKAPI_13A_DGN_KBLI di config). 13a yang sudah cukup, judul kosong, atau
+    `cara` kosong -> 13a apa adanya (pemanggil yang memutuskan berhenti).
+    Judul ikut HURUF BESAR kalau 13a ditulis huruf besar."""
+    keg = " ".join((keg or "").split())
+    judul = judul_dari_opsi_kbli(judul_kbli)
+    if len(keg) >= minimal or not judul or cara not in ("sedikit", "penuh"):
+        return keg
+    if keg and keg == keg.upper():
+        judul = judul.upper()
+    elif judul == judul.upper():
+        judul = judul.title()   # "Menjual Rokok" + "PERDAGANGAN ..." -> "Menjual Rokok (Perdagangan)"
+    kata = judul.split()
+    ambil = kata if cara == "penuh" else []
+    if cara == "sedikit":
+        for k in kata:
+            ambil.append(k)
+            if len(f"{keg} ({' '.join(ambil)})") >= minimal:
+                break
+    return f"{keg} ({' '.join(ambil)})" if keg else " ".join(ambil)
 
 
 # Nama Jalan (SE2026-P): isi selain kosong/"-" wajib memuat >= 10 huruf a-z
@@ -542,8 +584,63 @@ class GabunganRow:
     def rincian_13b4_dirender(self) -> bool:
         return all(self[k].startswith("2") for k in ("produk_sendiri", "layanan_mamin", "keg_penjualan"))
 
+    @property
+    def judul_kbli(self) -> str:
+        """Kolom "Judul KBLI" sheet (format tahap 2). Format standar tidak punya
+        kolomnya -> "" (13a pendek dilengkapi judul opsi Master KBLI di form)."""
+        return " ".join(self["judul_kbli"].split())
+
+    @property
+    def punya_koordinat(self) -> bool:
+        """Latitude & longitude terisi DAN terbaca sbg titik di Indonesia.
+        Koordinat yang rusak (mis. "-8.148.438" / "1.145.951" — titik ribuan
+        dari Excel, data asli tahap 2) dianggap BELUM ADA: dengan --koordinat
+        otomatis barisnya jadi DRAFT sampai koordinatnya diperbaiki di sheet."""
+        return koordinat_valid(self["latitude"], self["longitude"])
+
+    @property
+    def bulanan_dari_kolom(self) -> bool:
+        """True = varian bulanan (usaha mulai beroperasi tahun berjalan) boleh
+        diisi dari kolom 26-29 apa adanya. Format standar: False (angka sheet
+        Buleleng tahunan -> VARIAN_BULANAN, isi manual)."""
+        return False
+
     def angka(self, key: str) -> int:
         return int(self[key])
+
+
+KODE_NIK_KHUSUS = ("7777", "8888", "9999")
+
+
+def nik_valid(nik: str) -> bool:
+    """Aturan file-validation nik_pengusaha: 16 digit (tidak boleh digit sama
+    semua) ATAU kode 7777 (NIK > 16 digit) / 8888 (belum punya) / 9999 (lainnya)."""
+    n = str(nik or "").strip()
+    if n in KODE_NIK_KHUSUS:
+        return True
+    return bool(re.fullmatch(r"\d{16}", n)) and len(set(n)) > 1
+
+
+def koordinat_valid(lat, lon) -> bool:
+    if koordinat_kosong(lat) or koordinat_kosong(lon):
+        return False
+    try:
+        a, b = float(str(lat).strip()), float(str(lon).strip())
+    except ValueError:
+        return False
+    return -12 <= a <= 7 and 94 <= b <= 142
+
+
+def koordinat_kosong(nilai) -> bool:
+    """Kolom koordinat yang BELUM diisi: kosong, tanda strip, atau 0 (Excel
+    kerap mengisi 0 utk sel kosong; titik 0 bukan lokasi di Indonesia)."""
+    t = " ".join(str(nilai or "").split())
+    if t in ("", "-", "–", "—"):
+        return True
+    try:
+        return float(t.replace(",", ".")) == 0
+    except ValueError:
+        return False
 
 
 def _baca_nama_wilayah(path: Path) -> dict[str, dict]:
@@ -663,14 +760,28 @@ def load_gabungan(path: str | Path, murni: bool | None = None) -> list[GabunganR
 # Pemeriksaan offline
 # ---------------------------------------------------------------------------
 
+# Baris lolos pemeriksaan tapi koordinatnya belum ada (izinkan_tanpa_koordinat):
+# dokumen dibuat & diisi lengkap KECUALI geotag, lalu DITAHAN sbg DRAFT — tidak
+# pernah dikirim sampai koordinatnya dilengkapi di sheet & skrip dijalankan ulang.
+STATUS_SIAP_TANPA_KOORDINAT = "SIAP_TANPA_KOORDINAT"
+STATUS_BISA_DIPROSES = ("SIAP", STATUS_SIAP_TANPA_KOORDINAT)
+
+
 @dataclass
 class Pemeriksaan:
     masalah: list[tuple[str, str]] = field(default_factory=list)  # (kode, pesan) -> skip
     tanda: list[str] = field(default_factory=list)                # review, tidak skip
+    tanpa_koordinat: bool = False                                 # -> DRAFT, tidak dikirim
 
     @property
     def status(self) -> str:
-        return f"SKIP_DATA_{self.masalah[0][0]}" if self.masalah else "SIAP"
+        if self.masalah:
+            return f"SKIP_DATA_{self.masalah[0][0]}"
+        return STATUS_SIAP_TANPA_KOORDINAT if self.tanpa_koordinat else "SIAP"
+
+    @property
+    def bisa_diproses(self) -> bool:
+        return self.status in STATUS_BISA_DIPROSES
 
     @property
     def pesan(self) -> str:
@@ -682,23 +793,42 @@ def _bulat(s: str) -> bool:
 
 
 def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
-                  mode_satu_subsls: bool = False) -> Pemeriksaan:
+                  mode_satu_subsls: bool = False, izinkan_tanpa_koordinat: bool = False) -> Pemeriksaan:
     """`mode_satu_subsls` = semua dokumen dibuat di satu subsls: dokumen TIDAK dibuat di
     idsubsls baris, jadi ketidakcocokan wilayah baris baru berarti saat
-    ubah alokasi wilayah nanti -> tanda, bukan skip."""
+    ubah alokasi wilayah nanti -> tanda, bukan skip.
+
+    `izinkan_tanpa_koordinat` (--koordinat otomatis): latitude/longitude yang
+    belum diisi TIDAK men-skip baris -> status SIAP_TANPA_KOORDINAT (dokumen
+    jadi DRAFT tanpa geotag). Tanpa flag ini koordinat tetap WAJIB."""
     tahun_berjalan = tahun_berjalan or datetime.date.today().year
     hasil = Pemeriksaan()
     salah = hasil.masalah.append
+    hasil.tanpa_koordinat = izinkan_tanpa_koordinat and not row.punya_koordinat
+    if hasil.tanpa_koordinat:
+        terisi = [k for k in ("latitude", "longitude") if not koordinat_kosong(row[k])]
+        if len(terisi) == 2:
+            ket = (f" (koordinat TIDAK TERBACA '{row['latitude']}' / '{row['longitude']}' — "
+                   "perbaiki di Excel, jalankan ulang)")
+        else:
+            ket = f" (hanya {terisi[0]} yang terisi)" if terisi else ""
+        hasil.tanda.append("KOORDINAT BELUM ADA -> disimpan sbg DRAFT tanpa geotag, TIDAK dikirim" + ket)
 
     wajib = [
-        "akun_ppl", "idsubsls", "nama", "kodepos", "latitude", "longitude", "nama_komersial",
+        "akun_ppl", "idsubsls", "nama", "kodepos", *(() if hasil.tanpa_koordinat else ("latitude", "longitude")),
+        "nama_komersial",
         "hp", "jenis_kawasan", "punya_nib", "badan_usaha", "lap_keuangan", "pengusaha", "jk",
         "umur", "nik_pengusaha", "keg_utama", "produk_sendiri", "layanan_mamin", "keg_penjualan",
         "lokasi_usaha", "kbli", "jaringan", "internet", "produksi_lingkungan",
         "perlindungan_lingkungan", "produk_seni", "mitra_kdkmp", "peran_mbg", "barang_non_pddk",
         "jasa_non_pddk", "beli_jasa_non_pddk", "tahun_operasi",
-        *KEY_PEKERJA, *KEY_26, *KEY_27, "pendapatan_online", *KEY_28, *KEY_29,
+        *KEY_PEKERJA, *KEY_26, *KEY_27, *KEY_28, *KEY_29,
     ]
+    # 27d/31d (persen pendapatan online) HANYA dirender kalau 16a = Ya (enableCondition
+    # template pendapatan_online_bln; fill_gabungan: "27d tidak dirender" utk 16a Tidak).
+    # Dulu selalu diwajibkan -> 95 baris data asli tahap 2 (16a Tidak, 27d kosong) di-skip.
+    if row["internet"].startswith("1"):
+        wajib.append("pendapatan_online")
     wajib.append("nib_nomor" if row["punya_nib"].startswith("1") else "tidak_nib")
     if row["internet"].startswith("1"):
         wajib += [*KEY_16B, "digital"]
@@ -726,6 +856,20 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         hasil.tanda.append(f"Nama Jalan dilengkapi nama wilayah: '{row['jalan_domisili']}' -> '{jalan}'"
                            + (f" (desa idsubsls dipakai; {row.wilayah_bentrok})" if row.wilayah_bentrok else ""))
     hasil.tanda.extend(row.koreksi)
+    keg = " ".join(row["keg_utama"].split())
+    if keg and len(keg) < MIN_KARAKTER_13A:
+        if row.murni or LENGKAPI_13A_DGN_KBLI not in ("sedikit", "penuh"):
+            salah(("13A_KURANG_15_KARAKTER", f"13a '{keg}' kurang dari {MIN_KARAKTER_13A} karakter (form menolak)"))
+        elif row.judul_kbli:
+            baru = lengkapi_13a(keg, row.judul_kbli)
+            if len(baru) < MIN_KARAKTER_13A:
+                salah(("13A_KURANG_15_KARAKTER", f"13a '{keg}' + judul KBLI '{row.judul_kbli}' masih kurang dari "
+                                                 f"{MIN_KARAKTER_13A} karakter"))
+            else:
+                hasil.tanda.append(f"13a dilengkapi judul KBLI: '{keg}' -> '{baru}'")
+        else:
+            hasil.tanda.append(f"13a '{keg}' < {MIN_KARAKTER_13A} karakter -> dilengkapi judul KBLI "
+                               f"{row['kbli']} dari Master KBLI saat pengisian")
     for label, nama in (("nama dokumen", row.nama_dokumen), ("8b", row.nama_komersial)):
         if not row.murni and nama and "(" not in nama and row["pengusaha"]:
             hasil.tanda.append(f"{label} tanpa (12a): format lengkap > {MAKS_8B} karakter")
@@ -763,9 +907,10 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         if row[key] and not re.fullmatch(pola, row[key]):
             tidak_valid.append(key)
     try:
-        lat, lon = float(row["latitude"]), float(row["longitude"])
-        if not (-12 <= lat <= 7 and 94 <= lon <= 142):
-            tidak_valid.append("latitude/longitude (di luar Indonesia)")
+        if not hasil.tanpa_koordinat:
+            lat, lon = float(row["latitude"]), float(row["longitude"])
+            if not (-12 <= lat <= 7 and 94 <= lon <= 142):
+                tidak_valid.append("latitude/longitude (di luar Indonesia)")
     except ValueError:
         if row["latitude"] and row["longitude"]:
             tidak_valid.append("latitude/longitude")
@@ -788,10 +933,19 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
                    f"(dibayar {d}, tidak dibayar {td})"))
     if all(row[k] for k in KEY_29) and sum(row.angka(k) for k in KEY_29) != 100:
         salah(("MODAL_29_BUKAN_100", f"jumlah 29a-29f = {sum(row.angka(k) for k in KEY_29)}"))
-    if all(row[k] for k in KEY_26) and sum(row.angka(k) for k in KEY_26) < MINIMAL_TOTAL_RUPIAH:
-        salah(("DI_BAWAH_MINIMAL", f"26f={sum(row.angka(k) for k in KEY_26)} < {MINIMAL_TOTAL_RUPIAH}"))
-    if all(row[k] for k in KEY_27) and sum(row.angka(k) for k in KEY_27) < MINIMAL_TOTAL_RUPIAH:
-        salah(("DI_BAWAH_MINIMAL", f"27c={sum(row.angka(k) for k in KEY_27)} < {MINIMAL_TOTAL_RUPIAH}"))
+    # Varian bulanan (30-33) = usaha mulai beroperasi TAHUN BERJALAN (ec_usaha_bulan
+    # template: tahun_operasi == 2026). Minimal totalnya 10.000, bukan 100.000.
+    bulanan = (row.bulanan_dari_kolom and row["tahun_operasi"].isdigit()
+               and row.angka("tahun_operasi") == tahun_berjalan)
+    minimal, r_peng, r_pend = ((MINIMAL_TOTAL_RUPIAH_BULANAN, "30f", "31c") if bulanan
+                               else (MINIMAL_TOTAL_RUPIAH, "26f", "27c"))
+    if all(row[k] for k in KEY_26) and sum(row.angka(k) for k in KEY_26) < minimal:
+        salah(("DI_BAWAH_MINIMAL", f"{r_peng}={sum(row.angka(k) for k in KEY_26)} < {minimal}"))
+    if all(row[k] for k in KEY_27) and sum(row.angka(k) for k in KEY_27) < minimal:
+        salah(("DI_BAWAH_MINIMAL", f"{r_pend}={sum(row.angka(k) for k in KEY_27)} < {minimal}"))
+    if row["nik_pengusaha"] and not nik_valid(row["nik_pengusaha"]):
+        salah(("NIK_TIDAK_VALID", f"12d NIK '{row['nik_pengusaha']}' bukan 16 digit / 7777 / 8888 / 9999 "
+                                  "(form mengosongkannya -> GALAT)"))
     if row["umur"] and not UMUR_MIN <= row.angka("umur") <= UMUR_MAKS:
         salah(("UMUR_DI_LUAR_10_99", f"12c umur={row['umur']} (form: wajib {UMUR_MIN}-{UMUR_MAKS}) "
                                      "— perbaiki umur di sheet, jangan ditebak"))
@@ -799,7 +953,11 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         salah(("ANGKA_TIDAK_VALID", f"27d={row['pendapatan_online']} > 100 persen"))
     if row["tahun_operasi"]:
         th = row.angka("tahun_operasi")
-        if th >= tahun_berjalan:
+        if bulanan:
+            hasil.tanda.append(f"varian bulanan (mulai beroperasi {th}): rincian 30-33 diisi dari kolom 26-29")
+        elif th > tahun_berjalan:
+            salah(("ANGKA_TIDAK_VALID", f"tahun_operasi={th} (di masa depan)"))
+        elif th == tahun_berjalan:
             # Form mengganti 26-29 dgn 30-33 (angka SATU BULAN) utk usaha yang
             # mulai beroperasi tahun berjalan; angka sheet ini tahunan.
             salah(("VARIAN_BULANAN", f"tahun_operasi={th} -> form pakai rincian 30-33 bulanan"))
@@ -811,6 +969,12 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         salah(("26C_KATEGORI_TANPA_26C",
                f"KBLI {row['kbli']} (kategori B-F / golongan 56): form tidak punya 26c — pindahkan "
                f"26c={row['biaya_pembelian']} ke 26b di sheet"))
+    elif kbli_tanpa_26c(row["kbli"]) and row["biaya_produksi"] and row.angka("biaya_produksi") == 0:
+        salah(("26B_HARUS_LEBIH_0", f"KBLI {row['kbli']} (kategori B-F / golongan 56): form mewajibkan "
+                                    f"{'30b' if bulanan else '26b'} biaya produksi > 0"))
+    if bulanan and kbli_punya_30c(row["kbli"]) and row["biaya_pembelian"] and row.angka("biaya_pembelian") == 0:
+        salah(("30C_HARUS_LEBIH_0", f"varian bulanan KBLI {row['kbli']}: form mewajibkan 30c (biaya pembelian "
+                                    "barang yang terjual) > 0"))
 
     if not row["produk"] and row.produk_utama:
         hasil.tanda.append("13f disalin dari 13a (sheet tidak punya kolom 13f)")
@@ -823,11 +987,13 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
 
 
 def periksa_semua(rows: list[GabunganRow], tahun_berjalan: int | None = None,
-                  mode_satu_subsls: bool = False) -> dict[int, Pemeriksaan]:
+                  mode_satu_subsls: bool = False,
+                  izinkan_tanpa_koordinat: bool = False) -> dict[int, Pemeriksaan]:
     """{baris: Pemeriksaan} — per baris + pemeriksaan LINTAS baris.
     Mode satu subsls: SEMUA dokumen masuk list PENDATAAN satu akun, jadi
     bentrok nama diperiksa lintas SELURUH sheet, bukan per akun PPL."""
-    hasil = {r.baris: periksa_baris(r, tahun_berjalan, mode_satu_subsls) for r in rows}
+    hasil = {r.baris: periksa_baris(r, tahun_berjalan, mode_satu_subsls, izinkan_tanpa_koordinat)
+             for r in rows}
 
     per_kunci = defaultdict(list)
     for r in rows:

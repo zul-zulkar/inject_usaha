@@ -2041,6 +2041,18 @@ class FasihWebSession:
     # ------------------------------------------------------------------
     # BLOK II — KBLI Master search dgn retry logic (bug termodokumentasi)
     # ------------------------------------------------------------------
+    def judul_kbli_terpilih(self) -> str:
+        """Judul KBLI yang sedang terpilih di #kbli ("[G][47241]Perdagangan
+        Eceran Beras" -> "Perdagangan Eceran Beras"); "" kalau belum ada.
+        Dipakai melengkapi 13a yang kurang dari 15 karakter."""
+        from inti.gabungan_loader import judul_dari_opsi_kbli
+        try:
+            ta = self._visible(self.komponen("kbli_pilihan").locator("textarea")).first
+            teks = ta.input_value() or ta.get_attribute("placeholder") or ""
+        except Exception:
+            return ""
+        return "" if not re.match(r"^\s*\[[A-Z]\]", teks) else judul_dari_opsi_kbli(teks)
+
     def fill_kbli_master(self, kbli_code: str, search_phrase_fallback: str = "") -> bool:
         """Rincian 13g — pilih KBLI dari Master KBLI.
 
@@ -2229,7 +2241,17 @@ class FasihWebSession:
             return hasil;
         }""")
 
+        self._detail_galat_langsung = ""
         if not all(k in data for k in ("galat", "peringatan", "catatan", "kosong")):
+            # Run 2026-09-22 (tahap 2 baris 10, NIK 15 digit): "Kirim" langsung membuka
+            # DAFTAR GALAT ("Galat TOTAL: 1 / 1 ..."), bukan kartu ringkasan. Jumlahnya
+            # tetap terbaca dari "TOTAL: x / y"; rinciannya disimpan utk read_galat_detail.
+            m_g = re.match(r"^Galat\s+TOTAL:\s*(\d+)\s*/\s*(\d+)", data.get("_teks", ""), re.I)
+            if m_g:
+                self._detail_galat_langsung = self.page.evaluate(_JS_DIALOG_TEXT)
+                r = Ringkasan(galat=int(m_g.group(2)), peringatan=-1, catatan=-1, kosong=-1)
+                self._log(f"Ringkasan: dialog langsung berisi daftar GALAT ({r.galat}) — kartu lain tidak tampil.")
+                return r
             self.dump("ringkasan_tidak_terbaca")
             self._fail(f"check_ringkasan: kartu ringkasan tidak terbaca. Isi dialog: {data.get('_teks', '')}")
 
@@ -2254,6 +2276,11 @@ class FasihWebSession:
 
         ⚠️ Label kartu di-uppercase lewat CSS — teks DOM-nya "Galat".
         Kartunya adalah <button> berisi "Galat <jumlah>"."""
+        langsung = getattr(self, "_detail_galat_langsung", "")
+        if langsung:
+            self._detail_galat_langsung = ""
+            self._log("Detail GALAT (dialog daftar GALAT): " + langsung[:700])
+            return langsung
         try:
             kartu = self._visible(self.page.get_by_role("button").filter(
                 has_text=re.compile(r"Galat\s*\d+", re.I)))
@@ -2273,6 +2300,7 @@ class FasihWebSession:
         try:
             self.page.get_by_role("button", name=re.compile("batal", re.I)).click(timeout=3000)
         except Exception:
+            # Dialog daftar GALAT tidak punya "Batal" (hanya tombol X / Close).
             self.page.keyboard.press("Escape")
 
     def submit_final(self) -> bool:

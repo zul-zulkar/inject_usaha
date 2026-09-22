@@ -258,7 +258,8 @@ def main() -> int:
 
         sumber_rows = []
         for sumber in args.sumber:
-            rows, cek = mg.muat_sumber(sumber, args.format, mode_satu_subsls=True)
+            rows, cek = mg.muat_sumber(sumber, args.format, mode_satu_subsls=True,
+                                       izinkan_tanpa_koordinat=mg.koordinat_otomatis(None, args.format))
             sumber_rows += [(sumber, r, cek[r.baris].status) for r in rows]
         laporan, tulis, tak_dikenal = rencana_sinkron(sumber_rows, items, akun, args.subsls_tunggal,
                                                       args.assignment_id, mg._baca_audit(), lengkap)
@@ -271,8 +272,8 @@ def main() -> int:
             for kat, n in Counter(l["kategori"] for l in bagian).most_common():
                 print(f"  {n:4d}  {kat}")
             for judul, syarat in (
-                    ("BELUM ADA di server & data SIAP", lambda l: l["kategori"] == "BELUM_ADA" and l["cek_data"] == "SIAP"),
-                    ("BELUM ADA & data belum lolos cek", lambda l: l["kategori"] == "BELUM_ADA" and l["cek_data"] != "SIAP"),
+                    ("BELUM ADA di server & data SIAP", lambda l: l["kategori"] == "BELUM_ADA" and mg.hasil_ok(l["cek_data"])),
+                    ("BELUM ADA & data belum lolos cek", lambda l: l["kategori"] == "BELUM_ADA" and not mg.hasil_ok(l["cek_data"])),
                     ("DRAFT (belum terkirim)", lambda l: l["kategori"].startswith("DRAFT")),
                     ("GANDA", lambda l: "GANDA" in l["kategori"]),
                     ("Audit bilang terkirim, server tidak", lambda l: "AUDIT_BILANG" in l["kategori"]

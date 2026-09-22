@@ -228,6 +228,19 @@ PETA_SLS_PATH = os.environ.get("FASIH_PETA_SLS", "")
 # kolom itu yang dipakai. False = baris tanpa 13f di-skip.
 GABUNGAN_13F_DARI_13A = True
 
+# 13a "kegiatan utama" minimal 15 KARAKTER (file-validation template keg_utama:
+# `val.length < 15` -> GALAT "Tuliskan kegiatan utama usaha dengan jelas dan
+# lengkap", dibaca 2026-09-22). Isian kertas sering pendek ("WARUNG", "JUAL
+# SAYUR"). Ketetapan user 2026-09-22: 13a yang kurang dilengkapi JUDUL KBLI-nya
+# (kolom "Judul KBLI" sheet kalau ada, kalau tidak judul opsi Master KBLI yang
+# terpilih di form), mis. "JUAL SAYUR" -> "JUAL SAYUR (PERDAGANGAN)".
+#   "sedikit" = kata judul ditambahkan satu per satu sampai >= 15 karakter
+#   "penuh"   = seluruh judul KBLI ditambahkan -> "JUAL SAYUR (PERDAGANGAN ECERAN SAYURAN)"
+#   ""        = tidak dilengkapi -> baris berhenti 13A_KURANG_15_KARAKTER
+# 13a yang sudah >= 15 karakter TIDAK diubah. Mode murni tidak pernah melengkapi.
+MIN_KARAKTER_13A = 15
+LENGKAPI_13A_DGN_KBLI = "sedikit"
+
 # "Nama Jalan/Gang/Komplek" kosong di 242 baris gabungan. Label field di dump
 # DOM TIDAK bertanda wajib (*), berbeda dgn field wajib lain — tapi belum
 # pernah diuji dikosongkan. False = skip baris itu (aman, perilaku lama);
@@ -303,6 +316,34 @@ KODEPOS_BY_DESA = {
 # bukan default tetap — mayoritas baris tahap 2 adalah perdagangan eceran.
 # Golongan di luar daftar ini -> ketiganya "2. Tidak" (form lalu merender
 # 13b4, yang diisi dari kategori lapangan usaha 13h seperti alur lama).
+# --- Ketetapan user 2026-09-22 utk data asli tahap 2 (1.796 baris) -----------
+# Usaha yang MULAI beroperasi 2026: form mengganti 26-29 dgn 30-33 (SATU BULAN
+# terakhir) + 31e "bulan beroperasi". Kuesioner kertas menanyakan hal yang sama
+# versi bulanan, jadi kolom 26-29 sheet DIISIKAN ke 30-33 apa adanya, dan 31e
+# hanya mencentang bulan di bawah. False = baris seperti ini di-skip (perilaku lama).
+TAHAP2_ISI_VARIAN_BULANAN = True
+TAHAP2_BULAN_OPERASI = ("AGUSTUS",)
+MINIMAL_TOTAL_RUPIAH_BULANAN = 10_000   # 30f & 31c (file-validation "minimal 10.000")
+# Kolom TOTAL sheet (Rp26/27c/28c/24.Total) beda dgn jumlah rinciannya: "rincian"
+# = rincian dikirim apa adanya (form menghitung total sendiri), selisihnya hanya
+# ditandai; "skip" = baris di-skip TOTAL_TIDAK_COCOK (perilaku lama).
+TAHAP2_TOTAL_BEDA = "rincian"
+# 13d/13e (input & proses produksi, muncul kalau 13b1 Ya & 13b2 Tidak) tidak ada
+# di kuesioner kertas -> diisi dari JUDUL KBLI (kolom sheet 13d/13e tetap menang).
+TAHAP2_13DE_DARI_KBLI = True
+# KBLI kategori B-F / golongan 56 tidak punya 26c di form -> 26c dijumlahkan ke 26b.
+TAHAP2_26C_KE_26B = True
+# 24 pekerja: jumlah per jenis kelamin (24a1+24b1) != jumlah per status bayar
+# (24a2+24b2), atau 1 pekerja yang jenis kelaminnya beda dgn pemilik (GALAT "Cek
+# konsistensi jenis kelamin pengusaha") -> seluruh pekerja dianggap berjenis
+# kelamin PEMILIK (12b), jumlahnya mengikuti 24a2+24b2.
+TAHAP2_PEKERJA_IKUT_JK_PEMILIK = True
+# 12d NIK yang tidak valid menurut form (bukan 16 digit & bukan 7777/8888/9999 —
+# mis. 15 digit, "5,11E+15" hasil Excel; 48 baris data asli 2026-09-22) diganti
+# kode ini ("9999 untuk lainnya", pesan GALAT form; sama dgn NIK_OVERRIDE backlog
+# lama). "" = baris di-skip NIK_TIDAK_VALID.
+TAHAP2_NIK_TIDAK_VALID_JADI = "9999"
+
 TAHAP2_13B_DARI_KBLI = (
     ((10, 33), "produk_sendiri"),   # B/C industri pengolahan -> 13b1 memproduksi barang
     ((56, 56), "layanan_mamin"),    # I gol. 56 penyediaan makan minum -> 13b2
