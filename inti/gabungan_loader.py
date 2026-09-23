@@ -621,6 +621,15 @@ def nik_valid(nik: str) -> bool:
     return bool(re.fullmatch(r"\d{16}", n)) and len(set(n)) > 1
 
 
+def hp_valid(hp: str) -> bool:
+    """Aturan file-validation `hp`: "9999" (tidak ada/tidak bersedia) ATAU angka
+    diawali 08, 10-13 digit, dan digit setelah 08 tidak sama semua."""
+    h = str(hp or "")
+    if h == "9999":
+        return True
+    return bool(re.fullmatch(r"08\d{8,11}", h)) and not re.fullmatch(r"(\d)\1+", h[2:])
+
+
 def koordinat_valid(lat, lon) -> bool:
     if koordinat_kosong(lat) or koordinat_kosong(lon):
         return False
@@ -943,6 +952,8 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         salah(("DI_BAWAH_MINIMAL", f"{r_peng}={sum(row.angka(k) for k in KEY_26)} < {minimal}"))
     if all(row[k] for k in KEY_27) and sum(row.angka(k) for k in KEY_27) < minimal:
         salah(("DI_BAWAH_MINIMAL", f"{r_pend}={sum(row.angka(k) for k in KEY_27)} < {minimal}"))
+    if row["hp"] and not hp_valid(row["hp"]):
+        salah(("HP_TIDAK_VALID", f"No HP/WA '{row['hp']}' bukan 08 + 10-13 digit / 9999 (form menolak)"))
     if row["nik_pengusaha"] and not nik_valid(row["nik_pengusaha"]):
         salah(("NIK_TIDAK_VALID", f"12d NIK '{row['nik_pengusaha']}' bukan 16 digit / 7777 / 8888 / 9999 "
                                   "(form mengosongkannya -> GALAT)"))

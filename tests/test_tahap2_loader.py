@@ -316,6 +316,22 @@ hasil = periksa_semua_tahap2(tulis([baris(**{"12b": "3"})]))
 cek_benar("kode opsi tidak dikenal -> kolom kosong -> skip",
           any(k == "WAJIB_KOSONG" for k, _ in hasil[2].masalah))
 
+print("\n== HP/WA kosong / tidak valid -> 9999 (TAHAP2_HP_TIDAK_VALID_JADI) ==")
+from inti.gabungan_loader import hp_valid  # noqa: E402
+for hp, harap in (("081340828334", True), ("9999", True), ("0812345678", True), ("081310", False),
+                  ("81340828334", False), ("0811111111111", False), ("08123456789012", False), ("", False)):
+    cek(f"hp_valid('{hp}')", hp_valid(hp), harap)
+cek("'8,13E+10' tidak dijadikan 081310", normalkan_hp("8,13E+10"), "8,13E+10")
+rh = tulis([baris(**{"no WA": "8,13E+10"})])[0]
+cek("HP rusak Excel -> 9999", rh["hp"], "9999")
+cek_benar("... ditandai", any("8,13E+10" in t for t in periksa_semua_tahap2([rh])[2].tanda))
+cek("HP kosong -> 9999", tulis([baris(**{"no WA": ""})])[0]["hp"], "9999")
+cek("HP valid tidak diubah", tulis([baris()])[0]["hp"], "081340828334")
+t2.TAHAP2_HP_TIDAK_VALID_JADI = ""
+cek("saklar kosong -> HP_TIDAK_VALID (skip)",
+    periksa_semua_tahap2(tulis([baris(**{"no WA": "8,13E+10"})]))[2].status, "SKIP_DATA_HP_TIDAK_VALID")
+t2.TAHAP2_HP_TIDAK_VALID_JADI = "9999"
+
 print("\n== NIK tidak valid -> 9999 (TAHAP2_NIK_TIDAK_VALID_JADI) ==")
 from inti.gabungan_loader import nik_valid  # noqa: E402
 for nik, harap in (("5108032406800001", True), ("9999", True), ("8888", True), ("7777", True),

@@ -343,6 +343,12 @@ TAHAP2_PEKERJA_IKUT_JK_PEMILIK = True
 # kode ini ("9999 untuk lainnya", pesan GALAT form; sama dgn NIK_OVERRIDE backlog
 # lama). "" = baris di-skip NIK_TIDAK_VALID.
 TAHAP2_NIK_TIDAK_VALID_JADI = "9999"
+# Nomor HP/WA kosong atau tidak valid (bukan 08 + 10-13 digit — mis. "8,13E+10" hasil
+# Excel; 11 baris rusak + 86 kosong di data asli 2026-09-22) diganti kode ini: pesan
+# GALAT form sendiri "jika tidak ada/tidak bersedia ... diisi angka 9 sebanyak 4 kali".
+# HP rusak yang diketik ke form juga membuat klik radio 8d berikutnya tidak menempel
+# (akun windasariani 2026-09-22: 3 baris gagal -> login ulang beruntun). "" = skip.
+TAHAP2_HP_TIDAK_VALID_JADI = "9999"
 
 TAHAP2_13B_DARI_KBLI = (
     ((10, 33), "produk_sendiri"),   # B/C industri pengolahan -> 13b1 memproduksi barang

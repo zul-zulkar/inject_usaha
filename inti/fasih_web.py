@@ -1686,8 +1686,35 @@ class FasihWebSession:
         # Tanpa ini, klik yang meleset (mis. kena label pertanyaan lain) lewat
         # tanpa jejak — dan itu berarti data sensus yang salah.
         self.page.wait_for_timeout(400)
+        terpilih = self._label_radio_tercentang(comp)
+        if terpilih is None:
+            # Run 2026-09-22 (akun windasariani, 8d): klik pertama tidak menempel —
+            # form sedang render ulang setelah field sebelumnya (HP tidak valid) di-blur.
+            # Tunggu & klik SEKALI lagi (tidak ada opsi tercentang = aman diklik ulang)
+            # sebelum menyerah; dulu langsung gagal -> login ulang + ulangi baris.
+            self.page.wait_for_timeout(1200)
+            terpilih = self._label_radio_tercentang(comp)
+            if terpilih is None:
+                self._log(f"  ⚠️ [{dk}] klik '{option_text}' belum menempel — klik ulang sekali.")
+                self._visible(comp.get_by_text(option_text, exact=False)).last.click()
+                self.page.wait_for_timeout(800)
+                terpilih = self._label_radio_tercentang(comp)
+        if terpilih is None:
+            self._fail(f"select_radio_by_datakey: tidak ada opsi tercentang di '{dk}' setelah klik '{option_text}'")
+        if option_text.strip().lower() in terpilih.strip().lower():
+            self._log(f"  [{dk}] -> {terpilih}")
+        else:
+            # Label tidak terbaca utuh bukan berarti klik salah — tapi WAJIB
+            # kelihatan di log supaya bisa diverifikasi manual.
+            self._log(
+                f"  ⚠️ [{dk}] diminta '{option_text}', label tercentang terbaca '{terpilih}' "
+                f"— tidak cocok persis, VERIFIKASI di ringkasan pra-Kirim."
+            )
+
+    def _label_radio_tercentang(self, comp):
+        """Label radio yang tercentang di komponen `comp`; None kalau tidak ada."""
         try:
-            terpilih = comp.first.evaluate(r"""el => {
+            return comp.first.evaluate(r"""el => {
                 const c = el.querySelector('input[type=radio]:checked');
                 if (!c) return null;
                 const bersih = t => (t || '').replace(/\s+/g, ' ').trim();
@@ -1706,18 +1733,7 @@ class FasihWebSession:
                 return '(nilai=' + (c.value || '?') + ')';
             }""")
         except Exception:
-            terpilih = None
-        if terpilih is None:
-            self._fail(f"select_radio_by_datakey: tidak ada opsi tercentang di '{dk}' setelah klik '{option_text}'")
-        if option_text.strip().lower() in terpilih.strip().lower():
-            self._log(f"  [{dk}] -> {terpilih}")
-        else:
-            # Label tidak terbaca utuh bukan berarti klik salah — tapi WAJIB
-            # kelihatan di log supaya bisa diverifikasi manual.
-            self._log(
-                f"  ⚠️ [{dk}] diminta '{option_text}', label tercentang terbaca '{terpilih}' "
-                f"— tidak cocok persis, VERIFIKASI di ringkasan pra-Kirim."
-            )
+            return None
 
     def fill_text(self, label_key_or_text: str, value: str, exact: bool = False):
         label = L.get(label_key_or_text, label_key_or_text)

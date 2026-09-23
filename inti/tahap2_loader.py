@@ -46,12 +46,12 @@ from pathlib import Path
 
 from inti.config import (
     KODEPOS_BY_DESA, KODEPOS_BY_IDSUBSLS, TAHAP2_13B_DARI_KBLI, TAHAP2_13DE_DARI_KBLI, TAHAP2_26C_KE_26B,
-    TAHAP2_DEFAULT, TAHAP2_ISI_VARIAN_BULANAN, TAHAP2_NIK_TIDAK_VALID_JADI, TAHAP2_PEKERJA_IKUT_JK_PEMILIK,
-    TAHAP2_TOTAL_BEDA,
+    TAHAP2_DEFAULT, TAHAP2_HP_TIDAK_VALID_JADI, TAHAP2_ISI_VARIAN_BULANAN, TAHAP2_NIK_TIDAK_VALID_JADI,
+    TAHAP2_PEKERJA_IKUT_JK_PEMILIK, TAHAP2_TOTAL_BEDA,
 )
 from inti.gabungan_loader import (
     KEY_16B, KEY_26, KEY_27, KEY_29, KEY_PEKERJA, OPSI_FORM, YA_TIDAK, GabunganRow, Pemeriksaan,
-    _norm_judul, _sel, judul_dari_opsi_kbli, kbli_tanpa_26c, nik_valid, periksa_semua,
+    _norm_judul, _sel, hp_valid, judul_dari_opsi_kbli, kbli_tanpa_26c, nik_valid, periksa_semua,
 )
 
 # Nama tab yang diterima. File contoh dari user bertab "Sheet1"; tab yang
@@ -244,6 +244,8 @@ def normalkan_hp(teks) -> str:
     t = " ".join(str(teks or "").split())
     if not t:
         return ""
+    if re.search(r"\d[.,]?\d*E\+?\d+", t, flags=re.I):
+        return t   # "8,13E+10": digit asli sudah hilang di Excel -> dibiarkan TIDAK valid
     digit = re.sub(r"[^\d]", "", t)
     if not digit:
         return t
@@ -506,8 +508,12 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
         catatan.append(f"27d '{sel.get('pendapatan_online')}' dibulatkan -> {v['pendapatan_online']}")
 
     hp = normalkan_hp(sel.get("hp", ""))
-    if hp and hp != " ".join(str(sel.get("hp", "")).split()):
+    if hp_valid(hp) and hp != " ".join(str(sel.get("hp", "")).split()):
         catatan.append(f"no WA '{sel.get('hp')}' -> '{hp}' (nol di depan dikembalikan)")
+    elif not hp_valid(hp) and TAHAP2_HP_TIDAK_VALID_JADI:
+        catatan.append(f"no WA '{sel.get('hp', '')}' {'kosong' if not hp else 'tidak valid'} -> "
+                       f"'{TAHAP2_HP_TIDAK_VALID_JADI}' (tidak ada/tidak bersedia)")
+        hp = TAHAP2_HP_TIDAK_VALID_JADI
     v["hp"] = hp
 
     # 3. Kode angka -> teks opsi form.
