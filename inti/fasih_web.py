@@ -1685,20 +1685,20 @@ class FasihWebSession:
         # Verifikasi: radio yang benar2 tercentang harus cocok dgn yg diminta.
         # Tanpa ini, klik yang meleset (mis. kena label pertanyaan lain) lewat
         # tanpa jejak — dan itu berarti data sensus yang salah.
-        self.page.wait_for_timeout(400)
-        terpilih = self._label_radio_tercentang(comp)
+        # Ditunggu bertahap, BUKAN jeda tetap: radio biasanya menempel < 100 ms,
+        # sedangkan jeda tetap 400 ms dikali ±40 radio per dokumen = ±16 dtk
+        # menganggur tiap baris (diukur 2026-09-23).
+        terpilih = self._tunggu_radio(comp, 800)
         if terpilih is None:
             # Run 2026-09-22 (akun windasariani, 8d): klik pertama tidak menempel —
             # form sedang render ulang setelah field sebelumnya (HP tidak valid) di-blur.
             # Tunggu & klik SEKALI lagi (tidak ada opsi tercentang = aman diklik ulang)
             # sebelum menyerah; dulu langsung gagal -> login ulang + ulangi baris.
-            self.page.wait_for_timeout(1200)
-            terpilih = self._label_radio_tercentang(comp)
+            terpilih = self._tunggu_radio(comp, 1200)
             if terpilih is None:
                 self._log(f"  ⚠️ [{dk}] klik '{option_text}' belum menempel — klik ulang sekali.")
                 self._visible(comp.get_by_text(option_text, exact=False)).last.click()
-                self.page.wait_for_timeout(800)
-                terpilih = self._label_radio_tercentang(comp)
+                terpilih = self._tunggu_radio(comp, 1500)
         if terpilih is None:
             self._fail(f"select_radio_by_datakey: tidak ada opsi tercentang di '{dk}' setelah klik '{option_text}'")
         if option_text.strip().lower() in terpilih.strip().lower():
@@ -1710,6 +1710,18 @@ class FasihWebSession:
                 f"  ⚠️ [{dk}] diminta '{option_text}', label tercentang terbaca '{terpilih}' "
                 f"— tidak cocok persis, VERIFIKASI di ringkasan pra-Kirim."
             )
+
+    def _tunggu_radio(self, comp, batas_ms: int, langkah_ms: int = 80):
+        """Label radio yang tercentang, ditunggu s.d. `batas_ms`; None kalau
+        tidak ada. Keluar BEGITU tercentang — inilah yang membuat pengisian
+        jauh lebih cepat daripada menunggu jeda tetap tiap field."""
+        habis = 0
+        while True:
+            label = self._label_radio_tercentang(comp)
+            if label is not None or habis >= batas_ms:
+                return label
+            self.page.wait_for_timeout(langkah_ms)
+            habis += langkah_ms
 
     def _label_radio_tercentang(self, comp):
         """Label radio yang tercentang di komponen `comp`; None kalau tidak ada."""

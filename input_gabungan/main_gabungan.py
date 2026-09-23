@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import argparse
 import csv as csv_module
+import datetime
 import re
 import sys
 import time
@@ -70,13 +71,14 @@ import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from inti.config import (
     ASSIGNMENT_ID_GABUNGAN, FIXED_PASSWORD, GABUNGAN_AKUN_TUNGGAL, GABUNGAN_BARIS_PER_SESI,
-    GABUNGAN_MODE_MURNI, GABUNGAN_SUBSLS_TUNGGAL, WILAYAH_BY_IDSUBSLS,
+    GABUNGAN_MODE_MURNI, GABUNGAN_SUBSLS_TUNGGAL, KODE_KAB, WILAYAH_BY_IDSUBSLS,
 )
 from inti.fasih_web import DokumenNamaLamaAda, FasihWebSession, FieldNotFound
 from inti.fill_blok2 import fill_catatan, fill_keterangan_pemberi_jawaban
 from input_gabungan.fill_gabungan import BarisPerluManual, fill_blok2_gabungan
 from inti.gabungan_loader import (
-    STATUS_SIAP_TANPA_KOORDINAT, GabunganRow, Pemeriksaan, cocokkan_wilayah_dokumen, kelompok_per_akun,
+    STATUS_SIAP_TANPA_KOORDINAT, GabunganRow, Pemeriksaan, cocokkan_wilayah_dokumen,
+    idsubsls_dari_wilayah, kelompok_per_akun,
     load_gabungan, parse_pilihan_baris, periksa_semua,
 )
 from inti.tahap2_loader import load_tahap2, periksa_semua_tahap2
@@ -97,6 +99,9 @@ AUDIT_FIELDS = [
     "wilayah_dokumen", "dokumen_url", "error_message",
 ]
 CEK_PATH = Path("./cek_gabungan.csv")
+# Daftar baris yang dokumennya mungkin terbuat tanpa URL — ditulis ulang tiap run
+# supaya bisa dibaca pagi hari tanpa menyisir audit (lihat STATUS_TANPA_URL).
+LAPORAN_TANPA_URL_PATH = Path("./dokumen_tanpa_url.csv")
 MENIT_PER_BARIS = 1.7  # ukuran nyata batch backlog lama, termasuk ganti akun
 
 # Dokumen yang ternyata sudah terkunci (dikirim di luar skrip) ikut dianggap
@@ -113,14 +118,28 @@ STATUS_DIBUAT = "DOKUMEN_DIBUAT"
 # penahannya skrip ini. Begitu koordinat diisi di sheet, run berikutnya membuka
 # dokumen yang sama lewat URL audit, mengisi geotag, lalu mengirim.
 STATUS_DRAFT_TANPA_KOORDINAT = "DRAFT_TANPA_KOORDINAT"
+# Draft yang oleh SERVER ditandai bergalat (sumError > 0 = kartu "Jumlah Error"
+# di halaman PENDATAAN), ditulis sinkron_list/--sinkron-dulu. Bukan status tuntas,
+# dan baris bertanda ini DIDAHULUKAN saat batch jalan.
+STATUS_DRAFT_GALAT = "DRAFT_GALAT_DI_SERVER"
 # Dokumen tercatat sudah DIHAPUS admin (dibuktikan list API, lihat sinkron_list.py):
 # catatan dokumen kunci itu sebelum baris ini gugur -> baris dibuatkan dokumen baru.
 STATUS_DIHAPUS = "DOKUMEN_DIHAPUS"
+# Dokumen kemungkinan TERBUAT tapi URL-nya tidak tertangkap (toast "berhasil
+# dibuat" muncul sebelum navigasi ke /entry). Dulu `STOP_DOKUMEN_TANPA_URL` &
+# menghentikan batch; sejak 2026-09-23 (permintaan user: run malam tidak boleh
+# berhenti) baris itu DILEWATI, batch LANJUT, dan semuanya didaftar di akhir run
+# + LAPORAN_TANPA_URL_PATH. Pengaman duplikatnya dipindah ke audit: kunci
+# bertanda ini dihitung SUDAH punya dokumen (dokumen_dari) sehingga dokumen kedua
+# tidak pernah dibuat, dan barisnya dilewati sampai ada bukti URL (sinkron_list).
+STATUS_TANPA_URL = "DOKUMEN_TANPA_URL_PERLU_CEK"
+# Nama lama masih ada di audit yang sudah tertulis -> diperlakukan sama.
+STATUS_TANPA_URL_SEMUA = frozenset({STATUS_TANPA_URL, "STOP_DOKUMEN_TANPA_URL"})
+TANDA_LEWATI_TANPA_URL = "LEWATI_TANPA_URL"
 # Kejanggalan yang pasti berulang di baris berikutnya -> hentikan batch.
 # SUBMIT_GAGAL ikut: jalur kirim yang tidak bekerja (run 2026-09-14 baris 4)
 # pasti berulang di semua baris & tidak boleh lolos diam-diam.
-STATUS_BERHENTI_SEGERA = {"STOP_SUBSLS_TIDAK_BISA_DIPILIH", "STOP_WILAYAH_DOKUMEN_BEDA", "STOP_DOKUMEN_TANPA_URL",
-                          "SUBMIT_GAGAL"}
+STATUS_BERHENTI_SEGERA = {"STOP_SUBSLS_TIDAK_BISA_DIPILIH", "STOP_WILAYAH_DOKUMEN_BEDA", "SUBMIT_GAGAL"}
 # Kegagalan yang terbukti transien per SESI (server "lelah" setelah beberapa kiriman):
 # mode satu akun login ulang & mengulang baris itu SEKALI sebelum status di atas
 # menghentikan batch.
@@ -202,7 +221,7 @@ def kunci_proses_akun(akun: str) -> Path | None:
     Run 2026-09-14: dua proses (Agenda.xlsx & Agenda1-1.xlsx) memakai akun ppl.kedua
     bersamaan -> logout proses satu memutus sesi proses lain (halaman login di tengah
     'Buat Dokumen') & jumlah dokumen yang dinaikkan proses lain memicu
-    STOP_DOKUMEN_TANPA_URL palsu. Paralel = akun BERBEDA per proses."""
+    DOKUMEN_TANPA_URL_PERLU_CEK palsu. Paralel = akun BERBEDA per proses."""
     path = Path(".proses_" + re.sub(r"[^a-z0-9]+", "_", akun.lower()) + ".lock")
     for _ in range(2):
         try:
@@ -272,23 +291,45 @@ def _baca_audit() -> list[dict]:
 
 
 def status_terakhir_per_kunci() -> dict:
-    """{kunci: status} dari audit, baris TERAKHIR yang menang. Pakai kunci,
-    BUKAN nomor baris — nomor baris bergeser kalau sheet diurutkan/disisipi."""
-    return {b["kunci"]: (b.get("status") or "").strip() for b in _baca_audit() if b.get("kunci")}
+    return status_terakhir_dari(_baca_audit())
+
+
+def tanda_tanpa_url_terakhir(kunci: str, baris: list[dict] | None = None) -> dict:
+    """Baris audit TERAKHIR yang menandai kunci ini "dokumen tanpa URL" ({} kalau
+    tidak ada). Dipakai laporan akhir run supaya yang tercetak adalah WAKTU
+    kejadian aslinya — itu yang dipakai mencari dokumen DRAFT kosong di list."""
+    ketemu: dict = {}
+    for b in (baris if baris is not None else _baca_audit()):
+        if b.get("kunci") == kunci and (b.get("status") or "").strip() in STATUS_TANPA_URL_SEMUA:
+            ketemu = b
+    return ketemu
+
+
+def status_terakhir_dari(baris: list[dict]) -> dict:
+    """{kunci: status}, baris TERAKHIR yang menang. Pakai kunci, BUKAN nomor baris
+    — nomor baris bergeser kalau sheet diurutkan/disisipi. Menerima daftar baris
+    (bukan langsung file) supaya gabung_audit/ memakai aturan yang SAMA PERSIS."""
+    return {b["kunci"]: (b.get("status") or "").strip() for b in baris if b.get("kunci")}
 
 
 def dokumen_per_kunci() -> dict:
+    return dokumen_dari(_baca_audit())
+
+
+def dokumen_dari(baris: list[dict]) -> dict:
     """{kunci: (akun_login, idsubsls_input, dokumen_url)} utk baris yang
     dokumennya PERNAH dibuat/dibuka (URL bisa "" kalau terbuat tanpa URL
     tertangkap). Dipakai membuka dokumen lewat URL (list satu akun berhalaman
     ratusan dokumen) & mencegah dokumen kedua dibuat utk baris yang sama."""
     out: dict = {}
-    for b in _baca_audit():
+    for b in baris:
         kunci, url = b.get("kunci"), b.get("dokumen_url") or ""
         if kunci and b.get("status") == STATUS_DIHAPUS:
             out.pop(kunci, None)  # dokumen lama sudah tidak ada -> boleh dibuat baru
             continue
-        if not kunci or not (url or b.get("status") == STATUS_DIBUAT):
+        # Status "tanpa URL" ikut mendaftarkan kunci walau URL-nya "" — dokumennya
+        # kemungkinan besar ADA di server, jadi jangan sampai dibuatkan yang kedua.
+        if not kunci or not (url or b.get("status") in ({STATUS_DIBUAT} | set(STATUS_TANPA_URL_SEMUA))):
             continue
         lama = out.get(kunci)
         out[kunci] = ((b.get("akun_login") or "").lower(), b.get("idsubsls_input") or "",
@@ -320,6 +361,13 @@ def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set,
     tercatat = dokumen_per_kunci().get(kunci)
     if tercatat and tercatat[:2] != target:
         return f"dokumennya sudah dibuat proses lain ({tercatat[0]} / {tercatat[1]})"
+    if status_terakhir_per_kunci().get(kunci, "") in STATUS_TANPA_URL_SEMUA:
+        # Dokumennya kemungkinan ada di server tanpa URL tercatat. Mengerjakannya
+        # lagi = dokumen kedua; dibuka lewat URL juga tidak bisa. Buktikan dulu
+        # lewat sinkron_list (nama ketemu di list -> DOKUMEN_DIBUAT + URL ditulis,
+        # tidak ketemu -> hapus baris tanda ini dari audit), baru dikerjakan lagi.
+        return (f"{TANDA_LEWATI_TANPA_URL}: dokumen tanpa URL tercatat — "
+                f"jalankan sinkron_list.py --tulis dulu (lihat {LAPORAN_TANPA_URL_PATH})")
     if tuntas and tuntas_menurut_audit(status_terakhir_per_kunci().get(kunci, ""), tuntas, punya_koordinat):
         return "sudah selesai di audit (dikerjakan proses lain)"
     if nama_dokumen and not tercatat:
@@ -340,6 +388,119 @@ def berkas_stop(akun: str) -> str:
     return ""
 
 
+def id_dari_url(url: str) -> str:
+    """ID dokumen dari URL entry fasih-web (.../<survey>/<periode>/<ID>/entry)."""
+    bagian = [p for p in str(url or "").split("/") if p]
+    return bagian[-2] if len(bagian) >= 2 and bagian[-1] == "entry" else ""
+
+
+def id_dokumen_tercatat(baris: list[dict] | None = None) -> set:
+    """Semua ID dokumen yang sudah tercatat di audit (dari kolom dokumen_url)."""
+    sumber = baris if baris is not None else _baca_audit()
+    return {i for i in (id_dari_url(b.get("dokumen_url")) for b in sumber) if i}
+
+
+def jam_dokumen(iso) -> str:
+    """dateCreated list API -> "YYYY-MM-DD HH:MM:SS" waktu lokal ("" kalau tidak terbaca)."""
+    try:
+        return datetime.datetime.fromisoformat(str(iso)).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return ""
+
+
+def dokumen_asing(daftar: list[dict], id_tercatat: set, sejak: str = "") -> list[dict]:
+    """Dokumen DRAFT di list server yang TIDAK tercatat di audit & dibuat pada/sesudah
+    `sejak` (waktu lokal, "" = tanpa batas). Inilah jawaban "dokumen apa yang terbuat
+    di sana" saat sebuah baris berakhir tanpa URL — hanya DILAPORKAN, tidak pernah
+    otomatis diakui sbg dokumen baris itu (salah akui = data baris lain tertimpa)."""
+    out = []
+    for d in daftar:
+        ident = str(d.get("id") or "")
+        if not ident or ident in id_tercatat:
+            continue
+        if not str(d.get("assignmentStatusAlias") or "").upper().startswith("DRAFT"):
+            continue
+        jam = jam_dokumen(d.get("dateCreated"))
+        if sejak and jam and jam < sejak:
+            continue
+        out.append({"id": ident, "nama": d.get("data1") or "", "waktu": jam,
+                    "status": d.get("assignmentStatusAlias") or ""})
+    return sorted(out, key=lambda x: x["waktu"], reverse=True)
+
+
+def sebut_dokumen_asing(sess, assignment_id: str, sejak: str = "") -> str:
+    """Kalimat "dokumen yang terbuat" utk error_message & laporan ("" kalau tidak ada
+    / list tidak terbaca). READ-ONLY: cuma membaca list API."""
+    try:
+        daftar = sess.daftar_dokumen_api(assignment_id)
+    except Exception as e:  # list tidak terbaca -> laporan tetap jalan, tanpa rincian
+        sess._log(f"List dokumen tidak terbaca ({e}) — dokumen yang terbuat tidak bisa disebutkan.")
+        return ""
+    asing = dokumen_asing(daftar, id_dokumen_tercatat(), sejak)
+    if not asing:
+        return "tidak ada DRAFT baru di list yang tidak tercatat di audit"
+    return "DRAFT di list yang belum tercatat: " + "; ".join(
+        f"{d['id']} '{d['nama'] or '(tanpa nama)'}' @ {d['waktu'] or '?'}" for d in asing[:5])
+
+
+KOLOM_TANPA_URL = ["waktu", "baris", "nama_usaha", "kunci", "akun_login", "idsubsls_input",
+                   "sebab", "keterangan"]
+
+
+def catatan_tanpa_url(res: dict, sebab: str = "") -> dict:
+    """Satu entri laporan "dokumen mungkin terbuat tanpa URL" dari hasil satu baris."""
+    return {
+        "waktu": res.get("timestamp") or time.strftime("%Y-%m-%d %H:%M:%S"),
+        "baris": res.get("baris", ""),
+        "nama_usaha": res.get("nama_usaha", ""),
+        "kunci": res.get("kunci", ""),
+        "akun_login": res.get("akun_login", ""),
+        "idsubsls_input": res.get("idsubsls_input", ""),
+        "sebab": sebab or res.get("status", ""),
+        "keterangan": " ".join((res.get("error_message") or "").split()),
+    }
+
+
+def ringkas_tanpa_url(daftar: list[dict]) -> str:
+    """Laporan akhir run: dokumen MANA saja yang perlu dicek manual. Dicetak di
+    layar & ditulis ke berkas, supaya run malam tidak perlu dihentikan cuma agar
+    kejanggalan ini terlihat."""
+    if not daftar:
+        return ""
+    baru = sum(1 for d in daftar if d.get("sebab") != TANDA_LEWATI_TANPA_URL)
+    baris = [f"⚠ {len(daftar)} baris DILEWATI karena dokumennya mungkin terbuat tanpa URL "
+             f"({baru} kejadian baru di run ini, {len(daftar) - baru} tanda lama yang belum dibereskan). "
+             f"Batch tetap lanjut. Rincian: {LAPORAN_TANPA_URL_PATH}"]
+    for d in daftar:
+        baris.append(f"  - baris {d['baris']} — {d['nama_usaha']} — {d['akun_login']} / "
+                     f"{d['idsubsls_input']} @ {d['waktu']} ({d['sebab']})")
+        # Bagian sesudah "||" = dokumen yang saat itu terbaca di list tapi belum
+        # tercatat di audit (lihat sebut_dokumen_asing) — itu "dokumen apa yang terbuat".
+        rinci = (d.get("keterangan") or "").split("||")
+        if len(rinci) > 1 and rinci[-1].strip():
+            baris.append(f"      {rinci[-1].strip()}")
+    baris.append("  Yang perlu dicek: cari dokumen DRAFT kosong/tanpa nama di list akun itu yang "
+                 "dibuat pada jam di atas.")
+    baris.append("  Ketemu  -> jalankan sinkron_list.py --tulis (URL-nya dicatat sbg DOKUMEN_DIBUAT), "
+                 "atau minta admin menghapus dokumen kosongnya.")
+    baris.append("  Tidak ada -> hapus baris bertanda ini dari audit supaya barisnya dikerjakan lagi.")
+    return "\n".join(baris)
+
+
+def tulis_laporan_tanpa_url(daftar: list[dict], path: Path = LAPORAN_TANPA_URL_PATH) -> None:
+    """Tulis ulang berkas laporan (kosong = berkas dihapus, supaya sisa run lama
+    tidak terbaca sbg masalah yang masih ada)."""
+    if not daftar:
+        if path.exists():
+            path.unlink()
+        return
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv_module.DictWriter(f, fieldnames=KOLOM_TANPA_URL)
+        w.writeheader()
+        for d in daftar:
+            w.writerow({k: d.get(k, "") for k in KOLOM_TANPA_URL})
+
+
 def _hasil_awal(row: GabunganRow, subsls_input: str, akun_login: str) -> dict:
     return {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "baris": row.baris, "kunci": row.kunci,
@@ -351,7 +512,8 @@ def _hasil_awal(row: GabunganRow, subsls_input: str, akun_login: str) -> dict:
 
 def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, dry_run: bool,
                     assignment_id: str, subsls_input: str, akun_login: str,
-                    pernah_dibuat: bool = False, url_audit: str = "", mode_satu_list: bool = False) -> dict:
+                    pernah_dibuat: bool = False, url_audit: str = "", mode_satu_list: bool = False,
+                    izinkan_wilayah_beda: bool = False, kirim_tanpa_koordinat: bool = False) -> dict:
     """`subsls_input` = subsls tempat dokumen dibuat (mode satu subsls: sama
     utk semua baris). `pernah_dibuat` = audit mencatat dokumen baris ini dgn
     akun & subsls yang sama -> TIDAK PERNAH dibuat ulang; dibuka lewat
@@ -398,12 +560,14 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
                     lebih = (kenaikan_tak_terjelaskan(n_awal, n_akhir, waktu_awal, row.kunci, akun_login)
                              if n_akhir is not None else None)
                     if lebih is not None and lebih > 0:
-                        result["status"] = "STOP_DOKUMEN_TANPA_URL"
+                        result["status"] = STATUS_TANPA_URL
                         result["error_message"] = (
                             f"'Buat Dokumen' tampak gagal tapi jumlah dokumen naik {n_awal} -> {n_akhir} "
                             f"({lebih} tidak terjelaskan oleh DOKUMEN_DIBUAT baris lain): kemungkinan ada dokumen "
                             "tanpa URL tercatat. Cari DRAFT terbaru di list, catat URL-nya sbg DOKUMEN_DIBUAT "
                             "baris ini di audit, lalu jalankan ulang.")
+                        result["error_message"] += " || " + sebut_dokumen_asing(
+                            sess, assignment_id, result.get("timestamp", ""))
                         _tulis_tanda()
                         return result
                     if lebih is not None and lebih <= 0:
@@ -432,11 +596,13 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
             if sess.dokumen_dibuat and not dokumen_baru and not getattr(sess, "nama_di_modal", True):
                 # Dokumen baru tanpa nama & tanpa URL tidak bisa dicari di list —
                 # lanjut ke baris lain hanya menumpuk dokumen kosong yatim.
-                result["status"] = "STOP_DOKUMEN_TANPA_URL"
+                result["status"] = STATUS_TANPA_URL
                 result["error_message"] = (
                     "Dokumen baru terbuat tapi tidak terbuka otomatis & modal tidak punya field nama — "
                     "URL-nya tidak diketahui. Cari dokumen DRAFT BLANK terbaru di list, catat URL-nya "
                     "sbg DOKUMEN_DIBUAT utk baris ini di audit, lalu jalankan ulang.")
+                result["error_message"] += " || " + sebut_dokumen_asing(
+                    sess, assignment_id, result.get("timestamp", ""))
                 _tulis_tanda()
                 return result
             if not dokumen_baru:
@@ -453,16 +619,40 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
 
         # CEK LANGSUNG: dokumen ini benar-benar ada di subsls tujuan input?
         # Dibaca dari rincian 1-6 BLOK I (prefilled dari wilayah dokumen).
+        wilayah_dok = sess.baca_wilayah_dokumen()
         status_w, pesan_w = cocokkan_wilayah_dokumen(
-            sess.baca_wilayah_dokumen(), subsls_input, WILAYAH_BY_IDSUBSLS.get(subsls_input))
+            wilayah_dok, subsls_input, WILAYAH_BY_IDSUBSLS.get(subsls_input))
         result["wilayah_dokumen"] = f"{status_w}: {pesan_w}"
         if status_w == "BEDA":
-            result["status"] = "STOP_WILAYAH_DOKUMEN_BEDA"
-            result["error_message"] = pesan_w
-            sess._shot(f"WILAYAH_BEDA_gabungan_{row.baris}")
-            _tulis_tanda()
-            return result
-        wilayah_terverifikasi = status_w == "COCOK"
+            # Beberapa subsls dipakai bergantian sbg WADAH dokumen (dikembalikan
+            # ke wilayah aslinya belakangan lewat pindah_wilayah). Dokumen yang
+            # SUDAH ADA & masih di kabupaten sendiri boleh diteruskan — yang tidak
+            # pernah boleh: dokumen yang BARU dibuat (berarti subsls salah dipilih)
+            # atau dokumen di kabupaten lain (bukan wilayah kerja akun ini).
+            nyata = idsubsls_dari_wilayah(wilayah_dok)
+            sudah_ada = bool(url_audit) or pernah_dibuat
+            if not (izinkan_wilayah_beda and sudah_ada and nyata.startswith(KODE_KAB)):
+                result["status"] = "STOP_WILAYAH_DOKUMEN_BEDA"
+                sebab = ("dokumen BARU dibuat (berarti subsls salah dipilih, bukan sekadar wadah lain)"
+                         if not sudah_ada else
+                         f"wilayah dokumen '{nyata or 'tidak terbaca'}' di luar kabupaten {KODE_KAB}")
+                result["error_message"] = pesan_w + (
+                    f" | --izinkan-wilayah-beda tidak berlaku: {sebab}" if izinkan_wilayah_beda else "")
+                sess._shot(f"WILAYAH_BEDA_gabungan_{row.baris}")
+                _tulis_tanda()
+                return result
+            sess._log(f"  ⚠️ Wilayah dokumen {nyata} != subsls input {subsls_input} — diteruskan.")
+            if len(nyata) == 16:
+                tanda.append(f"wilayah dokumen {nyata} BEDA dari subsls input {subsls_input} — diteruskan "
+                             "(--izinkan-wilayah-beda); subsls yang dicatat di audit = wilayah dokumen")
+                result["idsubsls_input"] = nyata
+                subsls_input = nyata
+            else:
+                # Kode SLS 4 digit: subsls-nya tidak ditampilkan form, jadi jangan
+                # ditebak — audit tetap memakai subsls run ini, dgn tanda.
+                tanda.append(f"wilayah dokumen {nyata} (subsls tidak terbaca dari form) BEDA dari "
+                             f"{subsls_input} — diteruskan, subsls audit tetap {subsls_input}")
+        wilayah_terverifikasi = status_w in ("COCOK", "BEDA")
         if not wilayah_terverifikasi:
             tanda.append("WILAYAH DOKUMEN TIDAK TERVERIFIKASI (lihat kolom wilayah_dokumen) — tidak dikirim")
         if sess.dokumen_terkunci():
@@ -481,7 +671,11 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
         sess.fill_se2026_p(nama_usaha=row.nama_dokumen, nama_jalan=row.jalan_lengkap,
                            blok_nomor=row.nomor_rumah)
         if cek.tanpa_koordinat:
-            sess._log("Geotagging DILEWATI — koordinat baris ini belum ada (dokumen ditahan sbg DRAFT).")
+            sess._log("Geotagging DILEWATI — koordinat baris ini belum ada"
+                      + (" (dokumen TETAP DIKIRIM: --koordinat kirim)." if kirim_tanpa_koordinat
+                         else " (dokumen ditahan sbg DRAFT)."))
+            tanda.append("geotag KOSONG (koordinat tidak ada di sheet)"
+                         + (" — dikirim tanpa geotag" if kirim_tanpa_koordinat else ""))
         else:
             sess.do_geotagging(row["latitude"], row["longitude"])
         sess.save()
@@ -504,7 +698,7 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
 
         # 5. Ringkasan — pola GALAT sama persis dgn main.py.
         ring = sess.check_ringkasan()
-        if cek.tanpa_koordinat:
+        if cek.tanpa_koordinat and not kirim_tanpa_koordinat:
             # TIDAK PERNAH dikirim, apa pun --submit-nya. GALAT tetap dilaporkan
             # supaya draft yang masih bermasalah ketahuan sebelum koordinatnya
             # dilengkapi (Nomor Urut Bangunan diperbaiki di run pelengkap).
@@ -626,6 +820,29 @@ def rencana_sesi(rows: list[GabunganRow], akun_tunggal: str, per_sesi: int) -> l
     return list(kelompok_per_akun(rows).items())
 
 
+def sinkron_audit_dari_server(sess, semua, hasil, sumber: str, akun: str, subsls: str,
+                             assignment_id: str) -> int:
+    """Perbarui audit dari TABEL daftar dokumen di server (list API, READ-ONLY),
+    sebelum batch mengerjakan barisnya. Dokumen yang dibuat PC lain jadi dikenali
+    -> dibuka lewat URL, bukan dibuat lagi (duplikat), dan yang sudah terkirim
+    dilewati --lewati-selesai. Logikanya dipinjam dari sinkron_list.rencana_sinkron
+    (fungsi murni yang sama) supaya tidak ada dua versi aturan."""
+    from input_gabungan.sinkron_list import rencana_sinkron   # impor di sini: sinkron_list impor modul ini
+    items = sess.daftar_dokumen_api(assignment_id)
+    if items is None:
+        print("⚠️ Daftar dokumen server tidak terbaca — sinkron dilewati, batch lanjut apa adanya.")
+        return 0
+    sumber_rows = [(sumber, r, hasil[r.baris].status) for r in semua]
+    _laporan, tulis, tak_dikenal = rencana_sinkron(
+        sumber_rows, items, akun, subsls, assignment_id, _baca_audit(),
+        lengkap=bool(getattr(sess, "daftar_dokumen_lengkap", False)))
+    for t in tulis:
+        append_audit(t)
+    print(f"Sinkron tabel: {len(items)} dokumen di server, {len(tulis)} catatan audit diperbarui "
+          f"{dict(Counter(t['status'] for t in tulis))}; {len(tak_dikenal)} dokumen server tak dikenali.")
+    return len(tulis)
+
+
 def laporan_cek(rows: list[GabunganRow], hasil: dict[int, Pemeriksaan], sumber: str,
                 semua: list[GabunganRow], mode: str, n_sesi, perintah: str = "") -> int:
     """Cetak ringkasan pemeriksaan `rows` (pilihan --baris) + tulis rincian
@@ -634,8 +851,10 @@ def laporan_cek(rows: list[GabunganRow], hasil: dict[int, Pemeriksaan], sumber: 
     siap = [r for r in rows if hasil[r.baris].bisa_diproses]
     print(f"=== PEMERIKSAAN: {len(rows)} baris dari {sumber} — {mode} ===\n")
     for status, n in Counter(hasil[r.baris].status for r in rows).most_common():
-        ket = "  (dibuat & diisi TANPA geotag, disimpan DRAFT — tidak dikirim)" \
-            if status == STATUS_SIAP_TANPA_KOORDINAT else ""
+        ket = ""
+        if status == STATUS_SIAP_TANPA_KOORDINAT:
+            ket = ("  (dibuat & diisi TANPA geotag, lalu DIKIRIM)" if "DIKIRIM tanpa geotag" in mode
+                   else "  (dibuat & diisi TANPA geotag, disimpan DRAFT — tidak dikirim)")
         print(f"  {'OK ' if hasil_ok(status) else '!! '}{n:4d}  {status}{ket}")
 
     semua_kode = Counter(k for r in rows for k, _ in hasil[r.baris].masalah)
@@ -697,8 +916,16 @@ def muat_sumber(sumber: str, format_sumber: str = "standar", mode_satu_subsls: b
 
 
 def koordinat_otomatis(pilihan: str | None, format_sumber: str) -> bool:
-    """--koordinat: None = bawaan per format (tahap2 -> otomatis, standar -> wajib)."""
-    return (pilihan or ("otomatis" if format_sumber == "tahap2" else "wajib")) == "otomatis"
+    """Baris tanpa koordinat tetap dibuat & diisi? None = bawaan per format
+    (tahap2 -> otomatis, standar -> wajib). "kirim" juga ikut mengisi."""
+    return (pilihan or ("otomatis" if format_sumber == "tahap2" else "wajib")) in ("otomatis", "kirim")
+
+
+def koordinat_dikirim(pilihan: str | None) -> bool:
+    """--koordinat kirim: dokumen tanpa geotag TIDAK ditahan sbg draft, tapi
+    dikirim juga. Dipakai kalau koordinat tidak akan dilengkapi & dokumen harus
+    bersih di server (draft selalu terhitung di kartu "Jumlah Error")."""
+    return pilihan == "kirim"
 
 
 def tuntas_menurut_audit(status_audit: str, tuntas: set, punya_koordinat: bool) -> bool:
@@ -726,10 +953,12 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
     ap.add_argument("--kodepos", default="",
                     help="Format tahap2: kodepos cadangan utk desa yang belum ada di KODEPOS_BY_IDSUBSLS/"
                          "KODEPOS_BY_DESA. Dipakai HANYA kalau sumber lain kosong.")
-    ap.add_argument("--koordinat", choices=("otomatis", "wajib"), default=None,
+    ap.add_argument("--koordinat", choices=("otomatis", "wajib", "kirim"), default=None,
                     help="otomatis = baris tanpa latitude/longitude TETAP dibuat & diisi lengkap kecuali "
                          "geotag, lalu ditahan sbg DRAFT (tidak dikirim walau --submit); jalankan ulang "
                          "setelah koordinat diisi -> geotag + kirim. wajib = baris tanpa koordinat di-skip. "
+                         "kirim = sama dgn otomatis TAPI dokumennya tetap DIKIRIM tanpa geotag "
+                         "(form hanya mewajibkan geotag utk mode CAPI; dokumen PAPI lolos). "
                          "Bawaan: otomatis utk format tahap2, wajib utk standar.")
     ap.add_argument("--abaikan-cek-total", action="store_true",
                     help="Format tahap2: jangan bandingkan kolom TOTAL sheet (24.Total, Rp26, 27c, 28c) "
@@ -751,6 +980,22 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                     help="idsubsls 16 digit tempat SEMUA dokumen dibuat (default: config GABUNGAN_SUBSLS_TUNGGAL)")
     ap.add_argument("--akun-tunggal", default=GABUNGAN_AKUN_TUNGGAL,
                     help="Email akun PPL yang membuat SEMUA dokumen (default: config GABUNGAN_AKUN_TUNGGAL)")
+    ap.add_argument("--hanya-galat", action="store_true",
+                    help="kerjakan HANYA baris yang dokumennya ditandai galat oleh server "
+                         f"({STATUS_DRAFT_GALAT}; tanda ditulis sinkron_list/--sinkron-dulu). "
+                         "Gabungkan dgn --sinkron-dulu supaya tandanya segar")
+    ap.add_argument("--urut-sheet", action="store_true",
+                    help="kerjakan murni urut nomor baris; tanpa ini baris yang dokumennya ditandai "
+                         "galat oleh server didahulukan")
+    ap.add_argument("--sinkron-dulu", action="store_true",
+                    help="sebelum mengisi, perbarui audit dari TABEL daftar dokumen di server "
+                         "(seperti sinkron_list.py --tulis, memakai sesi login yang sama). Dokumen "
+                         "yang dibuat PC lain jadi dikenali -> dibuka, bukan dibuat lagi")
+    ap.add_argument("--izinkan-wilayah-beda", action="store_true",
+                    help="dokumen yang SUDAH ADA boleh diisi & dikirim walau wilayah BLOK I-nya bukan "
+                         "--subsls-tunggal (beberapa subsls dipakai bergantian sbg wadah; dikembalikan "
+                         "belakangan lewat pindah_wilayah). Subsls yang dicatat di audit = wilayah "
+                         "dokumen yang sebenarnya. Dokumen yang BARU dibuat tetap menghentikan batch")
     ap.add_argument("--baris-per-sesi", type=int, default=GABUNGAN_BARIS_PER_SESI,
                     help="Mode satu akun: login ulang tiap N baris (default: config)")
     ap.add_argument("--paralel", action="store_true",
@@ -760,6 +1005,13 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                     help="Alur LAMA: dokumen dibuat di idsubsls baris oleh akun PPL baris")
     ap.add_argument("--maks-error-beruntun", type=int, default=3,
                     help="Hentikan batch setelah N baris ERROR_* berturut-turut (mis. VPN putus). 0 = jangan berhenti.")
+    ap.add_argument("--coba-terkunci", action="store_true",
+                    help="Kerjakan lagi baris berstatus DOKUMEN_TERKUNCI (bawaan: dilewati sbg tuntas, "
+                         "karena UI membuktikan dokumennya read-only). Pakai setelah admin/PML membukanya.")
+    ap.add_argument("--maks-tanpa-url", type=int, default=3,
+                    help="Hentikan batch setelah N baris berstatus DOKUMEN_TANPA_URL_PERLU_CEK "
+                         "(1 = perilaku lama: berhenti di kejadian pertama; 0 = jangan pernah berhenti). "
+                         "Baris itu sendiri SELALU dilewati, tidak pernah diulang otomatis.")
     ap.add_argument("--dump-dom", action="store_true", help="Simpan peta dataKey tiap section ke log_screenshots/")
     args = ap.parse_args(argv)
 
@@ -796,7 +1048,9 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
         print(f"❌ --dari {args.dari} lebih besar dari --sampai {args.sampai}.", file=sys.stderr)
         return 2
     izinkan_tanpa_koordinat = koordinat_otomatis(args.koordinat, args.format)
-    mode += (" | koordinat OTOMATIS (tanpa koordinat -> DRAFT)" if izinkan_tanpa_koordinat
+    kirim_tanpa_koordinat = koordinat_dikirim(args.koordinat)
+    mode += (" | koordinat OTOMATIS (tanpa koordinat -> DIKIRIM tanpa geotag)" if kirim_tanpa_koordinat
+             else " | koordinat OTOMATIS (tanpa koordinat -> DRAFT)" if izinkan_tanpa_koordinat
              else " | koordinat WAJIB")
     rows, hasil = muat_sumber(args.sumber, args.format, satu_subsls, args.kodepos,
                               cek_total=not args.abaikan_cek_total,
@@ -830,28 +1084,23 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
         """(akun_login, subsls_input) utk baris ini."""
         return (akun_tunggal, subsls_tunggal) if satu_subsls else (row.akun_ppl, row.idsubsls)
 
+    def dokumen_milik_target(tercatat: tuple, row: GabunganRow) -> bool:
+        """Dokumen yang tercatat di audit itu memang milik target run ini?
+        --izinkan-wilayah-beda: subsls dipakai bergantian sbg WADAH, jadi yang
+        harus sama cuma AKUNNYA (kalau tidak, baris yang dokumennya terlanjur
+        tercatat di subsls wadah lain akan dilewati selamanya)."""
+        n = 1 if args.izinkan_wilayah_beda else 2
+        return tuple(tercatat[:n]) == target(row)[:n]
+
     # Dokumen yang pernah dibuat utk baris ini dgn akun/subsls LAIN (mis. konfigurasi
     # diganti di tengah jalan) — membuat lagi di sini = duplikat. Lewati & laporkan.
     dokumen = dokumen_per_kunci()
-    di_tempat_lain = [r for r in rows if r.kunci in dokumen and dokumen[r.kunci][:2] != target(r)]
+    di_tempat_lain = [r for r in rows if r.kunci in dokumen and not dokumen_milik_target(dokumen[r.kunci], r)]
     if di_tempat_lain:
         print(f"⛔ {len(di_tempat_lain)} baris sudah punya dokumen dgn akun/subsls lain di {AUDIT_LOG_PATH} — dilewati:")
         for r in di_tempat_lain[:10]:
             print(f"  baris {r.baris}: {dokumen[r.kunci][0]} / {dokumen[r.kunci][1]} -> {dokumen[r.kunci][2]}")
         rows = [r for r in rows if r not in di_tempat_lain]
-
-    tuntas_audit: set = set()
-    if args.lewati_selesai:
-        sudah = status_terakhir_per_kunci()
-        tuntas = tuntas_audit = set(STATUS_TERKIRIM if args.submit else STATUS_SELESAI_DRY_RUN)
-        sebelum = len(rows)
-        rows = [r for r in rows if not tuntas_menurut_audit(sudah.get(r.kunci, ""), tuntas, r.punya_koordinat)]
-        print(f"--lewati-selesai: {sebelum - len(rows)} baris dilewati (sudah selesai di {AUDIT_LOG_PATH}).")
-    if args.limit:
-        rows = rows[: args.limit]
-    if not rows:
-        print("Tidak ada baris yang perlu diproses.")
-        return 0
 
     kunci_akun = None
     if satu_subsls:
@@ -859,11 +1108,85 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
         if kunci_akun is None:
             print(f"❌ Akun {akun_tunggal} sedang dipakai proses main_gabungan lain (lihat file "
                   f".proses_*.lock). Dua proses satu akun saling memutus sesi & memicu "
-                  f"STOP_DOKUMEN_TANPA_URL palsu — tunggu proses itu selesai, atau pakai akun lain.",
+                  f"DOKUMEN_TANPA_URL_PERLU_CEK palsu — tunggu proses itu selesai, atau pakai akun lain.",
                   file=sys.stderr)
             return 2
         import atexit
         atexit.register(lambda: kunci_akun.unlink(missing_ok=True))
+
+    if args.sinkron_dulu:
+        # Harus SEBELUM --lewati-selesai & pengurutan: tanda DRAFT_GALAT_DI_SERVER
+        # yang baru ditulis di sini yang menentukan baris mana didahulukan.
+        # Sesi pendek sendiri (login -> baca tabel -> logout), lalu batch memakai
+        # sesi barunya seperti biasa.
+        print("Sinkron tabel server dulu (login sebentar)...")
+        with sync_playwright() as p_sink:
+            b_sink = p_sink.chromium.launch(headless=False)
+            ctx_sink = b_sink.new_context()
+            s_sink = FasihWebSession(ctx_sink.new_page(), dump_dom=args.dump_dom)
+            try:
+                s_sink.login(akun_tunggal or "", FIXED_PASSWORD)
+                sinkron_audit_dari_server(s_sink, semua, hasil, args.sumber, akun_tunggal or "",
+                                          subsls_tunggal or "", args.assignment_id)
+            except Exception as e:
+                print(f"⚠️ Sinkron tabel gagal ({e}) — batch lanjut apa adanya.")
+            finally:
+                try:
+                    s_sink.logout()
+                except Exception:
+                    pass
+                ctx_sink.close()
+                b_sink.close()
+
+    if args.hanya_galat:
+        bertanda = {k for k, st in status_terakhir_per_kunci().items() if st == STATUS_DRAFT_GALAT}
+        sebelum = len(rows)
+        rows = [r for r in rows if r.kunci in bertanda]
+        print(f"--hanya-galat: {len(rows)} baris bertanda galat server dikerjakan "
+              f"({sebelum - len(rows)} baris lain dilewati).")
+        if not rows:
+            print("Tidak ada dokumen bertanda galat di audit. Jalankan dgn --sinkron-dulu "
+                  "(atau sinkron_list.py --tulis) supaya tandanya terisi dari tabel server.")
+
+    tuntas_audit: set = set()
+    if args.lewati_selesai:
+        sudah = status_terakhir_per_kunci()
+        tuntas = tuntas_audit = set(STATUS_TERKIRIM if args.submit else STATUS_SELESAI_DRY_RUN)
+        if args.coba_terkunci:
+            # Dokumen terkunci hanya bisa dibuka admin/PML; sesudah itu baris ini
+            # perlu dicoba lagi, dan list server tidak bisa membuktikan sudah dibuka.
+            tuntas = tuntas_audit = tuntas - {STATUS_TERKUNCI}
+        sebelum = len(rows)
+        # --koordinat kirim: DRAFT_TANPA_KOORDINAT tidak lagi dianggap tuntas —
+        # justru baris itulah yang mau diselesaikan jadi terkirim.
+        rows = [r for r in rows
+                if not tuntas_menurut_audit(sudah.get(r.kunci, ""), tuntas,
+                                            r.punya_koordinat or kirim_tanpa_koordinat)]
+        print(f"--lewati-selesai: {sebelum - len(rows)} baris dilewati (sudah selesai di {AUDIT_LOG_PATH}).")
+    # URUTAN KERJA (permintaan user 2026-09-23): bereskan yang sudah ada dulu,
+    # dokumen BARU paling belakang.
+    #   1. dokumen yang ditandai GALAT oleh server  -> paling mendesak
+    #   2. dokumen yang sudah ada tapi belum tuntas -> tinggal dilengkapi & dikirim
+    #   3. baris yang belum punya dokumen           -> input baru
+    # Tanda galat dibaca dari audit SAAT MULAI; hasil --sinkron-dulu di run yang
+    # sama baru berpengaruh pada run berikutnya.
+    if not args.urut_sheet:
+        bertanda = {k for k, st in status_terakhir_per_kunci().items() if st == STATUS_DRAFT_GALAT}
+        punya_dokumen = set(dokumen)
+
+        def giliran(r: GabunganRow) -> int:
+            return 0 if r.kunci in bertanda else 1 if r.kunci in punya_dokumen else 2
+
+        jumlah = Counter(giliran(r) for r in rows)
+        if jumlah[0] or jumlah[1]:
+            rows.sort(key=lambda r: (giliran(r), r.baris))
+            print(f"Urutan kerja: {jumlah[0]} bertanda galat server, {jumlah[1]} dokumen belum tuntas, "
+                  f"lalu {jumlah[2]} input baru.")
+    if args.limit:
+        rows = rows[: args.limit]
+    if not rows:
+        print("Tidak ada baris yang perlu diproses.")
+        return 0
 
     dry_run = not args.submit
     n_draft = sum(hasil[r.baris].tanpa_koordinat for r in rows)
@@ -892,6 +1215,10 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
         ulang_sesi.discard("SKIP_DOKUMEN_BELUM_ADA")
 
     error_beruntun = 0
+    # Baris yang dokumennya mungkin terbuat tanpa URL: batch LANJUT, semuanya
+    # didaftar di sini lalu dicetak & ditulis ke berkas di akhir run.
+    tanpa_url: list[dict] = []
+    n_proses = n_lewati = 0  # utk ringkasan akhir: kenapa run berakhir di baris itu
 
     def harus_berhenti(status: str) -> bool:
         """True kalau batch harus BERHENTI (kejanggalan berulang / error beruntun)."""
@@ -981,10 +1308,13 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
             def proses(row):
                 akun_login, subsls_input = target(row)
                 tercatat = dokumen_per_kunci().get(row.kunci)
-                pernah_dibuat = bool(tercatat) and tercatat[:2] == (akun_login, subsls_input)
+                pernah_dibuat = bool(tercatat) and dokumen_milik_target(tercatat, row)
                 res = process_one_row(sess, row, hasil[row.baris], dry_run, args.assignment_id,
                                       subsls_input, akun_login, pernah_dibuat,
-                                      tercatat[2] if pernah_dibuat else "", mode_satu_list=satu_subsls and not args.paralel)
+                                      tercatat[2] if pernah_dibuat else "",
+                                      mode_satu_list=satu_subsls and not args.paralel,
+                                      izinkan_wilayah_beda=args.izinkan_wilayah_beda,
+                                      kirim_tanpa_koordinat=kirim_tanpa_koordinat)
                 if not sess.akun_api.get("email"):
                     res["review_disarankan"] = " | ".join(filter(None, [
                         res.get("review_disarankan"),
@@ -1007,9 +1337,16 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                                                     row.punya_koordinat)
                 if alasan:
                     print(f"\n=== baris {row.baris} — dilewati: {alasan} ===")
+                    n_lewati += 1
+                    if alasan.startswith(TANDA_LEWATI_TANPA_URL):
+                        tanpa_url.append(catatan_tanpa_url(
+                            tanda_tanpa_url_terakhir(row.kunci)
+                            or _hasil_awal(row, target(row)[1], target(row)[0]),
+                            TANDA_LEWATI_TANPA_URL))
                     continue
                 print(f"\n=== baris {row.baris} — {row.nama_dokumen} ({row['kbli']}) — subsls {target(row)[1]} ===")
                 res = proses(row)
+                n_proses += 1
                 if satu_subsls and res["status"] in ulang_sesi:
                     # Run 2026-09-14: kirim/buat dokumen yang gagal di sesi yang sudah
                     # lama langsung berhasil di sesi baru (baris 22). Dokumen yang sudah
@@ -1025,6 +1362,7 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                         berhenti = True
                         break
                     n0 = res.get("_jumlah_awal")
+                    ulangi_baris = True
                     if res["status"] == "SKIP_DOKUMEN_BELUM_ADA" and n0 is not None:
                         # Percobaan buat terakhir di sesi lama tidak dicek jumlahnya —
                         # pastikan tidak ada dokumen yatim sebelum membuat lagi.
@@ -1032,16 +1370,36 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                         n_kini = sess.jumlah_dokumen_list(args.assignment_id)
                         if n_kini is None or kenaikan_tak_terjelaskan(
                                 n0, n_kini, res.get("_waktu_awal", 0.0), row.kunci, akun) != 0:
-                            res = {**res, "status": "STOP_DOKUMEN_TANPA_URL", "error_message": (
+                            res = {**res, "status": STATUS_TANPA_URL, "error_message": (
                                 f"Sebelum mengulang di sesi baru, jumlah dokumen {n0} -> {n_kini}: kemungkinan ada "
                                 "dokumen tanpa URL tercatat. Cek DRAFT terbaru di list, catat URL-nya sbg "
                                 "DOKUMEN_DIBUAT baris ini di audit, lalu jalankan ulang.")}
+                            res["error_message"] += " || " + sebut_dokumen_asing(
+                                sess, args.assignment_id, res.get("timestamp", ""))
                             append_audit(res)
                             print(f"  -> {res['status']} ({res['error_message'][:200]})")
-                            harus_berhenti(res["status"])
-                            berhenti = True
-                            break
-                    res = proses(row)
+                            ulangi_baris = False
+                    if ulangi_baris:
+                        res = proses(row)
+                if res["status"] in STATUS_TANPA_URL_SEMUA:
+                    # Permintaan user 2026-09-23: run malam tidak boleh berhenti di sini.
+                    # Barisnya dilewati (mengulanginya = dokumen kedua) & dicatat utk
+                    # dicek pagi harinya; batch lanjut ke baris berikutnya.
+                    tanpa_url.append(catatan_tanpa_url(res))
+                    # Yang dihitung cuma kejadian BARU malam ini — tanda sisa run
+                    # sebelumnya (yang cuma dilewati) tidak boleh ikut menghentikan.
+                    baru_kini = sum(1 for d in tanpa_url if d["sebab"] != TANDA_LEWATI_TANPA_URL)
+                    if args.maks_tanpa_url and baru_kini >= args.maks_tanpa_url:
+                        print(f"\n⛔ {len(tanpa_url)} baris dgn dokumen tanpa URL — batch DIHENTIKAN "
+                              "(kemungkinan 'Buat Dokumen' memang sedang rusak; kalau diteruskan, tiap "
+                              "baris menambah dokumen kosong yang cuma admin bisa hapus).")
+                        berhenti = True
+                        break
+                    print(f"  ↷ baris {row.baris} dilewati & dicatat — batch LANJUT "
+                          f"({baru_kini}/{args.maks_tanpa_url} sebelum berhenti)."
+                          if args.maks_tanpa_url else
+                          f"  ↷ baris {row.baris} dilewati & dicatat — batch LANJUT.")
+                    continue
                 if harus_berhenti(res["status"]):
                     berhenti = True
                     break
@@ -1049,7 +1407,19 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                 tutup_sesi(context, sess)
         browser.close()
 
+    tulis_laporan_tanpa_url(tanpa_url)
     print(f"\nSelesai. Audit: {AUDIT_LOG_PATH}")
+    sisa = len(rows) - n_proses - n_lewati
+    print(f"Ringkasan run: {n_proses} baris diproses, {n_lewati} dilewati, {sisa} belum sempat dikerjakan "
+          f"(dari {len(rows)} baris dalam rentang ini).")
+    if berhenti:
+        print("Run BERHENTI di tengah — alasannya tercetak di atas & tersimpan di audit.")
+    elif sisa > 0:
+        print("Run selesai normal tapi masih ada sisa — biasanya --limit, --hanya-galat, "
+              "atau baris-baris itu ada di sesi/akun lain.")
+    laporan = ringkas_tanpa_url(tanpa_url)
+    if laporan:
+        print(laporan)
     return 1 if berhenti else 0
 
 

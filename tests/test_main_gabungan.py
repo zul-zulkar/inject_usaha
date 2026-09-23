@@ -185,8 +185,8 @@ with tempfile.TemporaryDirectory() as d:
           (len([x for x in s.aksi if x[0] == "create"]), res["dokumen_url"]), (2, URL))
     s = SessUlang([False], [7, 8])
     res = proses(s, mode_satu_list=True)
-    check("gagal buat + jumlah naik -> STOP, tidak diulang",
-          (len([x for x in s.aksi if x[0] == "create"]), res["status"]), (1, "STOP_DOKUMEN_TANPA_URL"))
+    check("gagal buat + jumlah naik -> ditandai tanpa-URL, tidak diulang",
+          (len([x for x in s.aksi if x[0] == "create"]), res["status"]), (1, mg.STATUS_TANPA_URL))
     s = SessUlang([False, False], [7, 7, 7])
     res = proses(s, mode_satu_list=True)
     check("gagal 2x -> SKIP_DOKUMEN_BELUM_ADA (batch berhenti)", res["status"], "SKIP_DOKUMEN_BELUM_ADA")
@@ -257,6 +257,74 @@ with tempfile.TemporaryDirectory() as d:
     check("giliran: pemilik nama itu sendiri -> kerjakan (dibuka lewat URL)",
           mg.alasan_lewati_saat_giliran("k108", ("a@mail.com", "1"), tuntas, "PANGKALAN GAS (NYOMAN SHUARJANA)"), "")
 
+    # --- dokumen yang mungkin terbuat TANPA URL (batch tidak lagi berhenti) ---
+    mg.append_audit({"timestamp": "2026-09-23 23:10:00", "baris": 77, "kunci": "kTU",
+                     "status": mg.STATUS_TANPA_URL, "akun_login": "a@mail.com", "idsubsls_input": "1",
+                     "nama_usaha": "WARUNG TANPA URL", "error_message": "jumlah dokumen 7 -> 8"})
+    check("tanpa URL: kunci tetap dihitung punya dokumen (anti-duplikat)",
+          mg.dokumen_per_kunci().get("kTU"), ("a@mail.com", "1", ""))
+    check("tanpa URL: barisnya dilewati sampai ada bukti URL",
+          mg.alasan_lewati_saat_giliran("kTU", ("a@mail.com", "1"), tuntas)
+          .startswith(mg.TANDA_LEWATI_TANPA_URL), True)
+    check("tanpa URL: tanda nama LAMA diperlakukan sama",
+          mg.tanda_tanpa_url_terakhir("kTU", [{"kunci": "kTU", "status": "STOP_DOKUMEN_TANPA_URL",
+                                               "timestamp": "2026-09-14 01:00:00"}])["timestamp"],
+          "2026-09-14 01:00:00")
+    asal = mg.tanda_tanpa_url_terakhir("kTU")
+    check("tanpa URL: waktu yang dilaporkan = waktu kejadian aslinya",
+          mg.catatan_tanpa_url(asal, mg.TANDA_LEWATI_TANPA_URL)["waktu"], "2026-09-23 23:10:00")
+    check("tanpa URL: tidak ada tanda -> {}", mg.tanda_tanpa_url_terakhir("kA"), {})
+    # Sesudah sinkron_list menemukan dokumennya, baris itu boleh dikerjakan lagi.
+    mg.append_audit({"kunci": "kTU", "status": mg.STATUS_DIBUAT, "akun_login": "a@mail.com",
+                     "idsubsls_input": "1", "dokumen_url": "https://x/s/p/dTU/entry"})
+    check("tanpa URL: setelah URL-nya tercatat, baris dikerjakan lagi",
+          mg.alasan_lewati_saat_giliran("kTU", ("a@mail.com", "1"), tuntas), "")
+
+laporan = [mg.catatan_tanpa_url({"timestamp": "2026-09-23 23:10:00", "baris": 77, "nama_usaha": "WARUNG TANPA URL",
+                                 "kunci": "kTU", "akun_login": "a@mail.com", "idsubsls_input": "51080",
+                                 "status": mg.STATUS_TANPA_URL, "error_message": "jumlah dokumen 7 -> 8"})]
+teks = mg.ringkas_tanpa_url(laporan)
+check("laporan menyebut baris, nama dokumen & jamnya",
+      all(x in teks for x in ("77", "WARUNG TANPA URL", "23:10:00", "51080")), True)
+# --- "dokumen apa yang terbuat di sana": dibaca dari list server, hanya DILAPORKAN ---
+_list = [
+    {"id": "aaa", "data1": "WARUNG LAMA", "assignmentStatusAlias": "DRAFT",
+     "dateCreated": "2026-09-23T14:00:00+08:00"},
+    {"id": "bbb", "data1": "", "assignmentStatusAlias": "DRAFT",
+     "dateCreated": "2026-09-23T23:11:00+08:00"},
+    {"id": "ccc", "data1": "SUDAH KIRIM", "assignmentStatusAlias": "SUBMITTED BY Pencacah",
+     "dateCreated": "2026-09-23T23:12:00+08:00"},
+    {"id": "ddd", "data1": "TERCATAT", "assignmentStatusAlias": "DRAFT",
+     "dateCreated": "2026-09-23T23:13:00+08:00"},
+]
+_asing = mg.dokumen_asing(_list, {"ddd"}, sejak="2026-09-23 23:10:00")
+check("cuma DRAFT baru yang belum tercatat yang dilaporkan",
+      [d["id"] for d in _asing], ["bbb"])
+check("dokumen terkirim & dokumen lama tidak ikut",
+      all(d["id"] not in ("aaa", "ccc", "ddd") for d in _asing), True)
+check("tanpa batas waktu: semua DRAFT tak tercatat ikut",
+      sorted(d["id"] for d in mg.dokumen_asing(_list, set())), ["aaa", "bbb", "ddd"])
+check("dokumen yang ID-nya sudah tercatat di audit tidak dilaporkan",
+      sorted(d["id"] for d in mg.dokumen_asing(_list, {"ddd", "bbb"})), ["aaa"])
+check("ID dokumen dibaca dari URL entry", mg.id_dari_url("https://x/s/p/dTU/entry"), "dTU")
+check("URL bukan /entry -> tidak dianggap ID", mg.id_dari_url("https://x/y"), "")
+check("dateCreated tidak terbaca -> jam kosong", mg.jam_dokumen("bukan tanggal"), "")
+
+teks2 = mg.ringkas_tanpa_url([mg.catatan_tanpa_url(
+    {"timestamp": "2026-09-23 23:10:00", "baris": 77, "nama_usaha": "WARUNG TANPA URL",
+     "akun_login": "a@mail.com", "idsubsls_input": "51080", "status": mg.STATUS_TANPA_URL,
+     "error_message": "jumlah dokumen 7 -> 8 || DRAFT di list yang belum tercatat: bbb '(tanpa nama)' @ 23:11"})])
+check("laporan menyebut dokumen yang terbaca di list", "bbb" in teks2, True)
+
+check("tanpa kejadian -> tidak ada laporan", mg.ringkas_tanpa_url([]), "")
+with tempfile.TemporaryDirectory() as d:
+    jalur = Path(d) / "tanpa_url.csv"
+    mg.tulis_laporan_tanpa_url(laporan, jalur)
+    isi = jalur.read_text(encoding="utf-8-sig")
+    check("berkas laporan berisi barisnya", "WARUNG TANPA URL" in isi, True)
+    mg.tulis_laporan_tanpa_url([], jalur)
+    check("run bersih -> berkas laporan lama dihapus", jalur.exists(), False)
+
 _cwd0 = __import__("os").getcwd()
 with tempfile.TemporaryDirectory() as d:
     __import__("os").chdir(d)
@@ -314,6 +382,63 @@ check("draft tanpa koordinat, koordinat SUDAH diisi -> diproses lagi (geotag + k
       mg.tuntas_menurut_audit(mg.STATUS_DRAFT_TANPA_KOORDINAT, _tuntas, punya_koordinat=True), False)
 check("terkirim tetap dilewati", mg.tuntas_menurut_audit("TERKIRIM_TERVERIFIKASI", _tuntas, True), True)
 check("error tetap diproses", mg.tuntas_menurut_audit("ERROR_LOGIN", _tuntas, False), False)
+
+# --- --koordinat kirim: draft tanpa geotag ikut dikirim ---
+from input_gabungan.main_gabungan import koordinat_dikirim, koordinat_otomatis  # noqa: E402
+
+check("kirim: baris tanpa koordinat tetap diisi", koordinat_otomatis("kirim", "tahap2"), True)
+check("kirim: dikirim, bukan ditahan draft", koordinat_dikirim("kirim"), True)
+check("otomatis: ditahan draft", koordinat_dikirim("otomatis"), False)
+check("wajib: bukan mode kirim", koordinat_dikirim("wajib"), False)
+check("bawaan tahap2 bukan kirim", koordinat_dikirim(None), False)
+# Draft tanpa koordinat TIDAK boleh dianggap tuntas di mode kirim — justru baris
+# itulah yang mau diselesaikan jadi terkirim (main melewatkan punya_koordinat=True).
+check("mode kirim: draft tanpa koordinat diproses lagi",
+      mg.tuntas_menurut_audit("DRAFT_TANPA_KOORDINAT", set(mg.STATUS_TERKIRIM), True), False)
+check("mode biasa: draft tanpa koordinat dianggap tuntas",
+      mg.tuntas_menurut_audit("DRAFT_TANPA_KOORDINAT", set(mg.STATUS_TERKIRIM), False), True)
+
+# --- --sinkron-dulu: audit diperbarui dari tabel server sebelum mengisi ---
+class SesiTiruan:
+    def __init__(self, items):
+        self._items = items
+        self.daftar_dokumen_lengkap = True
+
+    def daftar_dokumen_api(self, assignment_id):
+        return self._items
+
+
+ditulis = []
+asli_append = mg.append_audit
+mg.append_audit = ditulis.append
+try:
+    # Daftar tidak terbaca -> JANGAN menulis apa pun & jangan menghentikan batch.
+    n = mg.sinkron_audit_dari_server(SesiTiruan(None), [], {}, "x.xlsx", "a@x.com", "51080", "AID")
+    check("list server tidak terbaca -> 0 catatan, batch lanjut", (n, len(ditulis)), (0, 0))
+    # Daftar kosong -> tidak ada yang perlu ditulis (dan tidak error).
+    n = mg.sinkron_audit_dari_server(SesiTiruan([]), [], {}, "x.xlsx", "a@x.com", "51080", "AID")
+    check("list server kosong -> 0 catatan", (n, len(ditulis)), (0, 0))
+finally:
+    mg.append_audit = asli_append
+
+# Draft yang ditandai galat server TIDAK boleh dianggap tuntas, walau barisnya
+# belum punya koordinat — tanda itulah yang membuatnya dikerjakan lagi.
+check("draft bergalat server selalu dikerjakan lagi",
+      mg.tuntas_menurut_audit("DRAFT_GALAT_DI_SERVER", set(mg.STATUS_TERKIRIM), False), False)
+
+# --- urutan kerja: galat server -> dokumen belum tuntas -> input baru ---
+def giliran_urut(bertanda, punya, baris):
+    """Tiruan urutan di main(): kunci = (giliran, nomor baris)."""
+    def giliran(b):
+        return 0 if b in bertanda else 1 if b in punya else 2
+    return sorted(baris, key=lambda b: (giliran(b), b))
+
+check("bertanda galat dikerjakan lebih dulu, input baru terakhir",
+      giliran_urut({"c"}, {"b", "c"}, ["a", "b", "c"]), ["c", "b", "a"])
+check("tanpa tanda galat: dokumen lama tetap didahulukan",
+      giliran_urut(set(), {"b"}, ["a", "b", "c"]), ["b", "a", "c"])
+check("urutan nomor baris dipertahankan dlm satu giliran",
+      giliran_urut(set(), set(), [3, 1, 2]), [1, 2, 3])
 
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

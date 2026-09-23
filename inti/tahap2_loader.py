@@ -556,12 +556,12 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
             v["proses_produksi"] = v["proses_produksi"] or proses
             catatan.append(f"13d/13e diisi dari judul KBLI: '{v['input_produksi']}' / '{v['proses_produksi']}'")
 
-    # 5c. Kategori B-F / golongan 56 tidak punya 26c -> dijumlahkan ke 26b.
+    # 5c. KBLI non-perdagangan tidak punya 26c di form -> dijumlahkan ke 26b.
     if (TAHAP2_26C_KE_26B and kbli_tanpa_26c(v["kbli"]) and v["biaya_pembelian"].isdigit()
             and int(v["biaya_pembelian"]) > 0 and (v["biaya_produksi"] or "0").isdigit()):
         lama_b, lama_c = int(v["biaya_produksi"] or 0), int(v["biaya_pembelian"])
         v["biaya_produksi"], v["biaya_pembelian"] = str(lama_b + lama_c), "0"
-        catatan.append(f"KBLI {v['kbli']} tanpa 26c: 26c {lama_c:,} dijumlahkan ke 26b "
+        catatan.append(f"KBLI {v['kbli']} tanpa 26c di form: 26c {lama_c:,} dijumlahkan ke 26b "
                        f"({lama_b:,} -> {lama_b + lama_c:,})")
 
     # 5d. Pekerja per jenis kelamin mengikuti PEMILIK (lihat TAHAP2_PEKERJA_IKUT_JK_PEMILIK).

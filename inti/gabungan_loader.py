@@ -44,7 +44,8 @@ from pathlib import Path
 
 from inti.config import (
     GABUNGAN_13F_DARI_13A, GABUNGAN_IZINKAN_JALAN_KOSONG, GABUNGAN_MODE_MURNI, LENGKAPI_13A_DGN_KBLI,
-    MIN_KARAKTER_13A, MINIMAL_TOTAL_RUPIAH, MINIMAL_TOTAL_RUPIAH_BULANAN, WILAYAH_BY_IDSUBSLS,
+    LENGKAPI_13F_DGN, MIN_KARAKTER_13A, MIN_KARAKTER_13F, MINIMAL_TOTAL_RUPIAH,
+    MINIMAL_TOTAL_RUPIAH_BULANAN, WILAYAH_BY_IDSUBSLS,
 )
 
 # Nama tab format standar. "gabungan" = nama lama (sheet "Agenda" BPS Buleleng) — tetap
@@ -163,13 +164,24 @@ KOLOM_OPSIONAL = {"produk", "input_produksi", "proses_produksi", "halal", "sudah
                   "izin_edar", "sudah_bpom", "belum_bpom"}
 KEY_JUMLAH_19_20 = ("sudah_halal", "belum_halal", "sudah_bpom", "belum_bpom")
 
-# Kategori B-F (golongan KBLI 05-43) & golongan 56 (kategori I, penyediaan
-# makan minum): form TIDAK merender 26c terpisah — biaya pembelian barang
-# masuk 26b (pesan form: "Biaya produksi harus>0 jika kategori usaha B-F dan I
-# (gol 56)"; terbukti record manual 2 KBLI 56304). Deteksi utama tetap dari DOM
-# (fill_gabungan berhenti 26C_TIDAK_DIRENDER); ini hanya pencegah dini.
-def kbli_tanpa_26c(kbli: str) -> bool:
+def kbli_26b_wajib_positif(kbli: str) -> bool:
+    """Kategori B-F (golongan 05-43) & golongan 56: form mewajibkan 26b/30b > 0
+    ("Biaya produksi harus>0 jika kategori usaha B-F dan I (gol 56)")."""
     return len(kbli) >= 2 and kbli[:2].isdigit() and (5 <= int(kbli[:2]) <= 43 or kbli[:2] == "56")
+
+
+def kbli_tanpa_26c(kbli: str) -> bool:
+    """26c (biaya pembelian barang yang dijual kembali) TIDAK dirender.
+
+    26c mengikuti aturan yang sama dgn kembaran bulanannya 30c (enableCondition
+    `biaya_pembelian_bln`): hanya perdagangan + valas + pulsa 61209. Dulu di sini
+    dipakai aturan kategori B-F/56 saja, sehingga KBLI lain (mis. 01464 peternakan,
+    61201 telekomunikasi) lolos pemeriksaan offline lalu baru gagal di tengah
+    pengisian (`SKIP_26C_TIDAK_DIRENDER`) — dokumen terlanjur dibuat & nyangkut DRAFT.
+    Terbukti dari run live 2026-09-23: 26c terisi & terkirim pada 433 dokumen KBLI 47xx,
+    2 dokumen 46xx dan 1 dokumen 612xx; gagal pada 61201 (4 dokumen) & 01464.
+    KBLI kosong -> False (tidak menebak)."""
+    return bool(kbli) and not kbli_punya_30c(kbli)
 
 
 def kbli_punya_30c(kbli: str) -> bool:
@@ -367,6 +379,20 @@ def judul_dari_opsi_kbli(teks: str) -> str:
     t = " ".join(str(teks or "").split())
     m = re.match(r"^\[[A-Z]\]\s*\[\d{5}\]\s*(.*?)(?=\s*\[[A-Z]\]\s*\[\d{5}\]|$)", t)
     return m.group(1).strip() if m else t
+
+
+def lengkapi_13f(produk: str, judul_kbli: str) -> str:
+    """13f < MIN_KARAKTER_13F -> tambahkan LENGKAPI_13F_DGN ("GAS" -> "GAS ECERAN";
+    huruf mengikuti isian asli). Masih kurang / kata itu dikosongkan -> pakai judul
+    KBLI spt 13a. Judul juga tidak ada -> kembalikan apa adanya (pemanggil menolak)."""
+    nilai = " ".join((produk or "").split())
+    if not nilai or len(nilai) >= MIN_KARAKTER_13F:
+        return nilai
+    if LENGKAPI_13F_DGN:
+        kata = LENGKAPI_13F_DGN if nilai == nilai.upper() else LENGKAPI_13F_DGN.title()
+        if len(f"{nilai} {kata}") >= MIN_KARAKTER_13F:
+            return f"{nilai} {kata}"
+    return lengkapi_13a(nilai, judul_kbli, minimal=MIN_KARAKTER_13F)
 
 
 def lengkapi_13a(keg: str, judul_kbli: str, minimal: int = MIN_KARAKTER_13A,
@@ -576,9 +602,11 @@ class GabunganRow:
 
     @property
     def produk_utama(self) -> str:
-        if self["produk"] or self.murni:
-            return self["produk"]
-        return self["keg_utama"] if GABUNGAN_13F_DARI_13A else ""
+        """13f. Isian sependek "GAS" ditolak form (minimal 4 karakter), jadi
+        dilengkapi judul KBLI seperti 13a. Mode murni: apa adanya."""
+        nilai = self["produk"] if (self["produk"] or self.murni) else (
+            self["keg_utama"] if GABUNGAN_13F_DARI_13A else "")
+        return nilai if self.murni else lengkapi_13f(nilai, self.judul_kbli)
 
     @property
     def rincian_13b4_dirender(self) -> bool:
@@ -978,9 +1006,9 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         salah(("16B_TANPA_YA", "16a = Ya tapi 16b1-16b6 tidak ada yang Ya (form menolak)"))
     if kbli_tanpa_26c(row["kbli"]) and row["biaya_pembelian"] and row.angka("biaya_pembelian") > 0:
         salah(("26C_KATEGORI_TANPA_26C",
-               f"KBLI {row['kbli']} (kategori B-F / golongan 56): form tidak punya 26c — pindahkan "
+               f"KBLI {row['kbli']} bukan perdagangan: form tidak punya 26c — pindahkan "
                f"26c={row['biaya_pembelian']} ke 26b di sheet"))
-    elif kbli_tanpa_26c(row["kbli"]) and row["biaya_produksi"] and row.angka("biaya_produksi") == 0:
+    elif kbli_26b_wajib_positif(row["kbli"]) and row["biaya_produksi"] and row.angka("biaya_produksi") == 0:
         salah(("26B_HARUS_LEBIH_0", f"KBLI {row['kbli']} (kategori B-F / golongan 56): form mewajibkan "
                                     f"{'30b' if bulanan else '26b'} biaya produksi > 0"))
     if bulanan and kbli_punya_30c(row["kbli"]) and row["biaya_pembelian"] and row.angka("biaya_pembelian") == 0:
@@ -989,11 +1017,45 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
 
     if not row["produk"] and row.produk_utama:
         hasil.tanda.append("13f disalin dari 13a (sheet tidak punya kolom 13f)")
+    asli_13f = " ".join(str(row["produk"] or row["keg_utama"] or "").split())
+    if asli_13f and len(asli_13f) < MIN_KARAKTER_13F:
+        if len(row.produk_utama) >= MIN_KARAKTER_13F:
+            hasil.tanda.append(f"13f dilengkapi: '{asli_13f}' -> '{row.produk_utama}'")
+        else:
+            salah(("13F_KURANG_4_KARAKTER", f"13f '{asli_13f}' kurang dari {MIN_KARAKTER_13F} karakter "
+                                            "(form menolak) & tidak bisa dilengkapi (KBLI kosong)"))
     if len(row.nama_komersial) > MAKS_8B:
         salah(("8B_TERLALU_PANJANG", f"8b '{row.nama_komersial}' {len(row.nama_komersial)} karakter > "
                                      f"{MAKS_8B} (form menolak) — singkatkan nama usaha/12a di sheet"))
     if not row["jalan_domisili"] and GABUNGAN_IZINKAN_JALAN_KOSONG:
         hasil.tanda.append("Nama Jalan KOSONG (belum pernah diuji dikosongkan)")
+    return hasil
+
+
+def _pasangan_termuat(jarum: list[str], jerami: list[str], n: int = 4) -> list[tuple[int, int]]:
+    """[(i, j)] utk setiap `jarum[i]` yang jadi SUBSTRING `jerami[j]` (i == j ikut —
+    penyaringnya urusan pemanggil).
+
+    Membandingkan semua pasangan langsung itu O(n²): 4.099 baris tahap 2 = 16,8 juta
+    pembandingan = ±9,5 menit sebelum prompt "YA" (diukur 2026-09-23). Di sini tiap
+    jerami diindeks per potongan `n` huruf, lalu satu jarum cuma diadu dgn jerami yang
+    memuat `n` huruf PERTAMA-nya — kalau jarum termuat, potongan itu pasti ada di sana,
+    jadi hasilnya SAMA PERSIS, cuma kandidatnya jauh lebih sedikit (±2 detik).
+    """
+    indeks: dict[str, set[int]] = defaultdict(set)
+    for j, h in enumerate(jerami):
+        for p in range(len(h) - n + 1):
+            indeks[h[p:p + n]].add(j)
+    semua = list(range(len(jerami)))
+    singgah: dict[str, list[int]] = {}
+    hasil: list[tuple[int, int]] = []
+    for i, na in enumerate(jarum):
+        if na not in singgah:
+            # Jarum < n huruf tidak punya potongan utuh utk dicari di indeks -> adu ke
+            # semua jerami (jumlahnya sedikit; nama sependek itu jarang).
+            kandidat = semua if len(na) < n else sorted(indeks.get(na[:n], ()))
+            singgah[na] = [j for j in kandidat if na in jerami[j]]
+        hasil.extend((i, j) for j in singgah[na])
     return hasil
 
 
@@ -1026,30 +1088,41 @@ def periksa_semua(rows: list[GabunganRow], tahun_berjalan: int | None = None,
         per_list["" if mode_satu_subsls else r.akun_ppl].append(r)
     lingkup = "list satu akun" if mode_satu_subsls else "PPL sama"
     for anggota in per_list.values():
-        for a in anggota:
-            for b in anggota:
-                if a.baris == b.baris or a.kunci == b.kunci:
-                    continue
-                # Mode satu subsls: nama mentah tidak pernah dipakai mencari (dokumen
-                # di list satu akun ini selalu bernama nama_dokumen) -> cukup tanda di bawah.
-                pakai_nama_lama = bool(a.nama_lama_dicari) and not mode_satu_subsls
-                pasangan = [(a.nama_dokumen, b.nama_dokumen)] + ([(a.nama, b.nama)] if pakai_nama_lama else [])
-                for na, nb in pasangan:
-                    if na.upper() in nb.upper() and (na.upper() != nb.upper() or a.baris < b.baris):
-                        for x, y in ((a, b), (b, a)):
-                            hasil[x.baris].masalah.append((
-                                "NAMA_TUMPANG_TINDIH",
-                                f"'{na}' terkandung di '{nb}' (baris {y.baris}, {lingkup}) — "
-                                "pencarian dokumen bisa membuka dokumen yang salah"))
-                        break
-                else:
-                    # Pengaman dokumen-bernama-lama di create_document mencari
-                    # nama MENTAH sbg substring; kalau dokumen baris b sudah
-                    # dibuat duluan, baris a akan berhenti SKIP_DOKUMEN_NAMA_LAMA.
-                    if mode_satu_subsls and a.nama_lama_dicari and a.nama.upper() in b.nama_dokumen.upper():
-                        hasil[a.baris].tanda.append(
-                            f"nama '{a.nama}' terkandung di nama dokumen baris {b.baris} — bisa "
-                            "SKIP_DOKUMEN_NAMA_LAMA kalau dokumen baris itu dibuat lebih dulu")
+        nama_dok = [a.nama_dokumen.upper() for a in anggota]
+        nama_mentah = [a.nama.upper() for a in anggota]
+        # Mode satu subsls: nama mentah tidak pernah dipakai mencari (dokumen di list
+        # satu akun ini selalu bernama nama_dokumen) -> cukup tanda di bawah.
+        pakai_nama_lama = (not mode_satu_subsls) and any(a.nama_lama_dicari for a in anggota)
+
+        def layak(i: int, j: int) -> bool:
+            a, b = anggota[i], anggota[j]
+            return a.baris != b.baris and a.kunci != b.kunci
+
+        cocok: dict[tuple[int, int], tuple[str, str]] = {}
+        for i, j in _pasangan_termuat(nama_dok, nama_dok):
+            if layak(i, j) and (nama_dok[i] != nama_dok[j] or anggota[i].baris < anggota[j].baris):
+                cocok[(i, j)] = (anggota[i].nama_dokumen, anggota[j].nama_dokumen)
+        if pakai_nama_lama:
+            for i, j in _pasangan_termuat(nama_mentah, nama_mentah):
+                if ((i, j) not in cocok and anggota[i].nama_lama_dicari and layak(i, j)
+                        and (nama_mentah[i] != nama_mentah[j] or anggota[i].baris < anggota[j].baris)):
+                    cocok[(i, j)] = (anggota[i].nama, anggota[j].nama)
+        for (i, j), (na, nb) in sorted(cocok.items()):
+            for x, y in ((anggota[i], anggota[j]), (anggota[j], anggota[i])):
+                hasil[x.baris].masalah.append((
+                    "NAMA_TUMPANG_TINDIH",
+                    f"'{na}' terkandung di '{nb}' (baris {y.baris}, {lingkup}) — "
+                    "pencarian dokumen bisa membuka dokumen yang salah"))
+        if mode_satu_subsls and any(a.nama_lama_dicari for a in anggota):
+            # Pengaman dokumen-bernama-lama di create_document mencari nama MENTAH
+            # sbg substring; kalau dokumen baris b sudah dibuat duluan, baris a akan
+            # berhenti SKIP_DOKUMEN_NAMA_LAMA.
+            for i, j in sorted(_pasangan_termuat(nama_mentah, nama_dok)):
+                if (i, j) not in cocok and anggota[i].nama_lama_dicari and layak(i, j):
+                    hasil[anggota[i].baris].tanda.append(
+                        f"nama '{anggota[i].nama}' terkandung di nama dokumen baris "
+                        f"{anggota[j].baris} — bisa SKIP_DOKUMEN_NAMA_LAMA kalau dokumen "
+                        "baris itu dibuat lebih dulu")
 
     # Kodepos dialokasikan per DESA; nilai minoritas dalam satu desa patut dicek.
     per_desa = defaultdict(Counter)
@@ -1064,6 +1137,27 @@ def periksa_semua(rows: list[GabunganRow], tahun_berjalan: int | None = None,
                 hasil[r.baris].tanda.append(
                     f"kodepos {r['kodepos']} beda dgn mayoritas desa {r.idsubsls[:10]} ({mayoritas}, {dict(c)})")
     return hasil
+
+
+def idsubsls_dari_wilayah(nilai: dict) -> str:
+    """Rincian 1-6 BLOK I -> kode wilayah dokumen ("[51] BALI"/"[060] BULELENG"/...
+    -> 51 08 060 006 000116). "" kalau ada bagian yang tidak terbaca.
+
+    Field kode SLS kadang berisi 6 digit (SLS + subsls) & kadang 4 digit (SLS
+    saja, subsls tidak ditampilkan) — keduanya diterima, jadi hasilnya bisa 16
+    ATAU 14 digit. Pemanggil yang memutuskan: 14 digit cukup utk memastikan
+    dokumen masih di kabupaten yang sama, tapi TIDAK cukup utk dicatat sbg
+    subsls di audit (lihat --izinkan-wilayah-beda)."""
+    panjang = {"prov": 2, "kab": 2, "kec": 3, "desa": 3, "kode_sls": (4, 6)}
+    keluar = ""
+    for key, n in panjang.items():
+        teks = " ".join(str(nilai.get(key) or "").split())
+        cocok = re.match(r"^\[?(\d+)\]?", teks)
+        boleh = n if isinstance(n, tuple) else (n,)
+        if not cocok or len(cocok.group(1)) not in boleh:
+            return ""
+        keluar += cocok.group(1)
+    return keluar
 
 
 def cocokkan_wilayah_dokumen(nilai: dict, idsubsls: str, nama_ref: dict | None = None) -> tuple[str, str]:

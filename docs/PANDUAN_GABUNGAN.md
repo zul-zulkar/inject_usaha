@@ -195,6 +195,8 @@ tidak ada default — baris di-skip `SKIP_19_20_KOSONG`.
 | `DOKUMEN_DIBUAT` | catatan antara (dokumen baru + URL), selalu disusul status akhir; kalau jadi status terakhir, proses mati di tengah — jalankan ulang, dokumen dibuka lewat URL |
 | `STOP_SUBSLS_TIDAK_BISA_DIPILIH` | subsls tunggal tidak ada di Wilayah Responden akun ini (belum PAPI / sudah selesai) — batch berhenti |
 | `STOP_WILAYAH_DOKUMEN_BEDA` | dokumen yang terbuka ternyata di subsls lain — batch berhenti, cek `wilayah_dokumen` |
+| `DOKUMEN_TERKUNCI` | dokumen tidak bisa diubah lagi (kodepos disabled 3 dtk penuh). Dianggap TUNTAS & dilewati — termasuk kalau list server bilang DRAFT, supaya tidak berputar sinkron↔batch. `--coba-terkunci` utk mencobanya lagi setelah admin membuka |
+| `DOKUMEN_TANPA_URL_PERLU_CEK` | dokumen mungkin terbuat tapi URL-nya tidak tertangkap — baris itu **dilewati**, batch LANJUT; daftarnya di `dokumen_tanpa_url.csv`. Buka blokirnya dgn `sinkron_list.py --tulis`. Batch baru berhenti kalau terjadi `--maks-tanpa-url` (3) kali dalam satu run |
 | `SKIP_WILAYAH_TIDAK_TERVERIFIKASI` | `--submit`: wilayah dokumen tidak terbaca, sengaja tidak dikirim |
 | `SKIP_GALAT_PERLU_REVIEW` | ada GALAT selain Nomor Urut Bangunan — baca `error_message` |
 | `SKIP_VARIAN_BULANAN` | form minta rincian 30–33 (bulanan); isi manual |

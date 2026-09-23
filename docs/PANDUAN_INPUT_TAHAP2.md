@@ -256,7 +256,7 @@ Cek dulu isi rentangnya tanpa browser: tambahkan `--cek` ke perintah yang sama.
 Aturan yang tidak boleh dilanggar:
 
 - **Satu akun = satu proses.** Dua proses dengan akun yang sama saling memutus
-  sesi SSO dan memicu `STOP_DOKUMEN_TANPA_URL` palsu. Kunci
+  sesi SSO dan memicu `DOKUMEN_TANPA_URL_PERLU_CEK` palsu. Kunci
   `.proses_<akun>.lock` menolak proses kedua, termasuk dengan `--paralel`.
 - **Paralel di satu PC = akun DAN subsls berbeda per proses**, plus flag
   `--paralel` (mematikan pengulangan “buat dokumen” yang tidak bisa dibuktikan
@@ -273,6 +273,113 @@ Aturan yang tidak boleh dilanggar:
   ```
 - Audit (`audit_log_gabungan.csv`) juga per PC. Salin file itu ke PC lain kalau
   ingin `--lewati-selesai` melihat pekerjaan yang sudah selesai di sana.
+
+## Menyamakan audit dengan tabel server sebelum mengisi
+
+Audit adalah ingatan skrip: dari situ ia tahu baris mana yang dokumennya sudah
+ada. Kalau dokumen dibuat dari PC lain yang auditnya belum digabung, skrip tidak
+tahu dan akan membuat dokumen **kedua**.
+
+`--sinkron-dulu` menutup celah itu: setelah login, daftar dokumen dibaca dari
+tabel server (API yang sama dengan halaman PENDATAAN, read-only), lalu audit
+diperbarui sebelum baris pertama dikerjakan.
+
+```bash
+python input_tahap2/main_tahap2.py --sumber input_tahap2.xlsx --akun-tunggal AKUN --subsls-tunggal SUBSLS --dari 2 --sampai 500 --sinkron-dulu --lewati-selesai --submit
+```
+
+Yang dicatat sama persis dengan `sinkron_list.py --tulis`, karena memakai fungsi
+perencana yang sama: dokumen server yang belum tercatat jadi `DOKUMEN_DIBUAT`
+beserta URL-nya, yang sudah terkirim jadi `TERKIRIM_TERVERIFIKASI`, dan yang
+audit bilang terkirim padahal server draft jadi `DRAFT_DI_SERVER`.
+
+Draft yang **ditandai galat oleh server** (`sumError > 0`, yaitu angka di kartu
+"Jumlah Error") ikut dicatat dengan status `DRAFT_GALAT_DI_SERVER`. Tandanya
+ditulis paling belakang, jadi `--lewati-selesai` tidak melewatinya lagi —
+termasuk draft tanpa koordinat, yang tanpa tanda ini dianggap tuntas sementara
+dan galatnya tidak pernah dibereskan. Dokumen yang sudah terkirim tidak ditandai,
+karena PPL tidak bisa mengeditnya.
+
+Kalau daftar server tidak terbaca, sinkron dilewati dan batch tetap jalan —
+bedanya perlindungan terhadap duplikat kembali bergantung pada audit yang ada.
+
+## Hanya membereskan yang bergalat di server
+
+```bash
+python input_tahap2/main_tahap2.py --sumber input_tahap2.xlsx --akun-tunggal AKUN --subsls-tunggal SUBSLS --sinkron-dulu --hanya-galat --submit --izinkan-wilayah-beda
+```
+
+`--hanya-galat` menyisakan **hanya** baris yang dokumennya ditandai galat oleh
+server. `--sinkron-dulu` wajib disertakan pada run pertama, karena tandanya
+berasal dari tabel server; tanpa itu audit belum punya tanda apa pun dan batch
+akan berkata tidak ada yang perlu dikerjakan.
+
+Urutannya di dalam satu run: kunci proses diambil → login sebentar → tabel server
+dibaca & audit diperbarui → baris disaring dan diurutkan → batch jalan. Karena
+sinkron dilakukan **sebelum** penyaringan, tanda galat yang baru ditemukan
+langsung berlaku di run yang sama.
+
+## Isian rincian 13 yang terlalu pendek
+
+Form menolak isian yang terlalu pendek. Skrip melengkapinya dari **judul KBLI**:
+
+| Isian | Batas form | Perlakuan |
+| --- | --- | --- |
+| 13a kegiatan utama | minimal 15 | dilengkapi saat pengisian, mis. "MENJUAL TELOR" → "MENJUAL TELOR (PERDAGANGAN)" |
+| 13f produk utama | minimal 4 | dilengkapi saat pemeriksaan, mis. "GAS" → "GAS (PERDAGANGAN)" |
+| 13e proses produksi | 15–100 | judul KBLI; kalau judulnya pendek, didahului 13a |
+| 13d input produksi | minimal 4 | judul KBLI |
+
+Kalau baris tidak punya kode KBLI, judulnya tidak ada dan isian itu tidak bisa
+dilengkapi — barisnya berhenti (`13A_KURANG_15_KARAKTER` / `13F_KURANG_4_KARAKTER`)
+dan harus dibetulkan di Excel. Mode murni tidak pernah melengkapi apa pun.
+
+## Urutan kerja batch
+
+Batch tidak lagi berjalan murni urut nomor baris. Urutannya:
+
+1. **dokumen yang ditandai galat oleh server** (`DRAFT_GALAT_DI_SERVER`) — paling mendesak;
+2. **dokumen yang sudah ada tapi belum tuntas** — tinggal dilengkapi lalu dikirim;
+3. **baris yang belum punya dokumen** — input baru, paling belakang.
+
+Dalam tiap golongan, urutannya tetap nomor baris. Saat mulai, batch mencetak
+pembagiannya, misalnya:
+
+```
+Urutan kerja: 14 bertanda galat server, 330 dokumen belum tuntas, lalu 155 input baru.
+```
+
+Gunanya: kalau batch berhenti di tengah (server bermasalah, waktu habis), yang
+sudah dikerjakan adalah dokumen yang paling perlu dibereskan, bukan dokumen baru
+yang justru menambah draft. `--urut-sheet` mengembalikan urutan murni nomor baris.
+
+## Dokumen tersebar di beberapa subsls wadah
+
+Kalau beberapa subsls dipakai bergantian sebagai **wadah** dokumen (dikembalikan
+ke wilayah aslinya belakangan lewat `pindah_wilayah/`), dokumen yang dibuka
+kembali bisa berada di subsls yang bukan `--subsls-tunggal` run itu. Bawaannya
+skrip berhenti (`STOP_WILAYAH_DOKUMEN_BEDA`) karena mengisi dokumen di wilayah
+yang salah adalah kesalahan serius.
+
+Tambahkan `--izinkan-wilayah-beda` supaya dokumen seperti itu tetap diisi dan
+dikirim:
+
+```bash
+python input_tahap2/main_tahap2.py --sumber input_tahap2.xlsx --akun-tunggal AKUN --subsls-tunggal SUBSLS --izinkan-wilayah-beda --lewati-selesai --submit
+```
+
+Yang berubah dengan flag itu:
+
+- dokumen yang **sudah ada** dan wilayahnya masih di kabupaten sendiri diteruskan,
+  dengan catatan review;
+- subsls yang dicatat di audit = **wilayah dokumen yang sebenarnya**, bukan subsls
+  yang diketik di perintah;
+- pencocokan dokumen lama cukup lewat **akun**, tidak lagi akun+subsls — tanpa ini
+  baris yang dokumennya ada di subsls wadah lain akan dilewati selamanya.
+
+Yang **tidak** berubah: dokumen yang baru saja dibuat tetap menghentikan batch
+kalau wilayahnya meleset (itu berarti subsls salah dipilih di modal, bukan sekadar
+wadah lain), begitu juga dokumen di luar kabupaten sendiri.
 
 ## 10. Mengembalikan dokumen ke subsls masing-masing
 

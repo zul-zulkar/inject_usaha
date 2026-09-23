@@ -12,7 +12,8 @@ import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 from inti.gabungan_loader import (
-    cocokkan_wilayah_dokumen, format_nama_usaha, load_gabungan, parse_pilihan_baris, periksa_semua,
+    _pasangan_termuat, cocokkan_wilayah_dokumen, format_nama_usaha, load_gabungan, parse_pilihan_baris,
+    periksa_semua,
 )
 
 ok_all = True
@@ -458,6 +459,84 @@ try:
     check("tab tidak dikenal -> ditolak", "tidak ditolak", "ValueError")
 except ValueError:
     check("tab tidak dikenal -> ditolak", "ValueError", "ValueError")
+
+# --- indeks n-gram pemeriksaan nama = hasil yang SAMA dgn adu semua pasangan ---
+# Pemeriksaan NAMA_TUMPANG_TINDIH dulu mengadu setiap nama dgn setiap nama; pada
+# sheet tahap 2 (4.099 baris) itu ±9,5 menit sebelum prompt "YA". _pasangan_termuat
+# memakai indeks 4-gram — uji ini mengunci bahwa hasilnya tetap identik, termasuk
+# untuk nama yang lebih pendek dari 4 huruf (tidak punya potongan utuh di indeks).
+import random  # noqa: E402
+
+def kasar(jarum, jerami):
+    return [(i, j) for i, na in enumerate(jarum) for j, nb in enumerate(jerami) if na in nb]
+
+CONTOH = ["", "A", "TOK", "TOKO", "TOKO BERAS", "TOKO BERAS (I KETUT CONTOH)",
+          "toko beras", "TOKO BERAS (I KETUT CONTOH)", "WARUNG", "WARUNG MAKAN (NI MADE CONTOH)",
+          "BERAS", "(I KETUT CONTOH)", "PT. X", "X"]
+def sama(jarum, jerami):
+    """(cocok?, jumlah pasangan) — daftar penuhnya terlalu panjang utk dicetak."""
+    got, want = _pasangan_termuat(jarum, jerami), kasar(jarum, jerami)
+    return (got == want, len(want))
+
+check("indeks n-gram = adu semua pasangan (contoh)", sama(CONTOH, CONTOH), (True, 51))
+
+acak = random.Random(20260923)
+kata = ["TOKO", "WARUNG", "BERAS", "GAS", "AB", "CONTOH", "I", "PUTU", "MADE", "X", "YZ"]
+acakan = [" ".join(acak.choice(kata) for _ in range(acak.randint(1, 4))) for _ in range(120)]
+check("indeks n-gram = adu semua pasangan (acak)", sama(acakan, acakan)[0], True)
+lain = [" ".join(acak.choice(kata) for _ in range(acak.randint(1, 3))) for _ in range(80)]
+check("indeks n-gram = adu semua pasangan (dua daftar beda)", sama(lain, acakan)[0], True)
+
+# --- idsubsls dari rincian 1-6 BLOK I (dipakai --izinkan-wilayah-beda) ---
+from inti.gabungan_loader import idsubsls_dari_wilayah  # noqa: E402
+
+BLOK1 = {"prov": "[51] BALI", "kab": "[08] BULELENG", "kec": "[060] BULELENG",
+         "desa": "[006] BANYUASRI", "kode_sls": "000116"}
+check("idsubsls disusun dari rincian 1-6", idsubsls_dari_wilayah(BLOK1), "5108060006000116")
+check("format kode polos juga terbaca",
+      idsubsls_dari_wilayah({"prov": "51", "kab": "08", "kec": "060", "desa": "006", "kode_sls": "000205"}),
+      "5108060006000205")
+# Sebagian tidak terbaca -> "" (JANGAN menebak: nilai ini dipakai jadi subsls di audit)
+check("kode_sls kosong -> kosong", idsubsls_dari_wilayah({**BLOK1, "kode_sls": ""}), "")
+# Kode SLS di form kadang 4 digit (SLS saja, subsls tidak ditampilkan) — diterima,
+# hasilnya 14 digit: cukup utk memastikan masih di kabupaten yang sama, TIDAK cukup
+# utk dicatat sbg subsls (main_gabungan hanya menimpa audit kalau 16 digit).
+check("kode_sls 4 digit -> 14 digit", idsubsls_dari_wilayah({**BLOK1, "kode_sls": "0002"}), "51080600060002")
+check("kode_sls 3 digit -> kosong", idsubsls_dari_wilayah({**BLOK1, "kode_sls": "002"}), "")
+check("nama tanpa kode -> kosong", idsubsls_dari_wilayah({**BLOK1, "desa": "BANYUASRI"}), "")
+
+# --- 26c hanya dirender utk perdagangan (aturan sama dgn 30c) ---
+# Dulu aturannya "kategori B-F / golongan 56" saja, sehingga KBLI lain lolos
+# pemeriksaan offline lalu gagal di tengah pengisian (SKIP_26C_TIDAK_DIRENDER)
+# setelah dokumennya terlanjur dibuat. Terbukti live 2026-09-23.
+from inti.gabungan_loader import kbli_26b_wajib_positif, kbli_tanpa_26c  # noqa: E402
+
+for kbli, tanpa in (("47241", False), ("46100", True), ("47909", True), ("61209", False),
+                    ("61201", True), ("01464", True), ("86101", True), ("56304", True), ("", False)):
+    check(f"26c tidak dirender utk KBLI {kbli or '(kosong)'}", kbli_tanpa_26c(kbli), tanpa)
+# 26b wajib > 0 TETAP aturan lamanya (B-F & gol 56) — jangan ikut diperlebar,
+# kalau tidak baris jasa ber-26b nol ikut ter-skip tanpa dasar.
+check("26b wajib > 0 hanya B-F & gol 56",
+      [kbli_26b_wajib_positif(k) for k in ("56304", "10110", "86101", "47241")],
+      [True, True, False, False])
+
+# --- 13f minimal 4 karakter: dilengkapi judul KBLI seperti 13a ---
+# Data tahap 2 punya 13f sependek "GAS" (37 baris) — form menolaknya (lengthInput).
+from inti.gabungan_loader import lengkapi_13a  # noqa: E402
+from inti.config import MIN_KARAKTER_13F  # noqa: E402
+
+from inti.gabungan_loader import lengkapi_13f  # noqa: E402
+
+check("13f 'GAS' -> 'GAS ECERAN'", lengkapi_13f("GAS", "[G][47772] PERDAGANGAN ECERAN GAS"), "GAS ECERAN")
+check("huruf mengikuti isian asli", lengkapi_13f("Gas", ""), "Gas Eceran")
+check("13f pendek tanpa KBLI pun tertolong", lengkapi_13f("ATK", ""), "ATK ECERAN")
+check("13f yang sudah cukup panjang tidak diubah",
+      lengkapi_13f("BERAS ECERAN", "[G][47241] PERDAGANGAN ECERAN BERAS"), "BERAS ECERAN")
+check("13f kosong tetap kosong (WAJIB_KOSONG yang menanganinya)", lengkapi_13f("", "X"), "")
+# Kalau kata pelengkapnya dikosongkan di config, jalur judul KBLI yang dipakai.
+check("tanpa kata pelengkap -> judul KBLI",
+      lengkapi_13a("GAS", "[G][47772] PERDAGANGAN ECERAN GAS TABUNGAN", minimal=MIN_KARAKTER_13F),
+      "GAS (PERDAGANGAN)")
 
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

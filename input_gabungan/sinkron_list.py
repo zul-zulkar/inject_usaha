@@ -20,6 +20,9 @@ Yang dilaporkan per baris (pencocokan lewat nama dokumen, di-UPPERCASE form):
     --lewati-selesai;
   - DRAFT_DI_SERVER utk baris yang audit bilang terkirim tapi server DRAFT ->
     diproses ulang (dibuka lewat URL) oleh --lewati-selesai.
+  - DOKUMEN_DIHAPUS utk baris bertanda DOKUMEN_TANPA_URL_PERLU_CEK yang TERBUKTI
+    tidak punya dokumen di server (list utuh, nama tidak ada, & tidak ada DRAFT
+    kosong tanpa nama) -> tandanya gugur, main_gabungan boleh membuat dokumennya.
   Baris GANDA yang dua-duanya DRAFT tidak ditulis (pilih manual).
 
 Contoh:
@@ -55,6 +58,11 @@ for _stream in (sys.stdout, sys.stderr):
             pass
 
 STATUS_DRAFT_SERVER = "DRAFT_DI_SERVER"
+# Draft yang oleh SERVER ditandai bergalat (sumError > 0 = kartu "Jumlah Error" di
+# halaman PENDATAAN). Ditulis sbg status TERAKHIR kunci itu supaya --lewati-selesai
+# TIDAK melewatinya — termasuk draft tanpa koordinat, yang tanpa penanda ini
+# dianggap tuntas sementara & galatnya tidak pernah dibereskan.
+STATUS_DRAFT_GALAT = mg.STATUS_DRAFT_GALAT
 LAPORAN_PATH = Path("./sinkron_list.csv")
 
 
@@ -115,8 +123,16 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
             dok[k] = (b.get("akun_login") or "").lower()
             dok_url[k] = b.get("dokumen_url") or dok_url.get(k, "")
 
+    # DRAFT TANPA NAMA yang belum tercatat di audit: dokumen kosong yang tidak bisa
+    # dicocokkan lewat nama. Selama ada satu saja, tanda "tanpa URL" TIDAK digugurkan
+    # otomatis — dokumen baris itu bisa jadi salah satunya.
+    draft_kosong = [it for it in items
+                    if status_server(it.get("assignmentStatusAlias")) == "DRAFT"
+                    and not norm(it.get("data1")) and it.get("id") not in url_audit]
+
     laporan, tulis = [], []
     sudah_kunci = set()  # kunci yang sama bisa muncul di dua file sumber
+    digugurkan = set()   # kunci yang tanda "tanpa URL"-nya sudah digugurkan di run ini
     # id dokumen -> kunci pemiliknya menurut audit. Dua usaha BERBEDA bisa bernama dokumen
     # sama (Agenda2 baris 267 vs Agenda baris 108): dokumen milik kunci lain bukan milik baris ini.
     id_milik: dict = {}
@@ -146,6 +162,26 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
                 "error_message": f"sinkron list API: dokumen {id_tercatat[:8]} tidak ada lagi di list (dihapus)",
             })
             st_audit, akun_audit = mg.STATUS_DIHAPUS, ""
+        # Tanda "dokumen mungkin terbuat tanpa URL" menahan baris itu selamanya.
+        # Kalau list server TERBUKTI utuh, tidak ada dokumen bernama ini, dan tidak
+        # ada DRAFT kosong yang mencurigakan -> dokumennya memang tidak pernah ada:
+        # catatannya digugurkan supaya barisnya boleh dibuat lagi.
+        tanda_tanpa_url = (st_audit in mg.STATUS_TANPA_URL_SEMUA and not docs
+                           and (not akun_audit or akun_audit == akun)
+                           and row.kunci not in digugurkan)
+        gugur = tanda_tanpa_url and lengkap and not draft_kosong
+        if gugur:
+            digugurkan.add(row.kunci)
+            tulis.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "baris": row.baris, "kunci": row.kunci,
+                "nama_usaha": row.nama_dokumen, "kbli": row["kbli"], "idsubsls": row.idsubsls,
+                "idsubsls_input": subsls, "akun_ppl": row.akun_ppl, "akun_login": akun,
+                "status": mg.STATUS_DIHAPUS, "dokumen_url": "",
+                "error_message": (f"sinkron list API: tanda '{st_audit}' diperiksa — tidak ada dokumen "
+                                  "bernama ini & tidak ada DRAFT kosong di list; catatan digugurkan, "
+                                  "baris boleh dibuat lagi"),
+            })
+            st_audit = mg.STATUS_DIHAPUS
         if akun_audit and akun_audit != akun:
             kategori = "DI_AKUN_LAIN" + ("+GANDA_LINTAS_AKUN" if docs else "")
         elif not docs:
@@ -162,6 +198,13 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
             kategori += "+DOKUMEN_AUDIT_DIHAPUS"
         if dipakai_lain:
             kategori += "+NAMA_DIPAKAI_BARIS_LAIN"
+        if st_audit == mg.STATUS_TERKUNCI and draft and not terkirim:
+            kategori += "+TERKUNCI_TAPI_SERVER_DRAFT"
+        if gugur:
+            kategori += "+TANDA_TANPA_URL_DIGUGURKAN"
+        elif tanda_tanpa_url:
+            kategori += ("+TANDA_TANPA_URL_PERIKSA_MANUAL" if draft_kosong
+                         else "+TANDA_TANPA_URL_LIST_TIDAK_UTUH")
         laporan.append({
             "sumber": sumber, "baris": row.baris, "kunci": row.kunci, "nama_dokumen": row.nama_dokumen,
             "cek_data": status_cek, "kategori": kategori, "status_audit": st_audit,
@@ -199,8 +242,22 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
                                      f"sinkron list API: {terkirim[0].get('assignmentStatusAlias')}"
                                      + (f" ({len(docs)} dokumen bernama sama)" if len(docs) > 1 else "")))
         elif not terkirim and draft and st_audit in mg.STATUS_TERKIRIM:
-            tulis.append(baris_audit(STATUS_DRAFT_SERVER, draft[0],
-                                     f"audit '{st_audit}' tapi server masih DRAFT — kirim ulang lewat URL"))
+            # DOKUMEN_TERKUNCI dikecualikan: itu bukan "audit salah kira", tapi BUKTI
+            # dari UI bahwa dokumennya read-only (kodepos disabled 3 dtk penuh).
+            # Menurunkannya jadi DRAFT_DI_SERVER bikin ping-pong: sinkron menurunkan
+            # -> batch membukanya -> tetap terkunci -> DOKUMEN_TERKUNCI lagi, tiap run
+            # (baris 232, 2026-09-23: 4 putaran, dokumen tidak berubah sama sekali).
+            if st_audit != mg.STATUS_TERKUNCI:
+                tulis.append(baris_audit(STATUS_DRAFT_SERVER, draft[0],
+                                         f"audit '{st_audit}' tapi server masih DRAFT — kirim ulang lewat URL"))
+        # Ditulis PALING BELAKANG: status terakhir per kunci yang menentukan
+        # apakah baris ini dikerjakan lagi.
+        galat_draft = next((d for d in draft if int(d.get("sumError") or 0) > 0), None)
+        if galat_draft and not terkirim and (st_audit != STATUS_DRAFT_GALAT or dicatat):
+            tulis.append(baris_audit(
+                STATUS_DRAFT_GALAT, galat_draft,
+                f"server menandai {galat_draft.get('sumError')} galat "
+                f"(jawaban bersih {galat_draft.get('sumClean')}) — isi ulang lewat URL lalu kirim"))
     dikenali_nama = {norm(r.nama_dokumen) for _, r, _ in sumber_rows}
     tak_dikenal = [it for it in items if norm(it.get("data1")) not in dikenali_nama]
     return laporan, tulis, tak_dikenal

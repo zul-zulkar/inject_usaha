@@ -10,7 +10,8 @@ import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 import input_gabungan.main_gabungan as mg
-from input_gabungan.sinkron_list import id_dari_url, rencana_sinkron, status_server, url_entry
+from input_gabungan.sinkron_list import (STATUS_DRAFT_SERVER, id_dari_url, rencana_sinkron,
+                                        status_server, url_entry)
 from inti.gabungan_loader import GabunganRow
 
 ok_all = True
@@ -129,5 +130,85 @@ check("dua DRAFT bernama sama -> tidak ditulis", tulis2, [])
 
 check("status_server", [status_server(s) for s in ("DRAFT", "SUBMITTED BY Pencacah", "APPROVED BY PML", "REJECTED")],
       ["DRAFT", "TERKIRIM", "TERKIRIM", "LAIN"])
+
+# --- draft yang DITANDAI GALAT server: audit harus tahu supaya dikerjakan lagi ---
+# Tanpa ini, draft tanpa koordinat dianggap tuntas sementara oleh --lewati-selesai
+# dan galatnya tidak pernah dibereskan (laporan user 2026-09-23).
+from input_gabungan.sinkron_list import STATUS_DRAFT_GALAT  # noqa: E402
+
+d_galat = dict(doc("id-galat", "APOTEK G (I MADE)", "DRAFT"), sumError=3, sumClean=18)
+r_galat = row(8, "APOTEK G")
+_, tulis_g, _ = rencana_sinkron([("S", r_galat, "SIAP")], [d_galat], AKUN, SUBSLS, ASG, [])
+check("draft bergalat -> status terakhir DRAFT_GALAT_DI_SERVER",
+      [t["status"] for t in tulis_g], [mg.STATUS_DIBUAT, STATUS_DRAFT_GALAT])
+check("pesannya menyebut jumlah galat", "3 galat" in tulis_g[-1]["error_message"], True)
+# Draft yang BERSIH tidak ditandai — jangan bikin baris selesai dikerjakan ulang.
+d_bersih = dict(doc("id-bersih", "APOTEK G (I MADE)", "DRAFT"), sumError=0, sumClean=91)
+_, tulis_b, _ = rencana_sinkron([("S", r_galat, "SIAP")], [d_bersih], AKUN, SUBSLS, ASG, [])
+check("draft bersih tidak ditandai galat", [t["status"] for t in tulis_b], [mg.STATUS_DIBUAT])
+# Sudah ditandai & tidak ada catatan baru -> tidak ditulis ulang tiap sinkron.
+audit_g = [{"kunci": r_galat.kunci, "status": STATUS_DRAFT_GALAT, "akun_login": AKUN,
+            "dokumen_url": f"https://x/survey/S/{ASG}/id-galat/entry"}]
+_, tulis_g2, _ = rencana_sinkron([("S", r_galat, "SIAP")], [d_galat], AKUN, SUBSLS, ASG, audit_g)
+check("tidak ditulis ulang kalau sudah bertanda", tulis_g2, [])
+# Dokumen yang sudah TERKIRIM tidak ditandai (PPL tidak bisa mengeditnya lagi).
+d_kirim_galat = dict(doc("id-kg", "APOTEK G (I MADE)", "SUBMITTED BY Pencacah"), sumError=2)
+_, tulis_k, _ = rencana_sinkron([("S", r_galat, "SIAP")], [d_kirim_galat], AKUN, SUBSLS, ASG, [])
+check("dokumen terkirim bergalat tidak ditandai draft-galat",
+      [t["status"] for t in tulis_k], [mg.STATUS_DIBUAT, "TERKIRIM_TERVERIFIKASI"])
+
+# --- tanda "dokumen mungkin terbuat tanpa URL": dicek, lalu digugurkan kalau terbukti tidak ada ---
+# Tanpa ini baris itu tertahan SELAMANYA (main_gabungan melewatinya demi mencegah dokumen kedua).
+r_tu = row(9, "APOTEK TANPA URL")
+audit_tu = [{"kunci": r_tu.kunci, "status": mg.STATUS_TANPA_URL, "akun_login": AKUN, "dokumen_url": ""}]
+lain = [doc("id-lain", "APOTEK LAIN (I MADE)", "DRAFT")]
+
+lap, tulis_tu, _ = rencana_sinkron([("S", r_tu, "SIAP")], lain, AKUN, SUBSLS, ASG, audit_tu, lengkap=True)
+check("list utuh & dokumennya tidak ada -> catatan digugurkan",
+      [t["status"] for t in tulis_tu], [mg.STATUS_DIHAPUS])
+check("kategorinya menyebut tanda itu digugurkan",
+      lap[0]["kategori"].endswith("+TANDA_TANPA_URL_DIGUGURKAN"), True)
+
+# List belum terbukti utuh (--dari-json) -> jangan digugurkan, cuma dilaporkan.
+lap2, tulis_tu2, _ = rencana_sinkron([("S", r_tu, "SIAP")], lain, AKUN, SUBSLS, ASG, audit_tu, lengkap=False)
+check("list tidak terbukti utuh -> tidak digugurkan", tulis_tu2, [])
+check("tapi tetap dilaporkan", lap2[0]["kategori"].endswith("+TANDA_TANPA_URL_LIST_TIDAK_UTUH"), True)
+
+# Ada DRAFT TANPA NAMA yang belum tercatat -> dokumen baris itu bisa jadi dokumen itu.
+kosong = lain + [doc("id-kosong", "", "DRAFT")]
+lap3, tulis_tu3, _ = rencana_sinkron([("S", r_tu, "SIAP")], kosong, AKUN, SUBSLS, ASG, audit_tu, lengkap=True)
+check("ada DRAFT kosong -> tidak digugurkan otomatis", tulis_tu3, [])
+check("ditandai perlu diperiksa manual",
+      lap3[0]["kategori"].endswith("+TANDA_TANPA_URL_PERIKSA_MANUAL"), True)
+
+# Dokumennya ternyata ADA (namanya cocok) -> jalur lama: URL-nya dicatat, tanda tidak dipakai.
+ada = [doc("id-tu", "APOTEK TANPA URL (I MADE)", "DRAFT")]
+lap4, tulis_tu4, _ = rencana_sinkron([("S", r_tu, "SIAP")], ada, AKUN, SUBSLS, ASG, audit_tu, lengkap=True)
+check("dokumen ketemu -> dicatat DOKUMEN_DIBUAT + URL, bukan digugurkan",
+      [t["status"] for t in tulis_tu4][0], mg.STATUS_DIBUAT)
+check("URL-nya ikut tertulis", "id-tu" in tulis_tu4[0]["dokumen_url"], True)
+check("tidak ada catatan gugur", any(t["status"] == mg.STATUS_DIHAPUS for t in tulis_tu4), False)
+
+# --- DOKUMEN_TERKUNCI + server DRAFT: JANGAN diturunkan jadi DRAFT_DI_SERVER ---
+# Kejadian nyata baris 232 (2026-09-23): sinkron menurunkannya -> batch membukanya ->
+# UI tetap read-only -> DOKUMEN_TERKUNCI -> sinkron berikutnya menurunkannya lagi.
+r_kunci = row(10, "APOTEK TERKUNCI")
+d_kunci = doc("id-kunci", "APOTEK TERKUNCI (I MADE)", "DRAFT")
+audit_kunci = [{"kunci": r_kunci.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN,
+                "dokumen_url": url_entry("id-kunci", ASG)},
+               {"kunci": r_kunci.kunci, "status": mg.STATUS_TERKUNCI, "akun_login": AKUN,
+                "dokumen_url": url_entry("id-kunci", ASG)}]
+lap_k, tulis_k2, _ = rencana_sinkron([("S", r_kunci, "SIAP")], [d_kunci], AKUN, SUBSLS, ASG, audit_kunci)
+check("terkunci + server DRAFT -> tidak ditulis apa-apa (tidak berputar)", tulis_k2, [])
+check("tapi dilaporkan supaya kelihatan",
+      lap_k[0]["kategori"].endswith("+TERKUNCI_TAPI_SERVER_DRAFT"), True)
+# Status terkirim BIASA tetap diturunkan spt semula (toast != terkirim).
+audit_kirim = [{"kunci": r_kunci.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN,
+                "dokumen_url": url_entry("id-kunci", ASG)},
+               {"kunci": r_kunci.kunci, "status": "TERKIRIM_BELUM_TERVERIFIKASI", "akun_login": AKUN,
+                "dokumen_url": url_entry("id-kunci", ASG)}]
+_, tulis_k3, _ = rencana_sinkron([("S", r_kunci, "SIAP")], [d_kunci], AKUN, SUBSLS, ASG, audit_kirim)
+check("terkirim-belum-terverifikasi tetap diturunkan jadi DRAFT_DI_SERVER",
+      [t["status"] for t in tulis_k3], [STATUS_DRAFT_SERVER])
 
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")

@@ -63,6 +63,7 @@ pendataan lapangan, pakai format standar.
 | [`buka_wilayah/`](buka_wilayah/) | Buka Wilayah (batal "Selesai Listing") | fasih-sm | Console Chrome |
 | [`tandai_selesai/`](tandai_selesai/) | Tandai Selesai Listing | fasih-sm | Console Chrome |
 | [`pindah_wilayah/`](pindah_wilayah/) | Pindah wilayah (Change Region) dokumen yang sudah di-approve | fasih-sm | Console Chrome |
+| [`gabung_audit/`](gabung_audit/) | Satukan audit beberapa PC + laporan progres (per akun, wilayah, status) | — | offline |
 | [`inti/`](inti/) | Modul bersama: konfigurasi, pembaca format standar, interaksi fasih-web | — | — |
 | [`templates/`](templates/) | **Templat** untuk memulai (format standar kosong & berpetunjuk, CSV, daftar kode, config lokal) | — | — |
 | [`docs/`](docs/) | Spesifikasi format & panduan langkah-demi-langkah per alat | — | — |
@@ -198,14 +199,17 @@ mengubah kode, terutama selektor (`tests/test_selectors.py`).
 
 | Dokumen | Isi |
 | --- | --- |
+| [`docs/MULAI_CEPAT.md`](docs/MULAI_CEPAT.md) | **Mulai di sini kalau menyiapkan PC baru**: setup, satu perintah jalan, pembagian baris antar-PC |
 | [`docs/FORMAT_STANDAR_INPUT_USAHA.md`](docs/FORMAT_STANDAR_INPUT_USAHA.md) | **Spesifikasi format standar**: kolom per jenis usaha, mode murni, aturan pemeriksaan |
 | [`docs/TUTORIAL_INPUT_OTOMATIS.md`](docs/TUTORIAL_INPUT_OTOMATIS.md) | Tutorial end-to-end inject usaha dari format standar |
 | [`docs/PANDUAN_GABUNGAN.md`](docs/PANDUAN_GABUNGAN.md) | Referensi `main_gabungan.py`: mode satu subsls, status audit, setelan |
+| [`docs/PANDUAN_INPUT_TAHAP2.md`](docs/PANDUAN_INPUT_TAHAP2.md) | Input hasil pendataan KERTAS tahap 2 (`main_tahap2.py`) |
 | [`docs/PANDUAN_INPUT_OTOMATIS.md`](docs/PANDUAN_INPUT_OTOMATIS.md), [`docs/PANDUAN_EKSPOR_MANUAL.md`](docs/PANDUAN_EKSPOR_MANUAL.md) | Alur salin dari dokumen sumber (`salin_dokumen_sumber.csv` + export fasih-sm) |
 | [`docs/PANDUAN_UBAH_MODA.md`](docs/PANDUAN_UBAH_MODA.md) | Ganti mode CAPI → PAPI |
 | [`docs/PANDUAN_RESET_MITRA.md`](docs/PANDUAN_RESET_MITRA.md) | Reset password mitra |
 | [`docs/PANDUAN_BUKA_WILAYAH.md`](docs/PANDUAN_BUKA_WILAYAH.md), [`docs/PANDUAN_TANDAI_SELESAI.md`](docs/PANDUAN_TANDAI_SELESAI.md) | Buka / tandai selesai wilayah |
 | [`docs/PANDUAN_PINDAH_WILAYAH.md`](docs/PANDUAN_PINDAH_WILAYAH.md) | Pindah wilayah dokumen |
+| [`docs/PANDUAN_GABUNG_AUDIT.md`](docs/PANDUAN_GABUNG_AUDIT.md) | Menggabungkan progres beberapa PC & laporannya |
 | [`docs/catatan usaha pecahan se2026.md`](docs/catatan%20usaha%20pecahan%20se2026.md) | Temuan awal perilaku form fasih-web |
 
 Tanggal di dokumen-dokumen itu (2026-09-xx) adalah tanggal temuan saat skrip dikembangkan.

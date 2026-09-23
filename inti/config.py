@@ -240,6 +240,14 @@ GABUNGAN_13F_DARI_13A = True
 # 13a yang sudah >= 15 karakter TIDAK diubah. Mode murni tidak pernah melengkapi.
 MIN_KARAKTER_13A = 15
 LENGKAPI_13A_DGN_KBLI = "sedikit"
+# 13f (produk utama) minimal 4 karakter (lengthInput template). Data tahap 2 punya
+# isian sependek "GAS"/"ATK"/"BIR"/"BBM" (110 baris) — semuanya perdagangan eceran
+# (KBLI 47xx), jadi ketetapan user 2026-09-23: tambahkan kata di bawah ini
+# ("GAS" -> "GAS ECERAN"; huruf mengikuti isian aslinya). Kalau masih kurang
+# panjang, dilengkapi judul KBLI spt 13a; kalau itu pun tidak bisa (KBLI kosong)
+# baris berhenti 13F_KURANG_4_KARAKTER. "" = langsung pakai judul KBLI.
+MIN_KARAKTER_13F = 4
+LENGKAPI_13F_DGN = "ECERAN"
 
 # "Nama Jalan/Gang/Komplek" kosong di 242 baris gabungan. Label field di dump
 # DOM TIDAK bertanda wajib (*), berbeda dgn field wajib lain — tapi belum
