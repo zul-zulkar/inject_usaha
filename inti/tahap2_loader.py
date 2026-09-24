@@ -58,12 +58,13 @@ from inti.config import (
     TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL, TAHAP2_16B_YA_TUNGGAL, TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR,
     TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN, TAHAP2_PENGUSAHA_KOSONG_AWALAN,
     TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG, TAHAP2_KOREKSI_BUMDES, KATA_UMUM_KBLI,
+    TAHAP2_JALAN_KOSONG_DARI_WILAYAH, TAHAP2_13A_KOSONG_DARI_KBLI, TAHAP2_KOREKSI_BARIS, WILAYAH_BY_IDSUBSLS,
 )
 from inti.gabungan_loader import (
     KEY_16B, KEY_26, KEY_27, KEY_28, KEY_29, KEY_PEKERJA, MAKS_8B, OPSI_FORM, YA_TIDAK, GabunganRow, Pemeriksaan,
     _norm_judul, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, koreksi_bumdes, kbli_26b_wajib_positif,
     kbli_kategori_ditolak, kbli_makan_minum, kbli_punya_30c, kbli_tanpa_26c,
-    koordinat_kosong, koordinat_valid, nama_muat, nama_tampil, nik_valid, periksa_semua,
+    koordinat_kosong, koordinat_valid, lengkapi_alamat, nama_muat, nama_tampil, nik_valid, periksa_semua,
 )
 
 # Nama tab yang diterima. File contoh dari user bertab "Sheet1"; tab yang
@@ -530,6 +531,9 @@ class Tahap2Row(GabunganRow):
     info: dict = field(default_factory=dict)  # kolom informasi (uraian, nama PPL, dst.)
     # 13f pembeda usaha pecahan bernama sama (lihat beri_pembeda_ganda). Kosong = tidak ada.
     pembeda: str = ""
+    # Nama dokumen & 8b FINAL dari TAHAP2_KOREKSI_BARIS (ketetapan user per baris).
+    # Menang atas semua aturan penamaan; kunci tetap dari 8b mentah.
+    nama_tetap: str = ""
 
     def _nama_dgn_pembeda(self, nama: str) -> str:
         """"<8b> (<12a>)"; usaha pecahan bernama sama: "<8b> <13f> (<12a>)". Yang
@@ -537,6 +541,8 @@ class Tahap2Row(GabunganRow):
         yang membedakan). Masih kepanjangan -> 8B_TERLALU_PANJANG, BUKAN cadangan
         nama_muat tanpa (<12a>): tanpa pemilik, 13f generik ("air galon") bentrok
         dgn usaha pecahan pemilik lain."""
+        if self.nama_tetap:
+            return self.nama_tetap
         if not self.pembeda:
             hasil = nama_muat(nama_tampil(nama, self.akhiran_badan), self["pengusaha"])
             if len(hasil) > MAKS_8B:
@@ -901,6 +907,12 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
             v["pengusaha"] = pengganti
             catatan.append(alasan)
 
+    # 5a3. 13a kegiatan utama kosong -> judul KBLI (TAHAP2_13A_KOSONG_DARI_KBLI).
+    judul_13a = " ".join(judul_dari_opsi_kbli(v.get("judul_kbli", "")).split())
+    if TAHAP2_13A_KOSONG_DARI_KBLI and not v["keg_utama"].strip() and judul_13a:
+        v["keg_utama"] = judul_13a
+        catatan.append(f"13a kosong -> judul KBLI '{judul_13a}' (ketetapan user)")
+
     # 5b. 13d/13e (industri: 13b1 Ya & 13b2 Tidak) dari judul KBLI.
     if (TAHAP2_13DE_DARI_KBLI and v["produk_sendiri"].startswith("1") and v["layanan_mamin"].startswith("2")
             and not (v["input_produksi"] and v["proses_produksi"])):
@@ -1126,7 +1138,14 @@ def load_tahap2(path: str | Path, kodepos: str = "") -> list[Tahap2Row]:
         row.koreksi.extend(tambahan + catatan)
         # Wilayah baris: dipakai lengkapi_alamat() kalau Nama Jalan < 10 huruf.
         # Nama kec/desa diambil dari kolom informasi "3"/"4" ("GEROKGAK 510801").
-        row.wilayah = _wilayah_dari_info(info)
+        row.wilayah = _wilayah_dari_info(info, v["idsubsls"])
+        terapkan_koreksi_baris(row)
+        # Nama Jalan kosong -> nama wilayah baris (TAHAP2_JALAN_KOSONG_DARI_WILAYAH).
+        if TAHAP2_JALAN_KOSONG_DARI_WILAYAH and not row["jalan_domisili"].strip():
+            isi = lengkapi_alamat("0", row.wilayah)
+            if isi and isi != "0":
+                row.v["jalan_domisili"] = isi
+                row.koreksi.append(f"Nama Jalan kosong -> nama wilayah '{isi}' (ketetapan user)")
         out.append(row)
     beri_pembeda_ganda(out)
     return out
@@ -1150,10 +1169,50 @@ def pengusaha_cadangan(nama_usaha: str) -> tuple[str, str]:
     return pengganti, f"12a kosong/'-' -> '{pengganti}' (tidak ada nama dalam kurung di nama usaha)"
 
 
-def _wilayah_dari_info(info: dict) -> dict:
+def _kunci_teks(teks) -> str:
+    return " ".join(str(teks or "").split()).upper()
+
+
+def terapkan_koreksi_baris(row: "Tahap2Row") -> None:
+    """TAHAP2_KOREKSI_BARIS: koreksi yang diputuskan user utk baris tertentu,
+    dicocokkan lewat (idsubsls, 8b, 12a) — bukan nomor baris, supaya tetap kena
+    kalau sheet disisipi baris. Hanya "nama" & "umur" yang dikenal; kunci lain
+    ditolak (salah ketik config jangan diam-diam diabaikan)."""
+    cari = (row["idsubsls"], _kunci_teks(row["nama_komersial"]), _kunci_teks(row["pengusaha"]))
+    for (ids, nama, pemilik), isi in TAHAP2_KOREKSI_BARIS.items():
+        if (ids, _kunci_teks(nama), _kunci_teks(pemilik)) != cari:
+            continue
+        asing = set(isi) - {"nama", "umur"}
+        if asing:
+            raise ValueError(f"TAHAP2_KOREKSI_BARIS {ids}/{nama}: kunci tidak dikenal {sorted(asing)}")
+        if isi.get("nama"):
+            row.nama_tetap = " ".join(isi["nama"].split())
+            row.koreksi.append(f"nama usaha diganti -> '{row.nama_tetap}' (ketetapan user)")
+        if isi.get("umur"):
+            lama = row["umur"]
+            row.v["umur"] = str(isi["umur"])
+            row.koreksi.append(f"12c umur '{lama}' -> '{row.v['umur']}' (koreksi per baris, ketetapan user)")
+        return
+
+
+def _nama_kabkota(idsubsls: str) -> str:
+    """Nama kabupaten utk lengkapi_alamat: WILAYAH_BY_IDSUBSLS persis, kalau tidak
+    ada nama TERBANYAK di antara entri berawalan 4 digit yang sama. "" kalau tidak ada."""
+    persis = WILAYAH_BY_IDSUBSLS.get(idsubsls, {}).get("kabkota", "")
+    if persis:
+        return persis
+    suara: dict[str, int] = defaultdict(int)
+    for kode, wil in WILAYAH_BY_IDSUBSLS.items():
+        if idsubsls and kode[:4] == idsubsls[:4] and wil.get("kabkota"):
+            suara[wil["kabkota"]] += 1
+    return max(suara, key=suara.get) if suara else ""
+
+
+def _wilayah_dari_info(info: dict, idsubsls: str = "") -> dict:
     """Kolom "3" = "GEROKGAK 510801", kolom "4" = "PATAS 0010" -> nama kec &
-    desa (angka di belakang dibuang). Dipakai HANYA utk melengkapi Nama Jalan
-    yang kurang dari 10 huruf; kode wilayah tetap dari kolom idsubsls."""
+    desa (angka di belakang dibuang), plus nama kabupaten dari idsubsls
+    (_nama_kabkota). Dipakai HANYA utk melengkapi Nama Jalan yang kurang dari
+    10 huruf; kode wilayah tetap dari kolom idsubsls."""
     def _nama(teks: str) -> str:
         return " ".join(re.sub(r"[\d.\-]+\s*$", "", str(teks or "")).split()).upper()
     wil = {}
@@ -1161,6 +1220,8 @@ def _wilayah_dari_info(info: dict) -> dict:
         wil["kecamatan"] = _nama(info["kec"])
     if _nama(info.get("desa", "")):
         wil["desa"] = _nama(info["desa"])
+    if kab := _nama_kabkota(idsubsls):
+        wil["kabkota"] = kab.upper()
     return wil
 
 

@@ -159,9 +159,12 @@ def main(argv=None) -> int:
     ap.add_argument("--catat", action="store_true",
                     help=f"SESUDAH menghapus: arahkan audit ke dokumen yang dipertahankan ({POLA_GANDA_DIHAPUS})")
     ap.add_argument("--tulis", action="store_true", help="dgn --catat: benar-benar tulis ke audit")
+    mg.opsi_audit(ap)
     args = ap.parse_args(argv)
+    mg.pakai_audit(args.audit)
 
     audit = mg._baca_audit()
+    mg.pastikan_audit_utuh(audit)
     if args.catat:
         dihapus = baca_unduhan()
         tulis = rencana_catat(audit, dihapus)

@@ -122,8 +122,13 @@ def baca_audit(path: Path) -> list[dict]:
         if "kunci" not in judul or "status" not in judul:
             raise ValueError(f"{path}: bukan audit_log_gabungan (tidak ada kolom 'kunci'/'status'). "
                              f"Judul terbaca: {judul[:6]}")
-        return [{k: (b.get(k) or "").strip() if k != "error_message" else (b.get(k) or "")
-                 for k in AUDIT_FIELDS} for b in pembaca]
+        baris = [{k: (b.get(k) or "").strip() if k != "error_message" else (b.get(k) or "")
+                  for k in AUDIT_FIELDS} for b in pembaca]
+    rusak = mg.kerusakan_excel(baris)
+    if rusak:
+        # Digabung apa adanya = kunci rusak ikut menyebar ke SEMUA PC (2026-09-24).
+        raise ValueError(mg.pesan_audit_rusak(rusak, path))
+    return baris
 
 
 def gabung(berkas: list[tuple[str, list[dict]]]) -> tuple[list[dict], dict]:

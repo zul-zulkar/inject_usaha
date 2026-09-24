@@ -94,6 +94,10 @@ bisa dibedakan di tabel). Lalu:
 2. Pada baris yang **Status**-nya sesuai petunjuk (mis. DRAFT), klik ⋮ → **Hapus Assignment** → konfirmasi.
 3. Tunggu pesan `✅ Pola hapus terekam & terbukti`.
 
+Sesudah dihapus, detail dokumen itu dijawab server **`403 (Forbidden)`**. Merah di Console
+itu normal. Skrip memastikan sesi masih hidup lewat dokumen lain; kalau hidup, 403 dibaca
+sebagai "dokumen sudah terhapus".
+
 Selama merekam, request ubah yang menyangkut dokumen **yang harus dipertahankan**
 (atau PERIKSA / BUKAN_PAPI) **diblokir** — kalau salah pilih baris, penghapusannya tidak
 terkirim dan Console menampilkan `🛑 DIBLOKIR`. Batal merekam: `hapusGanda.lepasPenyadap()`.
@@ -163,5 +167,5 @@ python input_gabungan/sinkron_list.py --format tahap2 --sumber bahan/input_tahap
 | `LIMIT_PERTAMA`               | penghapusan skrip pertama wajib`limit: 1`          | jalankan dengan`limit: 1` dulu                             |
 | `DIHAPUS_BELUM_TERVERIFIKASI` | server menjawab sukses tapi dokumennya masih terbaca | cek dokumen itu di tabel; jangan lanjut sebelum jelas        |
 | `PEMBANDING_HILANG`           | dokumen yang dipertahankan ikut tidak terbaca        | cek sesi login / dokumen itu                                 |
-| `SESI_DITOLAK`                | sesi habis, atau HTTP 403 (bukan admin / XSRF-TOKEN basi) | login ulang (akun **admin**), reload halaman Data biar cookie XSRF-TOKEN segar, tempel ulang skrip (hasil tersimpan di browser) |
+| `SESI_DITOLAK`                | sesi habis, atau HTTP 403 utk dokumen lain & tabel Data juga (bukan admin / XSRF-TOKEN basi) | login ulang (akun **admin**), reload halaman Data biar cookie XSRF-TOKEN segar, tempel ulang skrip (hasil tersimpan di browser) |
 | `HALAMAN_SALAH`               | bukan halaman Data survei yang benar                 | buka`.../data` survei & periode yang sama                  |

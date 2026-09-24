@@ -208,6 +208,12 @@ POLA_TANDA: tuple[Pola, ...] = (
          "Isi umur pengusaha (10-99) dari kuesioner; sekarang dikirim nilai pengganti."),
     Pola("TAHUN_OPERASI_PENGGANTI", r"25 tahun operasi kosong -> .*\(nilai pengganti", "DIGANTI", ("tahun_operasi",),
          "Isi tahun mulai beroperasi dari kuesioner; sekarang dikirim nilai pengganti."),
+    Pola("UMUR_DIKOREKSI_PER_BARIS", r"12c umur '.*' -> '.*' \(koreksi per baris", "DIGANTI", ("umur",),
+         "Umur pengusaha diganti ketetapan per baris (TAHAP2_KOREKSI_BARIS); betulkan dari kuesioner."),
+    Pola("JALAN_KOSONG_JADI_WILAYAH", r"Nama Jalan kosong -> nama wilayah", "DIGANTI", ("jalan_domisili",),
+         "Isi Nama Jalan/alamat dari kuesioner; sekarang diisi nama wilayah (desa/kecamatan)."),
+    Pola("13A_KOSONG_JADI_JUDUL_KBLI", r"13a kosong -> judul KBLI", "DIGANTI", ("keg_utama",),
+         "Isi kegiatan utama (13a) dari kuesioner; sekarang diisi judul KBLI."),
     Pola("HP_TIDAK_VALID_JADI_9999", r"no WA '.*' tidak valid -> ", "DIGANTI", ("hp",),
          "Tulis ulang nomor HP sbg TEKS (08…, 10-13 digit). Notasi ilmiah Excel (8,13E+10) menghilangkan "
          "digitnya. Tidak ada nomor -> 9999."),
@@ -1055,7 +1061,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="Jangan tulis lembar 'Data bertanda' (salinan sheet berwarna) — lebih cepat & kecil")
     ap.add_argument("--per-ppl", nargs="?", const=FOLDER_PER_PPL, default=None, metavar="FOLDER",
                     help=f"Tulis juga satu berkas per PPL (bawaan folder {FOLDER_PER_PPL}/) utk dibagikan")
+    mg.opsi_audit(ap)
     args = ap.parse_args(argv)
+    mg.pakai_audit(args.audit)
 
     if args.dari is not None and args.sampai is not None and args.dari > args.sampai:
         print(f"❌ --dari {args.dari} lebih besar dari --sampai {args.sampai}.", file=sys.stderr)

@@ -207,6 +207,10 @@ tercatat di kolom `tanda` / `review_disarankan`.
 | NIK bukan 16 digit (mis. 15 digit, `5,11E+15`) | diganti `9999` ("lainnya", sesuai pesan form) | `TAHAP2_NIK_TIDAK_VALID_JADI` |
 | Koordinat rusak (`-8.148.438` / `1.145.951`) | diperlakukan belum ada → DRAFT | `--koordinat wajib` |
 | 12c umur / 25 tahun operasi kosong | disalin dari usaha lain **pemilik yang sama** (akun + idsubsls + 12a) kalau isiannya sepakat; sisanya nilai pengganti umur `45` / tahun `2019` | `TAHAP2_UMUR_KOSONG_JADI`, `TAHAP2_TAHUN_OPERASI_KOSONG_JADI` |
+| Nama Jalan (8c) kosong | diisi nama wilayah baris (`DESA …`, lalu `KECAMATAN …`/`KABUPATEN …` sampai ≥ 10 huruf) | `TAHAP2_JALAN_KOSONG_DARI_WILAYAH` |
+| Nama Jalan pendek yang sudah sama dengan nama desa & kecamatan (mis. `GEROKGAK` di Desa & Kec. Gerokgak) | ditambah nama kabupaten dari idsubsls: `GEROKGAK, KABUPATEN BULELENG` | — |
+| 13a kegiatan utama kosong | diisi judul KBLI kolom `Judul KBLI` | `TAHAP2_13A_KOSONG_DARI_KBLI` |
+| Keputusan untuk baris tertentu (nama bentrok antar-baris, umur di luar 10–99, …) | ditulis di `inti/config_lokal.py`, dicocokkan lewat idsubsls + 8b + 12a; `kunci` tidak berubah | `TAHAP2_KOREKSI_BARIS` |
 | Satu kolom 24 kosong (mis. `24.Tidak dibayar`) tapi kolom `24.Total`-nya terisi | diisi selisihnya (total − rincian lain) | — |
 | 27a & 27b kosong/nol (27c = 0) | 27a diisi minimal form 100.000 (bulanan 10.000) | `TAHAP2_PENJUALAN_NOL_JADI_MINIMAL` |
 | Semua pengeluaran 26a–26e kosong/nol (26f = 0) | 26d diisi minimal form 100.000 (bulanan 10.000) | `TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL` |
@@ -263,6 +267,43 @@ tambahkan `--koordinat wajib`. Format standar (`input_usaha.xlsx`) tetap
 ⚠️ Audit tiap PC terpisah. Kalau draft dibuat di PC A, lengkapi koordinatnya
 juga di PC A (atau salin `audit_log_gabungan.csv` ke PC B dulu) — tanpa catatan
 URL di audit, PC B tidak tahu draft itu ada.
+
+### Koordinat salah / di luar subsls → koordinat pengganti
+
+```bash
+python koordinat/koordinat_pengganti.py --sumber bahan/input_tahap2.xlsx
+```
+
+Hasilnya `koordinat/hasil/input_tahap2_koordinat.xlsx`, khusus untuk **salin-tempel**:
+baris ke-N = baris ke-N sheet sumber. Salin `A2:B<baris terakhir>`, lalu tempel
+(Paste Values) ke sel **Latitude baris 2** di sheet. Baris yang tidak berubah berisi
+teks aslinya persis; yang berubah berwarna kuning, dengan keterangan di kolom C dst.
+Sheet sumber tidak disentuh alat ini.
+
+1. **Format dibaca dulu.** Koma/titik desimal, akhiran S/E, derajat-menit-detik
+   (`8°7'35,424"S`), serta titik desimal yang hilang atau dobel dibaca apa adanya.
+   Titik di luar kabupaten dicoba sebagai derajat-menit-detik tanpa simbol
+   (`-8,747` = 8°7'47"), lalu sebagai salah ketik satu digit (`144,59` → `114,59`).
+   Hasil percobaan itu hanya dipakai kalau jatuh di subsls barisnya.
+2. **Titik lebih dari 500 m di luar poligon subsls (`--batas-m`), di luar
+   kabupaten, atau kosong diganti** dengan titik acak di subsls itu. Titik acaknya
+   diambil dari geotag **listing** (bangunan/keluarga yang benar-benar didatangi,
+   jadi berada di pemukiman), diutamakan yang ≤ 50 m dari **jalan** kalau data
+   jalan ada (`--jalan`). Titik digeser 5–15 m, dan acakannya tetap: dijalankan ulang
+   hasilnya sama.
+3. **Pemilik (12a) & alamat (8c) sama = satu koordinat**, di subsls dengan baris
+   terbanyak di kelompok itu.
+
+Data yang dipakai: peta poligon SLS (`PETA_SLS_PATH`), titik listing
+(`TITIK_LISTING_PATH`, CSV berkolom `latitude`/`longitude`), dan jaringan jalan
+(`JALAN_PATH`, opsional, GeoJSON atau JSON Overpass). Isi path-nya di
+`inti/config_lokal.py`. Asal tiap koordinat tercatat di kolom baru
+`Sumber koordinat` (`ASLI`, `KELOMPOK`, `SALAH_KETIK_DIPERBAIKI`,
+`DERAJAT_TANPA_SIMBOL`, `ACAK_LISTING…`, `ACAK_POLIGON…`), dan nilai asli disimpan di
+`Latitude asli`/`Longitude asli` berkas hasil.
+
+Koordinat pengganti adalah **imputasi**, bukan lokasi hasil pengukuran. Dokumen yang
+sudah terkirim tidak berubah; draft yang geotag-nya sudah terisi juga tidak ditimpa.
 
 ## 8. Langkah pemakaian
 

@@ -80,6 +80,11 @@ CONTOH_TANDA = [
     ("12c umur kosong -> 45 (nilai pengganti, tidak ada di sheet)", "DIGANTI", "UMUR_PENGGANTI", ("umur",)),
     ("25 tahun operasi kosong -> 2019 (nilai pengganti, tidak ada di sheet); usaha lain pemilik ini berbeda-beda: "
      "['2010', '2015']", "DIGANTI", "TAHUN_OPERASI_PENGGANTI", ("tahun_operasi",)),
+    ("12c umur '4' -> '45' (koreksi per baris, ketetapan user)", "DIGANTI", "UMUR_DIKOREKSI_PER_BARIS", ("umur",)),
+    ("Nama Jalan kosong -> nama wilayah 'DESA CONTOH' (ketetapan user)", "DIGANTI", "JALAN_KOSONG_JADI_WILAYAH",
+     ("jalan_domisili",)),
+    ("13a kosong -> judul KBLI 'PERDAGANGAN ECERAN ROKOK DAN TEMBAKAU' (ketetapan user)", "DIGANTI",
+     "13A_KOSONG_JADI_JUDUL_KBLI", ("keg_utama",)),
     ("12c umur kosong -> 50 (disalin dari usaha lain pemilik yang sama)", "DIKOREKSI", "UMUR_DARI_USAHA_LAIN", ("umur",)),
     ("25 tahun operasi kosong -> 2015 (disalin dari usaha lain pemilik yang sama)", "DIKOREKSI",
      "TAHUN_DARI_USAHA_LAIN", ("tahun_operasi",)),

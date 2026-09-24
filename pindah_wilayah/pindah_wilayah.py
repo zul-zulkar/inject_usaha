@@ -212,7 +212,9 @@ def main() -> int:
                     help="target HANYA dokumen APPROVED_TERVERIFIKASI di audit approve PML "
                          f"(default {AUDIT_APPROVE_PATH.name}) -> alur satuan mode cari/pindah")
     ap.add_argument("--console", action="store_true", help=f"Tulis {KONSOL_SIAP} utk ditempel di Console Chrome")
+    mg.opsi_audit(ap)
     args = ap.parse_args()
+    mg.pakai_audit(args.audit)
 
     sumber_rows = []
     for s in args.sumber:

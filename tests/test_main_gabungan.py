@@ -515,5 +515,31 @@ check("tanpa tanda galat: dokumen lama tetap didahulukan",
 check("urutan nomor baris dipertahankan dlm satu giliran",
       giliran_urut(set(), set(), [3, 1, 2]), [1, 2, 3])
 
+# --- lokasi audit custom (--audit / FASIH_AUDIT) ---
+with tempfile.TemporaryDirectory() as d:
+    lama = mg.AUDIT_LOG_PATH
+    check("--audit berkas di folder baru: folder dibuat",
+          (mg.pakai_audit(Path(d) / "batch_baru" / "audit_x.csv").name, (Path(d) / "batch_baru").is_dir()),
+          ("audit_x.csv", True))
+    mg.append_audit({"kunci": "kx", "status": mg.STATUS_DIBUAT})
+    check("tulis & baca memakai berkas custom", ([b["kunci"] for b in mg._baca_audit()],
+          (Path(d) / "batch_baru" / "audit_x.csv").exists()), (["kx"], True))
+    check("--audit folder -> <folder>/audit_log_gabungan.csv",
+          mg.pakai_audit(str(Path(d) / "folder2") + "/"), Path(d) / "folder2" / "audit_log_gabungan.csv")
+    check("--audit tanpa akhiran = folder", mg.pakai_audit(Path(d) / "folder3").name, "audit_log_gabungan.csv")
+    check("--audit kosong = tidak berubah", mg.pakai_audit(""), Path(d) / "folder3" / "audit_log_gabungan.csv")
+    try:
+        mg.pakai_audit(Path(d) / "audit.xlsx")
+        check("--audit .xlsx ditolak", False, True)
+    except SystemExit:
+        check("--audit .xlsx ditolak", True, True)
+    mg.AUDIT_LOG_PATH = lama
+
+import subprocess  # noqa: E402
+keluaran = subprocess.run([sys.executable, "-c", "import input_gabungan.main_gabungan as mg; print(mg.AUDIT_LOG_PATH)"],
+                          capture_output=True, text=True, cwd=str(Path(__file__).resolve().parent.parent),
+                          env={**os.environ, "FASIH_AUDIT": "folder_uji/audit_env.csv"}).stdout.strip()
+check("FASIH_AUDIT dibaca saat impor", Path(keluaran), Path("folder_uji/audit_env.csv"))
+
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

@@ -131,6 +131,18 @@ def mb(n: int) -> str:
     return f"{n / 1_048_576:7.1f} MB" if n >= 1_048_576 else f"{n / 1024:7.0f} KB"
 
 
+def audit_rusak_excel(path: Path) -> str:
+    """Pesan kalau audit pernah disimpan ulang Excel (kunci/idsubsls rusak), "" kalau utuh."""
+    if not path.exists():
+        return ""
+    import csv
+    sys.path.insert(0, str(ROOT))
+    import input_gabungan.main_gabungan as mg
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        rusak = mg.kerusakan_excel(list(csv.DictReader(f)))
+    return mg.pesan_audit_rusak(rusak, path.name) if rusak else ""
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Bungkus proyek jadi satu .zip ringan utk PC lain")
     ap.add_argument("--daftar", action="store_true", help="tampilkan isi & ukuran saja, TANPA membuat zip")
@@ -140,6 +152,11 @@ def main(argv=None) -> int:
 
     ikut, buang = pindai(ROOT)
     ukuran = {rel: (ROOT / rel).stat().st_size for rel in ikut}
+    rusak = audit_rusak_excel(ROOT / "audit_log_gabungan.csv")
+    if rusak and not args.daftar:
+        # Zip ini dipakai menyebar audit ke PC lain — audit rusak akan ikut menyebar.
+        print("❌ " + rusak)
+        return 2
 
     print(f"Folder proyek : {ROOT}")
     print(f"\n=== IKUT DIBUNGKUS: {len(ikut)} berkas, {mb(sum(ukuran.values())).strip()} sebelum dikompres ===")

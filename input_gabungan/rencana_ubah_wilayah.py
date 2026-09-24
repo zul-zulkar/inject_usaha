@@ -353,7 +353,9 @@ def main() -> int:
     ap.add_argument("--tanpa-peta", action="store_true", help="lewati cek titik koordinat")
     ap.add_argument("--assignment-id", default=ASSIGNMENT_ID_GABUNGAN)
     ap.add_argument("--keluaran", default=str(LAPORAN_PATH))
+    mg.opsi_audit(ap)
     args = ap.parse_args()
+    mg.pakai_audit(args.audit)
 
     lists = {}
     for p in [Path(x) for x in args.list_json] or sorted(Path(".").glob("list_api_*.json")):

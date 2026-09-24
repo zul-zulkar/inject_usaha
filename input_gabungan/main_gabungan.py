@@ -90,7 +90,12 @@ for _stream in (sys.stdout, sys.stderr):
         except Exception:
             pass
 
-AUDIT_LOG_PATH = Path("./audit_log_gabungan.csv")
+AUDIT_BAWAAN = Path("./audit_log_gabungan.csv")
+# Lokasi audit boleh diganti (permintaan user 2026-09-24: batch baru dgn audit kosong &
+# sumber data baru): `--audit <berkas atau folder>` per perintah, atau variabel
+# lingkungan FASIH_AUDIT utk semua alat di satu jendela terminal. SEMUA alat membaca
+# `mg.AUDIT_LOG_PATH` saat dipakai (bukan salinan saat impor) — pertahankan begitu.
+AUDIT_LOG_PATH = Path(_os.environ.get("FASIH_AUDIT") or AUDIT_BAWAAN)
 # idsubsls = wilayah ASLI baris (tujuan ubah alokasi nanti); idsubsls_input =
 # subsls tempat dokumen benar-benar dibuat; akun_login = akun yang membuatnya.
 AUDIT_FIELDS = [
@@ -288,6 +293,83 @@ def _baca_audit() -> list[dict]:
         return []
     with AUDIT_LOG_PATH.open(newline="", encoding="utf-8") as f:
         return list(csv_module.DictReader(f))
+
+
+def pakai_audit(path: str | Path | None = "") -> Path:
+    """Tetapkan lokasi audit (`--audit`). Folder (sudah ada, diakhiri garis miring, atau tanpa
+    akhiran .csv) -> <folder>/audit_log_gabungan.csv. Folder induknya dibuat kalau belum ada.
+    "" = tetap (bawaan / FASIH_AUDIT)."""
+    global AUDIT_LOG_PATH
+    teks = str(path or "").strip()
+    if teks:
+        p = Path(teks)
+        if p.is_dir() or teks.endswith(("/", "\\")) or not p.suffix:
+            p = p / AUDIT_BAWAAN.name
+        if p.suffix.lower() != ".csv":
+            raise SystemExit(f"❌ --audit {teks}: harus berkas .csv (atau folder)")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        AUDIT_LOG_PATH = p
+    return AUDIT_LOG_PATH
+
+
+def opsi_audit(ap) -> None:
+    """Tambahkan `--audit` ke parser alat mana pun (satu teks bantuan utk semua)."""
+    ap.add_argument("--audit", default="", metavar="BERKAS",
+                    help=f"berkas audit (default {AUDIT_LOG_PATH}; folder -> <folder>/{AUDIT_BAWAAN.name}; "
+                         "juga lewat variabel lingkungan FASIH_AUDIT)")
+
+
+def cetak_lokasi_audit() -> None:
+    """Satu baris di awal run supaya selalu jelas audit mana yang dipakai."""
+    ada = AUDIT_LOG_PATH.exists()
+    n = len(_baca_audit()) if ada else 0
+    print(f"Audit: {AUDIT_LOG_PATH.resolve()} ({n} baris)" if ada else
+          f"Audit: {AUDIT_LOG_PATH.resolve()} (BARU — belum ada isinya)")
+    if not n and AUDIT_LOG_PATH.resolve() != AUDIT_BAWAAN.resolve() and AUDIT_BAWAAN.exists():
+        print(f"  ⚠️  Audit ini kosong, padahal {AUDIT_BAWAAN.name} di folder ini berisi. Dokumen yang tercatat di "
+              "sana TIDAK dikenali — pencegah ganda tinggal --sinkron-dulu (akun ini saja, nama persis).")
+
+
+_POLA_KUNCI_AUDIT = re.compile(r"[0-9a-f]{10}")
+_POLA_ANGKA_ILMIAH = re.compile(r"-?\d+(?:[.,]\d+)?E[+-]\d+", re.I)
+_POLA_WAKTU_EXCEL = re.compile(r"\d{1,2}/\d{1,2}/\d{4} \d{1,2}:\d{2}(?::\d{2})?")
+
+
+def kerusakan_excel(baris: list[dict]) -> Counter:
+    """{kolom: jumlah baris} yang rusak krn audit pernah DISIMPAN ULANG oleh Excel
+    (2026-09-24: kunci "1404364e03" -> "1.40E+09", idsubsls -> "5.10806E+15",
+    timestamp -> "9/23/2026 18:05"). Kunci rusak = baris itu tidak lagi dikenali
+    -> SKIP_NAMA_DIPAKAI_BARIS_LAIN / dokumen dibuat ulang; idsubsls_input rusak =
+    dokumen dianggap milik subsls lain. Kosong = utuh."""
+    c: Counter = Counter()
+    for b in baris:
+        k = b.get("kunci") or ""
+        if k and not _POLA_KUNCI_AUDIT.fullmatch(k):
+            c["kunci"] += 1
+        for kol in ("idsubsls", "idsubsls_input"):
+            if _POLA_ANGKA_ILMIAH.fullmatch(b.get(kol) or ""):
+                c[kol] += 1
+        if _POLA_WAKTU_EXCEL.fullmatch(b.get("timestamp") or ""):
+            c["timestamp"] += 1
+    return c
+
+
+def pesan_audit_rusak(rusak: Counter, berkas) -> str:
+    rinci = ", ".join(f"{k} {n}" for k, n in rusak.most_common())
+    return (f"{berkas} RUSAK krn pernah disimpan Excel ({rinci} baris). Jangan dipakai — "
+            f"kunci/idsubsls yang rusak membuat baris tidak dikenali (nama dianggap milik baris lain, "
+            f"dokumen bisa dibuat GANDA). Pulihkan dulu:\n"
+            f"    python gabung_audit/pulihkan_excel.py            (lihat rencananya)\n"
+            f"    python gabung_audit/pulihkan_excel.py --tulis\n"
+            f"Lain kali buka audit hanya utk DIBACA (tutup tanpa Save), atau pakai rangkum_audit.csv.")
+
+
+def pastikan_audit_utuh(baris: list[dict] | None = None, berkas=None) -> None:
+    """Hentikan program (SystemExit) kalau audit rusak Excel — dipanggil SEKALI di awal
+    tiap alat yang memakai audit, sebelum apa pun ditulis."""
+    rusak = kerusakan_excel(_baca_audit() if baris is None else baris)
+    if rusak:
+        raise SystemExit("❌ " + pesan_audit_rusak(rusak, berkas or AUDIT_LOG_PATH))
 
 
 def status_terakhir_per_kunci() -> dict:
@@ -1125,8 +1207,12 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                          "(1 = perilaku lama: berhenti di kejadian pertama; 0 = jangan pernah berhenti). "
                          "Baris itu sendiri SELALU dilewati, tidak pernah diulang otomatis.")
     ap.add_argument("--dump-dom", action="store_true", help="Simpan peta dataKey tiap section ke log_screenshots/")
+    opsi_audit(ap)
     args = ap.parse_args(argv)
+    pakai_audit(args.audit)
+    cetak_lokasi_audit()
 
+    pastikan_audit_utuh()
     if args.headless:
         print("❌ --headless tidak didukung: fasih-web membalas browser headless dgn halaman anti-bot.",
               file=sys.stderr)

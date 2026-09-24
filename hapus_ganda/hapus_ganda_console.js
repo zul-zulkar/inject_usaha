@@ -348,10 +348,30 @@
     }
   }
 
-  /** Detail satu dokumen; galat sementara ditunggu & diulang, 401/403 -> Berhenti (sejajar
-   *  hapusSatu(): 403 di API admin ini berarti sesi/akses ditolak, bukan "dokumen sudah tidak
-   *  ada" — kalau dibiarkan lolos ke nilaiDetail, SEMUA dokumen jadi TIDAK_TERBACA diam-diam
-   *  alih-alih batch berhenti dgn pesan jelas). */
+  /** Sesi admin masih hidup? Dibaca ulang detail dokumen lain yang terakhir terbaca, cadangan
+   *  tabel Data (1 baris). Dipakai memisahkan 403 "dokumen ini" dari 403 "sesi habis". */
+  let idTerbaca = "";
+  async function sesiHidup(kecuali) {
+    if (idTerbaca && idTerbaca !== kecuali) {
+      const r = await minta("GET", `/assignment-general/api/assignment/get-by-assignment-id?assignmentId=${encodeURIComponent(idTerbaca)}`);
+      let j = null;
+      try { j = JSON.parse(r.teks); } catch (e) { /* bukan JSON */ }
+      if (r.status === 200 && j && j.success === true) return true;
+    }
+    const r = await minta("POST", "/analytic/api/v2/assignment/datatable-all-user-survey-periode", JSON.stringify({
+      draw: 1, start: 0, length: 1, columns: [{ data: "id", orderable: true }], order: [],
+      search: { value: "", regex: false },
+      assignmentExtraParam: { surveyPeriodId: PERIODE, assignmentErrorStatusType: -1, assignmentStatusAlias: null },
+    }));
+    return r.status === 200;
+  }
+
+  /** Detail satu dokumen; galat sementara ditunggu & diulang. 401 -> Berhenti SESI_DITOLAK.
+   *  403 dua arti: dokumen SUDAH DIHAPUS / tak terjangkau (kejadian 2026-09-24: detail DRAFT
+   *  ganda yang baru dihapus lewat rekam() dijawab 403) ATAU sesi/akses admin ditolak. Karena
+   *  itu sesi dibuktikan dulu lewat dokumen/tabel lain: hidup -> dokumen ini "tidak ada"
+   *  (ada:false, http 403 = tanda HILANG); mati -> Berhenti (jangan sampai SEMUA dokumen jadi
+   *  TIDAK_TERBACA diam-diam). */
   async function bacaDetail(id) {
     const url = `/assignment-general/api/assignment/get-by-assignment-id?assignmentId=${encodeURIComponent(id)}`;
     for (let ke = 0; ; ke++) {
@@ -364,12 +384,18 @@
         await tidur(t);
         continue;
       }
-      if (r.status === 401 || r.status === 403) {
+      if (r.status === 401 || (r.status === 403 && !(await sesiHidup(id)))) {
         throw new Berhenti("SESI_DITOLAK", `detail HTTP ${r.status} — login ulang fasih-sm (akun admin, XSRF-TOKEN segar)`);
+      }
+      if (r.status === 403) {
+        return nilaiDetail({ status: 403, j: { success: false,
+          message: "dokumen tidak bisa dibuka akun ini (sudah dihapus / di luar akses) — sesi admin masih aktif" }, teks: "" });
       }
       let j = null;
       try { j = JSON.parse(r.teks); } catch (e) { /* bukan JSON: dianggap tidak terbaca */ }
-      return nilaiDetail({ status: r.status, j, teks: r.teks });
+      const hasil = nilaiDetail({ status: r.status, j, teks: r.teks });
+      if (hasil.ada) idTerbaca = id;
+      return hasil;
     }
   }
 

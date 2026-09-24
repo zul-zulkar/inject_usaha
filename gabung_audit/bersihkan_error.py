@@ -168,7 +168,11 @@ def main(argv: list[str] | None = None) -> int:
 
     from gabung_audit.gabung_audit import kumpulkan_sumber
     berkas = kumpulkan_sumber(args.audit or [str(mg.AUDIT_LOG_PATH)])
-    gabungan, lap = gabung([(p.name, baca_audit(p)) for p in berkas])
+    try:
+        gabungan, lap = gabung([(p.name, baca_audit(p)) for p in berkas])
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 2
     status_server, galat_server, nama_server = baca_status_server(args.list_json or ["list_api_*.json"])
     laporan = ringkas_per_kunci(gabungan, lap["asal_per_kunci"], status_server, None, galat_server)
 

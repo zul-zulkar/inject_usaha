@@ -185,7 +185,9 @@ def main(argv=None):
                     help="list_api_<akun>.json hasil sinkron_list.py (boleh diulang/pola; bawaan list_api_*.json)")
     ap.add_argument("--tanpa-server", action="store_true",
                     help="abaikan list_api_*.json — rekap murni dari audit")
+    mg.opsi_audit(ap)
     args = ap.parse_args(argv)
+    mg.pakai_audit(args.audit)
 
     otomatis = mg.koordinat_otomatis(args.koordinat, args.format)
     rows, hasil = mg.muat_sumber(args.sumber, args.format, mode_satu_subsls=True,
@@ -193,6 +195,7 @@ def main(argv=None):
     total_sheet = len(rows)
     rows = mg.saring_rentang(rows, args.dari, args.sampai)
     audit = mg._baca_audit()
+    mg.pastikan_audit_utuh(audit)
     tuntas = set(mg.STATUS_TERKIRIM if not args.tanpa_submit else mg.STATUS_SELESAI_DRY_RUN)
     target = ((args.akun_tunggal or "").lower(), args.subsls_tunggal or "")
 

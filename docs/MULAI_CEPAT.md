@@ -133,6 +133,30 @@ lebih dulu, lalu dokumen yang sudah ada, baru baris yang belum punya dokumen.
 python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --akun-tunggal EMAIL --subsls-tunggal SUBSLS --hanya-galat --izinkan-wilayah-beda --submit
 ```
 
+### Batch baru dengan audit sendiri (`--audit`)
+
+Untuk sumber data baru yang tidak boleh tercampur dengan audit lama, beri batch itu
+berkas audit sendiri. Bisa berupa nama berkas, atau folder (isinya jadi
+`<folder>/audit_log_gabungan.csv`). Foldernya dibuat otomatis.
+
+```bash
+python input_tahap2/main_tahap2.py --sumber bahan/SUMBER_BARU.xlsx --audit audit_batch2/ --akun-tunggal EMAIL --subsls-tunggal SUBSLS --sinkron-dulu --lewati-selesai --izinkan-wilayah-beda --submit
+```
+
+**Pakai `--audit` yang SAMA di setiap perintah untuk batch itu**, termasuk
+`sinkron_list.py`, `rangkum_audit.py`, `hapus_ganda.py`, `pindah_wilayah.py`, dan
+`kontrol_kualitas.py`. Lupa sekali saja, perintah itu membaca audit lain. Supaya tidak
+perlu mengetiknya berulang, atur sekali per jendela terminal:
+PowerShell `$env:FASIH_AUDIT="audit_batch2\audit_log_gabungan.csv"`, cmd
+`set FASIH_AUDIT=audit_batch2\audit_log_gabungan.csv`. Baris pertama keluaran selalu
+mencetak `Audit: <lokasi>` — cek itu.
+
+⚠️ Audit baru = kosong, jadi dokumen yang tercatat di audit lama **tidak dikenali**.
+Pencegah ganda tinggal `--sinkron-dulu`, yang hanya melihat daftar akun yang sedang
+dipakai dan hanya mengenali nama yang persis sama. Aman untuk usaha yang belum pernah
+diinput; jangan dipakai untuk mengulang sheet lama. Satu akun tetap hanya boleh satu
+proses, apa pun audit-nya.
+
 ## 4. Bagi rentang baris antar-PC
 
 **Jangan sampai tumpang tindih**, dan **satu akun hanya untuk satu PC pada satu
@@ -258,6 +282,7 @@ python gabung_audit/bersihkan_error.py --sumber bahan/input_tahap2.xlsx --format
 | `SKIP_DOKUMEN_BELUM_ADA`    | subsls itu belum punya assignment                                 | buat satu dokumen manual dulu                                                                           |
 | `ERROR_AKUN_SALAH`          | sesi nyangkut di akun lain                                        | jalankan ulang; skrip membersihkan cookie sendiri                                                       |
 | `DRAFT_TANPA_KOORDINAT`     | bukan galat                                                       | isi Latitude/Longitude di Excel, lalu jalankan ulang perintah yang sama                                 |
+| `SKIP_NAMA_DIPAKAI_BARIS_LAIN` dgn kunci seperti `1.40E+09`, atau "RUSAK krn pernah disimpan Excel" | audit pernah dibuka & disimpan Excel | `python gabung_audit/pulihkan_excel.py --tulis` (lihat `docs/PANDUAN_GABUNG_AUDIT.md`). Audit jangan pernah di-Save dari Excel |
 | `DOKUMEN_TERKUNCI`          | dokumen read-only di UI (padahal daftar server bisa bilang DRAFT) | PPL tidak bisa apa-apa — minta admin/PML memeriksa. Sesudah dibuka, jalankan dengan`--coba-terkunci` |
 
 Menjalankan ulang perintah yang sama **aman**: dokumen lama dibuka lewat URL di

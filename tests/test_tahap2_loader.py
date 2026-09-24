@@ -723,5 +723,49 @@ cek("24 kosong semua + 26a terisi -> 1 pekerja dibayar",
 (rw,) = tulis([baris(**{"16a": "1", "16b1-b6": "2,2,2,2,1", "27d": ""})])
 cek("27d kosong (16a Ya, 16b1 Tidak) -> 0", rw["pendapatan_online"], "0")
 
+print("\n== ketetapan user 2026-09-24 (kontrol kualitas input_tahap2_22) ==")
+import inti.tahap2_loader as _t2
+from inti.gabungan_loader import lengkapi_alamat as _lengkapi_alamat
+cek("nama kabupaten ikut dari idsubsls (WILAYAH_BY_IDSUBSLS)",
+    _wilayah_dari_info({"kec": "GEROKGAK 510801", "desa": "PATAS 0010"}, "5108010008000101").get("kabkota"),
+    "BULELENG")
+cek("jalan = nama desa & kecamatan -> + KABUPATEN",
+    _lengkapi_alamat("GEROKGAK", {"kecamatan": "GEROKGAK", "desa": "GEROKGAK", "kabkota": "BULELENG",
+                                  "provinsi": "BALI"}), "GEROKGAK, KABUPATEN BULELENG")
+cek("kabkota yang sudah berawalan KABUPATEN tidak diulang",
+    _lengkapi_alamat("GEROKGAK", {"desa": "GEROKGAK", "kabkota": "KABUPATEN BULELENG"}),
+    "GEROKGAK, KABUPATEN BULELENG")
+(rw,) = tulis([baris(**{"8c.": ""})])
+cek("Nama Jalan kosong -> nama wilayah baris", rw["jalan_domisili"], "DESA PATAS, KECAMATAN GEROKGAK")
+cek("... dicatat sbg koreksi", any(k.startswith("Nama Jalan kosong -> nama wilayah") for k in rw.koreksi), True)
+(rw,) = tulis([baris(**{"13a": "", "Judul KBLI": "PERDAGANGAN ECERAN BERAS"})])
+cek("13a kosong -> judul KBLI", rw["keg_utama"], "PERDAGANGAN ECERAN BERAS")
+(rw,) = tulis([baris(**{"13a": "", "Judul KBLI": ""})])
+cek("13a kosong & judul KBLI kosong -> tetap kosong", rw["keg_utama"], "")
+
+_lama_koreksi = _t2.TAHAP2_KOREKSI_BARIS
+_contoh = dict(**{"8b.": "WARUNG CONTOH", "12a": "I KETUT CONTOH", "12c": "4"})
+(tanpa,) = tulis([baris(**_contoh)])
+try:
+    _t2.TAHAP2_KOREKSI_BARIS = {("5108010008000101", "warung  contoh", "i ketut contoh"):
+                                {"nama": "WARUNG CONTOH ATK (I KETUT CONTOH)", "umur": "45"}}
+    (rw,) = tulis([baris(**_contoh)])
+    cek("koreksi per baris: nama dokumen & 8b", (rw.nama_dokumen, rw.nama_komersial),
+        ("WARUNG CONTOH ATK (I KETUT CONTOH)",) * 2)
+    cek("koreksi per baris: umur", rw["umur"], "45")
+    cek("koreksi per baris: kunci TIDAK berubah", rw.kunci, tanpa.kunci)
+    cek("koreksi per baris: umur 4 tidak lagi ditolak",
+        periksa_semua_tahap2([rw], izinkan_tanpa_koordinat=True)[rw.baris].status, "SIAP")
+    (lain,) = tulis([baris(**{**_contoh, "12a": "I MADE CONTOH"})])
+    cek("koreksi per baris: 12a lain tidak kena", lain["umur"], "4")
+    _t2.TAHAP2_KOREKSI_BARIS = {("5108010008000101", "WARUNG CONTOH", "I KETUT CONTOH"): {"nma": "X"}}
+    try:
+        tulis([baris(**_contoh)])
+        cek("koreksi per baris: kunci config salah ketik ditolak", "tidak ditolak", "ValueError")
+    except ValueError:
+        cek("koreksi per baris: kunci config salah ketik ditolak", "ValueError", "ValueError")
+finally:
+    _t2.TAHAP2_KOREKSI_BARIS = _lama_koreksi
+
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)

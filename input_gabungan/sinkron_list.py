@@ -298,8 +298,12 @@ def main() -> int:
     ap.add_argument("--dari-json", help="pakai daftar dokumen hasil unduhan sebelumnya (tanpa login)")
     ap.add_argument("--simpan-json", default="", help="default: list_api_<akun>.json")
     ap.add_argument("--tulis", action="store_true", help="tambahkan hasil sinkron ke audit_log_gabungan.csv")
+    mg.opsi_audit(ap)
     args = ap.parse_args()
+    mg.pakai_audit(args.audit)
+    mg.cetak_lokasi_audit()
     akun = args.akun_tunggal.strip().lower()
+    mg.pastikan_audit_utuh()
 
     kunci_akun = None
     if args.tulis:

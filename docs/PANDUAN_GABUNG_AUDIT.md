@@ -26,6 +26,12 @@ pusat.
 2. **Bagi rentang barisnya, jangan sampai tumpang tindih**, mis. PC1
    `--dari 2 --sampai 500`, PC2 `--dari 501 --sampai 1000`, dst.
 3. Satukan audit **setelah** semua batch berhenti, bukan saat masih jalan.
+4. **Jangan pernah menyimpan audit dari Excel.** Membuka `audit_log_gabungan.csv` di Excel
+   lalu Save mengubah kunci `1404364e03` jadi `1.40E+09` dan idsubsls jadi `5.10806E+15`.
+   Baris itu tidak dikenali lagi, jadi skrip membuat dokumen **GANDA** atau berhenti
+   `SKIP_NAMA_DIPAKAI_BARIS_LAIN`. Untuk dibaca di Excel, pakai `rangkum_audit.csv`. Semua alat
+   (batch, sinkron, gabung, rangkum, bungkus) kini menolak audit yang rusak begini — lihat
+   [Audit rusak karena Excel](#audit-rusak-karena-excel).
 
 ## Langkah
 
@@ -221,6 +227,31 @@ ulang.
 Karena itu yang diurutkan adalah **blok per (berkas, kunci)**, memakai waktu
 terbesar di blok itu; isi tiap blok tetap urut aslinya. Hasilnya tidak bergantung
 pada urutan `--sumber`.
+
+## Audit rusak karena Excel
+
+Gejala: `SKIP_NAMA_DIPAKAI_BARIS_LAIN ... (kunci 1.40E+09)`, atau program berhenti dengan
+pesan `audit_log_gabungan.csv RUSAK krn pernah disimpan Excel`. Digit yang hilang dicari dari
+cadangan audit yang masih utuh (`audit_log_gabungan.csv.bak-*`, `audit_pc/`), dari
+`list_api_*.json`, dan dari sheet `bahan/input_tahap2.xlsx`. Nilai yang tidak pasti **tidak
+ditebak**: kalau ada, berkasnya tidak ditulis.
+
+1. Hentikan dulu semua batch yang menulis ke audit itu (tunggu selesai, atau buat berkas
+   `STOP_<akun>`).
+2. Lihat rencananya:
+
+```bash
+python gabung_audit/pulihkan_excel.py
+```
+
+3. Tulis. Versi rusaknya disimpan sebagai `.bak-<waktu>-excel`:
+
+```bash
+python gabung_audit/pulihkan_excel.py --tulis
+```
+
+Bawaannya memulihkan `audit_log_gabungan.csv` dan `audit_pc/*.csv`. Audit PC lain yang juga
+rusak: salin dulu ke `audit_pc/` di PC yang punya cadangan, pulihkan di sana, baru gabungkan.
 
 ## Catatan
 

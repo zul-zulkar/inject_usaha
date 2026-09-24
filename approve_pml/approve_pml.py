@@ -95,7 +95,7 @@ for _stream in (sys.stdout, sys.stderr):
         except Exception:
             pass
 
-AUDIT_GABUNGAN = Path("./audit_log_gabungan.csv")
+AUDIT_GABUNGAN = Path(_os.environ.get("FASIH_AUDIT") or "./audit_log_gabungan.csv")   # sama dgn main_gabungan
 AUDIT_APPROVE = Path("./audit_approve_pml.csv")
 AUDIT_FIELDS = ["timestamp", "akun_pml", "akun_ppl", "id", "baris", "kunci", "nama", "sumber",
                 "status_sebelum", "status", "pesan", "dokumen_url"]

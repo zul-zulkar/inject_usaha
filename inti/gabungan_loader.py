@@ -533,10 +533,20 @@ def jumlah_huruf(teks: str) -> int:
     return len(re.findall(r"[a-zA-Z]", teks or ""))
 
 
+def _teks_kabkota(nama: str) -> str:
+    """"BULELENG" -> "KABUPATEN BULELENG"; yang sudah berawalan KABUPATEN/KAB./KOTA dibiarkan."""
+    nama = " ".join((nama or "").split()).upper()
+    if not nama or re.match(r"^(KABUPATEN|KAB\.?|KOTA)\s", nama):
+        return nama
+    return f"KABUPATEN {nama}"
+
+
 def lengkapi_alamat(jalan: str, wilayah: dict) -> str:
     """Nama Jalan yang kurang dari MIN_HURUF_JALAN huruf dilengkapi nama
     wilayah BARIS itu (ketetapan user 2026-09-14): banjar, lalu desa, lalu
-    kecamatan, lalu provinsi — berhenti begitu syarat huruf terpenuhi.
+    kecamatan, lalu kabupaten (2026-09-24: jalan 'GEROKGAK' di desa & kecamatan
+    GEROKGAK -> 'GEROKGAK, KABUPATEN BULELENG'), lalu provinsi — berhenti begitu
+    syarat huruf terpenuhi.
     Bagian yang namanya sudah tertulis tidak ditambah lagi ("DESA JULAH" tidak
     diberi "DESA JULAH" lagi). "0" bukan alamat -> dianggap kosong. Kosong
     atau "-" dibiarkan (lolos validasi form). Kalau nama wilayah tidak ada,
@@ -549,12 +559,14 @@ def lengkapi_alamat(jalan: str, wilayah: dict) -> str:
         (wilayah.get("sls", ""), wilayah.get("sls", "")),
         (wilayah.get("desa", ""), f"DESA {wilayah.get('desa', '')}"),
         (wilayah.get("kecamatan", ""), f"KECAMATAN {wilayah.get('kecamatan', '')}"),
+        (wilayah.get("kabkota", ""), _teks_kabkota(wilayah.get("kabkota", ""))),
         (wilayah.get("provinsi", ""), wilayah.get("provinsi", "")),
     ]
     for nama, teks in kandidat:
         if jumlah_huruf(", ".join(bagian)) >= MIN_HURUF_JALAN:
             break
-        inti = re.sub(r"^(BANJAR|BR\.?|LINGKUNGAN|LINGK\.?|DUSUN)\s+", "", nama.strip().upper())
+        inti = re.sub(r"^(BANJAR|BR\.?|LINGKUNGAN|LINGK\.?|DUSUN|KABUPATEN|KAB\.?|KOTA)\s+", "",
+                      nama.strip().upper())
         if not inti or inti in ", ".join(bagian).upper():
             continue
         bagian.append(teks.strip().upper())

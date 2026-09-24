@@ -90,6 +90,19 @@ TAHAP2_UANG_KOSONG_JADI_NOL = True
 # supaya tidak memicu varian bulanan). "" = baris tetap skip WAJIB_KOSONG.
 TAHAP2_UMUR_KOSONG_JADI = "45"
 TAHAP2_TAHUN_OPERASI_KOSONG_JADI = "2019"
+# Nama Jalan (8c) KOSONG -> nama wilayah baris lewat lengkapi_alamat ("DESA …",
+# "KECAMATAN …", "KABUPATEN …") — ketetapan user 2026-09-24 (kontrol_kualitas
+# input_tahap2_22: 10 baris). False = skip WAJIB_KOSONG (perilaku lama).
+TAHAP2_JALAN_KOSONG_DARI_WILAYAH = True
+# 13a kegiatan utama KOSONG -> judul KBLI sheet — ketetapan user 2026-09-24 (24
+# baris, 13f terisi). False = skip WAJIB_KOSONG (perilaku lama).
+TAHAP2_13A_KOSONG_DARI_KBLI = True
+# Koreksi PER BARIS yang diputuskan user utk baris tertentu (nama bentrok, umur di
+# luar 10-99, ...): {(idsubsls, 8b sheet, 12a sheet): {"nama": "<nama dokumen & 8b
+# final>", "umur": "45"}}. 8b & 12a dicocokkan tanpa beda besar/kecil huruf & spasi.
+# kunci TIDAK berubah (tetap dari 8b mentah). Isinya data responden -> isi HANYA di
+# inti/config_lokal.py, jangan di file ini.
+TAHAP2_KOREKSI_BARIS: dict = {}
 # 27c = 0 (penjualan 27a & 27b kosong/nol) -> 27a diisi minimal form (100.000;
 # varian bulanan 10.000) — ketetapan user 2026-09-24 (baris 1374/1375). False =
 # skip DI_BAWAH_MINIMAL (perilaku lama). 26f = 0 TETAP skip.
@@ -281,6 +294,14 @@ GABUNGAN_BARIS_PER_SESI = 40
 # apakah titik koordinat baris jatuh di subsls tujuan. Di luar repo (±15 MB),
 # isi path-nya di config_lokal.py atau lewat --peta.
 PETA_SLS_PATH = os.environ.get("FASIH_PETA_SLS", "")
+
+# Koordinat pengganti tahap 2 (input_tahap2/koordinat_pengganti.py, 2026-09-24):
+# titik geotag hasil LISTING (CSV berkolom idsubsls, latitude, longitude — mis.
+# ekspor keberadaan usaha/keluarga) = penanda pemukiman; jaringan JALAN (GeoJSON
+# LineString atau JSON Overpass `out geom`) = opsional, utk memilih titik dekat jalan.
+# Keduanya data di luar repo -> isi path-nya di config_lokal.py.
+TITIK_LISTING_PATH = os.environ.get("FASIH_TITIK_LISTING", "")
+JALAN_PATH = os.environ.get("FASIH_JALAN", "")
 
 # 13f "Apa produk utama yang dihasilkan?" WAJIB di form, tapi TIDAK ADA
 # kolomnya di sheet gabungan (maupun sheet asalnya). True = salin teks 13a
