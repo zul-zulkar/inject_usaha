@@ -45,15 +45,16 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 from inti.config import (
-    KODEPOS_BY_DESA, KODEPOS_BY_IDSUBSLS, TAHAP2_13B_DARI_KBLI, TAHAP2_13DE_DARI_KBLI, TAHAP2_26C_KE_26B,
-    TAHAP2_DEFAULT, TAHAP2_GAJI_JIKA_DIBAYAR, TAHAP2_HP_TIDAK_VALID_JADI, TAHAP2_ISI_VARIAN_BULANAN,
+    GALAT_13C_JADI, KODEPOS_BY_DESA, KODEPOS_BY_IDSUBSLS, TAHAP2_13B_DARI_KBLI, TAHAP2_13DE_DARI_KBLI,
+    TAHAP2_26C_KE_26B, TAHAP2_DEFAULT, TAHAP2_GAJI_JIKA_DIBAYAR, TAHAP2_HP_TIDAK_VALID_JADI,
+    TAHAP2_ISI_VARIAN_BULANAN,
     TAHAP2_NIK_TIDAK_VALID_JADI, TAHAP2_PEKERJA_IKUT_JK_PEMILIK, TAHAP2_TOTAL_BEDA,
     TAHAP2_UANG_KOSONG_JADI_NOL, TAHAP2_16B_LIMA_NILAI_B6, TAHAP2_PEMBEDA_13F_UTK_GANDA,
 )
 from inti.gabungan_loader import (
     KEY_16B, KEY_26, KEY_27, KEY_28, KEY_29, KEY_PEKERJA, MAKS_8B, OPSI_FORM, YA_TIDAK, GabunganRow, Pemeriksaan,
-    _norm_judul, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, kbli_tanpa_26c, nama_muat, nama_tampil,
-    nik_valid, periksa_semua,
+    _norm_judul, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, kbli_makan_minum, kbli_tanpa_26c,
+    nama_muat, nama_tampil, nik_valid, periksa_semua,
 )
 
 # Nama tab yang diterima. File contoh dari user bertab "Sheet1"; tab yang
@@ -702,6 +703,18 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
     # 6. Default utk rincian yang tidak ditanyakan di kuesioner kertas.
     for key, bawaan in TAHAP2_DEFAULT.items():
         if not v.get(key):
+            # 13c: default "4. Toko, ruko" PASTI ditolak form kalau usahanya
+            # makan-minum ("Usaha Makan Minum, maka lokasi hanya bisa diisi kode
+            # 5-11") — 8 GALAT di audit 22-23 Sep 2026, SEMUANYA KBLI gol. 56 yang
+            # 13c-nya memang tidak ada di kuesioner kertas alias dari default ini.
+            # Dipakai GALAT_13C_JADI: nilai yang sama dgn ketetapan user 2026-09-23
+            # utk membetulkan GALAT 13c ("langsung ubah ke kode 5 saja"), hanya
+            # dipasang di depan drpd menunggu dokumen terbuat lalu ber-GALAT.
+            if key == "lokasi_usaha" and GALAT_13C_JADI and kbli_makan_minum(v.get("kbli", "")):
+                v[key] = GALAT_13C_JADI
+                catatan.append(f"13c default '{GALAT_13C_JADI}' (usaha makan-minum KBLI {v.get('kbli')}: "
+                               f"form menolak kode 1-4; tidak ada di kuesioner tahap 2)")
+                continue
             v[key] = bawaan
             if key not in ("ubah_sls", "is_new", "ada_bang_usaha", "keberadaan_usaha", "kode_bang",
                            "pilih_umkm_sls", "nama_info_list", "nomor_domisili"):

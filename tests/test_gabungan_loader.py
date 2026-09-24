@@ -281,7 +281,10 @@ check("13b4 dirender & '1. Jasa' valid", h[3].status, "SIAP")
 _, h = muat(baris(**u("29. a.", "90")))
 check("29 tidak berjumlah 100", h[3].status, "SKIP_DATA_MODAL_29_BUKAN_100")
 
-_, h = muat(baris(**u("26. a.", "0"), **u("26. c.", "50000"), **u("26. d.", "0")))
+# 24a2 dinolkan (24b2 menyerap semuanya) supaya yang diuji benar-benar 26f, bukan
+# aturan 26a/24a2 > Rp 50.000 yang ikut kena kalau ada pekerja dibayar tapi 26a = 0.
+_, h = muat(baris(**u("26. a.", "0"), **u("26. c.", "50000"), **u("26. d.", "0"),
+                  **u("24. a2.", "0"), **u("24. b2.", "3")))
 check("26f < 100.000", h[3].status, "SKIP_DATA_DI_BAWAH_MINIMAL")
 
 _, h = muat(baris(**u("16. b5.", "2. Tidak")))
@@ -393,7 +396,9 @@ r, h = muat_std(**PRODUKSI, input_produksi="Singkong, minyak", proses_produksi="
 check("std: 13b1 Ya + 13d/13e terisi -> SIAP", h.status, "SIAP")
 r, h = muat_std(**{**PRODUKSI, "biaya_pembelian": "5000000"}, input_produksi="x", proses_produksi="y")
 check("std: KBLI kategori C + 26c > 0 -> skip (form tidak punya 26c)", h.status, "SKIP_DATA_26C_KATEGORI_TANPA_26C")
-r, h = muat_std(kbli="56304", biaya_pembelian="1000000")
+# 13c ikut diisi kode 5: golongan 56 = usaha makan-minum, dan form hanya menerima
+# 13c kode 5-11 utk usaha makan-minum (lihat uji 13C_MAMIN_BUKAN_5_11 di bawah).
+r, h = muat_std(kbli="56304", biaya_pembelian="1000000", lokasi_usaha="5. Kedai, stan, tenda")
 check("std: golongan 56 + 26c > 0 -> skip", h.status, "SKIP_DATA_26C_KATEGORI_TANPA_26C")
 check("std: kategori G + 26c > 0 -> tetap SIAP", muat_std()[1].status, "SIAP")
 
@@ -537,6 +542,53 @@ check("13f kosong tetap kosong (WAJIB_KOSONG yang menanganinya)", lengkapi_13f("
 check("tanpa kata pelengkap -> judul KBLI",
       lengkapi_13a("GAS", "[G][47772] PERDAGANGAN ECERAN GAS TABUNGAN", minimal=MIN_KARAKTER_13F),
       "GAS (PERDAGANGAN)")
+
+# --- Aturan form yang dulu baru ketahuan SAAT pengisian (audit gabungan 22-23 Sep 2026) ---
+# Keempat GALAT di bawah semuanya soal isian sheet, jadi dokumen terlanjur dibuat
+# lalu nyangkut DRAFT ber-GALAT. Sekarang dicegat `--cek` sebelum browser dibuka.
+from inti.gabungan_loader import (  # noqa: E402
+    kbli_kategori_ditolak, kbli_makan_minum, kode_opsi,
+)
+
+check("kode_opsi angka dua digit", [kode_opsi(v) for v in ("5. Kedai", "10. Keliling", "11. Daring")], [5, 10, 11])
+check("kode_opsi tanpa angka -> None", [kode_opsi(v) for v in ("Tidak Ada", "", "1 Ya")], [None, None, None])
+check("makan-minum = golongan 56",
+      [kbli_makan_minum(k) for k in ("56102", "56304", "47241", "")], [True, True, False, False])
+check("kategori KBLI yang ditolak 13g",
+      [kbli_kategori_ditolak(k) for k in ("98100", "85499", "99000", "47241", "97000", "")],
+      ["U", "P", "U", "", "", ""])
+
+# 13c: usaha makan-minum hanya boleh kode 5-11 (8x GALAT, semua KBLI gol. 56).
+r, h = muat_std(kbli="56102", biaya_pembelian="0", biaya_produksi="30000000")
+check("std: gol. 56 + 13c kode 4 -> skip", h.status, "SKIP_DATA_13C_MAMIN_BUKAN_5_11")
+check("std: gol. 56 + 13c kode 11 (Daring) -> lolos 13c",
+      muat_std(kbli="56102", biaya_pembelian="0", biaya_produksi="30000000",
+               lokasi_usaha="11. Daring (online)")[1].status, "SIAP")
+check("std: 13b2 Ya (KBLI bukan 56) + 13c kode 4 -> skip",
+      muat_std(layanan_mamin="1. Ya")[1].status, "SKIP_DATA_13C_MAMIN_BUKAN_5_11")
+check("std: bukan makan-minum -> 13c kode 4 tetap boleh", muat_std()[1].status, "SIAP")
+
+# 13g: KBLI kategori P/U ditolak form (2x GALAT, KBLI 98100).
+check("std: KBLI 98100 (kategori U) -> skip",
+      muat_std(kbli="98100", biaya_pembelian="0", biaya_produksi="30000000")[1].status,
+      "SKIP_DATA_KBLI_KATEGORI_DITOLAK")
+
+# 26a vs 24a2 — dua aturan file-validation `gaji`.
+check("std: 24a2=0 tapi 26a > 0 -> skip",
+      muat_std(tk_laki="1", tk_pr="2", tk_dibayar="0", tk_tdk_dibayar="3")[1].status,
+      "SKIP_DATA_26A_HARUS_0_TANPA_PEKERJA_DIBAYAR")
+check("std: 24a2=0 & 26a=0 -> SIAP",
+      muat_std(tk_laki="1", tk_pr="2", tk_dibayar="0", tk_tdk_dibayar="3", gaji="0")[1].status, "SIAP")
+check("std: 26a/24a2 tepat Rp 50.000 masih ditolak (form minta > 50.000)",
+      muat_std(gaji="50000")[1].status, "SKIP_DATA_26A_PER_PEKERJA_DI_BAWAH_MINIMAL")
+check("std: 26a/24a2 Rp 50.001 -> lolos", muat_std(gaji="50001")[1].status, "SIAP")
+
+# 24c1 "Cek konsistensi jenis kelamin pengusaha" = TANDA, bukan skip: pola laki 0 +
+# perempuan 2 ada di 123 baris nyata yang terkirim tanpa GALAT (lihat KOREKSI_PEKERJA).
+_r, _h = muat_std(tk_laki="0", tk_pr="3", tk_dibayar="1", tk_tdk_dibayar="2")
+check("std: 12b laki-laki tapi 24a1=0 -> tanda saja, tetap SIAP",
+      (_h.status, any("jenis kelamin pengusaha" in t for t in _h.tanda)), ("SIAP", True))
+
 
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

@@ -33,9 +33,7 @@ skrip** — dan setiap pemakaiannya dicatat sebagai ASUMSI di kolom
 | 10a NIB / 10c alasan | `2. Tidak` / `3. Tidak memerlukan NIB` |
 | 11a badan usaha | `13. Bukan Badan Usaha` |
 | 11d catatan keuangan | `2. Tidak` |
-| 13c tempat usaha | `4. Toko, ruko, dan sejenisnya` |
-
-Kalau ringkasan pra-kirim masih menyisakan GALAT yang tidak dikenali, skrip **mencoba** mengganti 13c jadi `5. Kedai, stan, tenda` (`GALAT_13C_JADI` di `inti/config.py`) lalu membaca ulang ringkasannya. Galatnya berkurang → dipertahankan; tidak berkurang → 13c dikembalikan ke jawaban semula, jadi baris yang galatnya bukan soal 13c tidak ikut berubah. Keduanya dicatat di `review_disarankan`. Galat lain tetap tidak pernah ditebak.
+| 13c tempat usaha | `4. Toko, ruko, dan sejenisnya`; usaha makan-minum (KBLI golongan 56) `5. Kedai, stan, tenda` |
 | 16c teknologi digital | `2. Tidak` (hanya dirender kalau 16a = Ya) |
 | 17a produksi ramah lingkungan | `3. Tidak sama sekali` |
 | 18 produk seni | `2. Tidak` |
@@ -43,6 +41,16 @@ Kalau ringkasan pra-kirim masih menyisakan GALAT yang tidak dikenali, skrip **me
 | 29 kepemilikan modal | pribadi 100% |
 | Blok/Nomor Rumah | `-` |
 | Nama pemberi informasi | `Lainnya` |
+
+Default 13c dibedakan untuk usaha makan-minum karena form menolak kode 1–4 di situ
+("Usaha Makan Minum, maka lokasi hanya bisa diisi kode 5-11"): default lama membuat
+8 dokumen KBLI golongan 56 terbuat lalu nyangkut DRAFT ber-GALAT pada 22–23 Sep 2026.
+
+Kalau ringkasan pra-kirim masih menyisakan GALAT yang tidak dikenali, skrip **mencoba**
+mengganti 13c jadi `5. Kedai, stan, tenda` (`GALAT_13C_JADI` di `inti/config.py`) lalu
+membaca ulang ringkasannya. Galatnya berkurang → dipertahankan; tidak berkurang → 13c
+dikembalikan ke jawaban semula, jadi baris yang galatnya bukan soal 13c tidak ikut berubah.
+Keduanya dicatat di `review_disarankan`. Galat lain tetap tidak pernah ditebak.
 
 **Kalau satu baris perlu jawaban lain, tambahkan kolomnya di Excel** —
 nilai kolom sheet SELALU menang atas default. Judul kolom yang dikenali ada

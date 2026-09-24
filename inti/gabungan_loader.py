@@ -60,6 +60,37 @@ MAKS_8B = 50
 # 12c Umur: GALAT "Wajib terisi 10-99" (run live 2026-09-14, Agenda1-1.xlsx
 # berisi umur 0 di SEMUA baris -> tiap baris jadi DRAFT yang tak bisa dikirim).
 UMUR_MIN, UMUR_MAKS = 10, 99
+# 13c "Di mana usaha tersebut biasa dilakukan?": usaha makan-minum hanya boleh
+# memakai kode 5-11 ("Kedai, stan, tenda" .. "Daring") — GALAT form "Usaha Makan
+# Minum, maka lokasi hanya bisa diisi kode 5-11". Terjadi 8x di audit gabungan
+# 22-23 Sep 2026, SEMUANYA KBLI golongan 56 (56102 warung nasi/soto, 56304 kedai
+# minuman) dgn 13c sheet berkode 1-4. Dokumen sudah terbuat lalu nyangkut DRAFT
+# ber-GALAT, jadi lebih murah dicegat di cek offline.
+LOKASI_MAMIN_MIN = 5
+# 26a "Total upah dan gaji, serta jaminan sosial pegawai" vs 24a2 (pekerja
+# dibayar) — dua aturan file-validation `gaji` yang sama-sama muncul di audit
+# 23 Sep 2026:
+#   24a2 = 0  -> 26a WAJIB 0    (GALAT "Wajib terisi = 0, karena jumlah pekerja
+#                                dibayar=0"; 3x — baris 1761/1762/1766)
+#   24a2 > 0  -> 26a/24a2 WAJIB > Rp 50.000 (GALAT "Nilai R26a/R24a2 wajib >
+#                                Rp 50.000 jika R24a2 (pekerja dibayar) > 0"; 1x
+#                                — baris 1680)
+# Aturan kedua sudah lama disebut di catatan KOREKSI_PEKERJA, tapi belum pernah
+# diperiksa. Keduanya murni soal isian sheet: gaji/pekerja dibayar harus
+# dibetulkan di Excel, jalan ulang tidak menolong.
+GAJI_MIN_PER_PEKERJA_DIBAYAR = 50_000
+# 13g: form menolak KBLI yang kategorinya P atau U — GALAT "Kategori tidak boleh
+# berisi P atau U" (2x di audit 23 Sep 2026, baris 1490 KBLI 98100; log yang sama
+# mencatat 13h terbaca "kategori U" utk kode itu). Kategori P & U bukan usaha yang
+# dicakup SE2026, jadi KBLI barisnya yang salah — harus dibetulkan di Excel.
+# Daftar di bawah HANYA golongan yang sudah terbukti/kategorinya tidak ambigu:
+#   85 -> P (Pendidikan)
+#   98 -> dibaca form sbg U (TERBUKTI live: KBLI 98100 ditolak)
+#   99 -> U (Aktivitas badan internasional)
+# Golongan 97 SENGAJA tidak dimasukkan: KBLI 2020 menaruhnya di kategori T
+# bersama 98, tapi kita belum punya bukti bagaimana form membacanya — lebih baik
+# lolos cek offline drpd men-skip baris yang sebenarnya sah.
+KBLI_GOLONGAN_KATEGORI_DITOLAK = {"85": "P", "98": "U", "99": "U"}
 
 # key internal -> AWALAN judul kolom (sesudah _norm_judul). Key sengaja
 # disamakan dgn dataKey fasih-web kalau ada padanannya, supaya fill_gabungan
@@ -192,6 +223,26 @@ def kbli_punya_30c(kbli: str) -> bool:
     if k in ("66125", "64994", "61209"):
         return True
     return k[:2] in ("45", "46", "47") and k not in ("46100", "47901", "47909")
+
+
+def kbli_makan_minum(kbli: str) -> bool:
+    """KBLI golongan 56 (penyediaan makanan & minuman) — dasar aturan 13c
+    "Usaha Makan Minum" (lihat LOKASI_MAMIN_MIN). KBLI kosong -> False."""
+    return bool(kbli) and kbli[:2] == "56"
+
+
+def kbli_kategori_ditolak(kbli: str) -> str:
+    """Kategori form ("P"/"U") kalau KBLI ini ditolak rincian 13g, "" kalau tidak.
+    KBLI kosong -> "" (tidak menebak). Lihat KBLI_GOLONGAN_KATEGORI_DITOLAK."""
+    return KBLI_GOLONGAN_KATEGORI_DITOLAK.get((kbli or "")[:2], "")
+
+
+def kode_opsi(nilai: str) -> int | None:
+    """Angka di depan opsi form ("10. Keliling" -> 10), None kalau tidak ada.
+    Perbandingan kode WAJIB numerik: startswith("5") salah utk "11. Daring"."""
+    m = re.match(r"\s*(\d+)\s*\.", nilai or "")
+    return int(m.group(1)) if m else None
+
 
 YA_TIDAK = ("1. Ya", "2. Tidak")
 
@@ -936,6 +987,21 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         if nilai not in opsi:
             salah(("OPSI_TIDAK_ADA_DI_FORM", f"{key}='{nilai}' bukan salah satu opsi form (lihat OPSI_FORM)"))
 
+    # 13c usaha makan-minum: hanya kode 5-11. Dicek dari 13b2 = Ya ATAU KBLI
+    # golongan 56 — audit 22-23 Sep 2026 selalu punya keduanya, tapi form bisa
+    # menyimpulkan "makan minum" dari salah satunya saja, jadi keduanya dipakai.
+    kode_13c = kode_opsi(row["lokasi_usaha"])
+    mamin = row["layanan_mamin"].startswith("1") or kbli_makan_minum(row["kbli"])
+    if mamin and kode_13c is not None and kode_13c < LOKASI_MAMIN_MIN:
+        sebab = "13b2 = Ya" if row["layanan_mamin"].startswith("1") else f"KBLI {row['kbli']} golongan 56"
+        salah(("13C_MAMIN_BUKAN_5_11",
+               f"13c '{row['lokasi_usaha']}' berkode {kode_13c} tapi usaha makan-minum ({sebab}): form "
+               f"hanya menerima kode {LOKASI_MAMIN_MIN}-11 — perbaiki 13c di sheet"))
+    if kat_ditolak := kbli_kategori_ditolak(row["kbli"]):
+        salah(("KBLI_KATEGORI_DITOLAK",
+               f"KBLI {row['kbli']} masuk kategori {kat_ditolak}: form menolak 13g dgn 'Kategori tidak boleh "
+               f"berisi P atau U' — pilih KBLI usaha yang sesuai di sheet, bukan kategori {kat_ditolak}"))
+
     tidak_valid = [k for k in (*KEY_PEKERJA, *KEY_26, *KEY_27, "pendapatan_online", *KEY_28, *KEY_29, "umur",
                                *KEY_JUMLAH_19_20)
                    if row[k] and not _bulat(row[k])]
@@ -962,18 +1028,48 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         else:
             salah(("WILAYAH_TIDAK_KONSISTEN", pesan))
 
+    # Varian bulanan (30-33) = usaha mulai beroperasi TAHUN BERJALAN (ec_usaha_bulan
+    # template: tahun_operasi == 2026). Minimal totalnya 10.000, bukan 100.000.
+    bulanan = (row.bulanan_dari_kolom and row["tahun_operasi"].isdigit()
+               and row.angka("tahun_operasi") == tahun_berjalan)
+
     if all(row[k] for k in KEY_PEKERJA):
         l, p, d, td = (row.angka(k) for k in KEY_PEKERJA)
         if l + p != d + td:
             salah(("PEKERJA_24_TIDAK_KONSISTEN",
                    f"24a1+24b1={l + p} (laki {l}, perempuan {p}) != 24a2+24b2={d + td} "
                    f"(dibayar {d}, tidak dibayar {td})"))
+        # 24c1 "Cek konsistensi jenis kelamin pengusaha" (GALAT 22 Sep 2026 baris 77):
+        # dugaan terkuatnya pengusaha ikut dihitung di 24, jadi kolom 24 sesuai jenis
+        # kelaminnya (12b) tidak boleh 0. TANDA, BUKAN skip — sengaja: pola 24 laki 0 +
+        # perempuan 2 ada di 123 baris Agenda1-1/Agenda2 (lihat KOREKSI_PEKERJA) dan
+        # ratusan baris sejenis TERKIRIM tanpa GALAT ini, sementara GALAT-nya cuma
+        # muncul 1x dari ~6.600 baris audit. Men-skip semuanya berdasarkan satu bukti
+        # jelas lebih mahal drpd menampilkannya utk ditinjau.
+        kode_jk = kode_opsi(row["jk"])
+        if l + p >= 1 and kode_jk in (1, 2):
+            punya, label = ((l, "24a1 (pekerja laki-laki)") if kode_jk == 1
+                            else (p, "24b1 (pekerja perempuan)"))
+            if punya == 0:
+                hasil.tanda.append(
+                    f"12b '{row['jk']}' tapi {label}=0 dari 24c1={l + p} — form PERNAH menolak pola ini "
+                    f"('Cek konsistensi jenis kelamin pengusaha', 1x 22 Sep 2026); cek 24/12b di sheet "
+                    f"kalau dokumen ini nanti ber-GALAT")
+        # 26a vs 24a2 (dua aturan file-validation `gaji`) — lihat GAJI_MIN_PER_PEKERJA_DIBAYAR.
+        if row["gaji"]:
+            gaji = row.angka("gaji")
+            r26a = "30a" if bulanan else "26a"
+            if d == 0 and gaji != 0:
+                salah(("26A_HARUS_0_TANPA_PEKERJA_DIBAYAR",
+                       f"{r26a}={gaji:,} padahal 24a2 (pekerja dibayar)=0: form mewajibkan {r26a}=0 — "
+                       f"betulkan {r26a} atau 24a2 di sheet"))
+            elif d > 0 and gaji // d <= GAJI_MIN_PER_PEKERJA_DIBAYAR:
+                salah(("26A_PER_PEKERJA_DI_BAWAH_MINIMAL",
+                       f"{r26a}/24a2 = {gaji:,}/{d} = {gaji // d:,} <= Rp {GAJI_MIN_PER_PEKERJA_DIBAYAR:,}: "
+                       f"form mewajibkan > Rp {GAJI_MIN_PER_PEKERJA_DIBAYAR:,} kalau 24a2 > 0 — "
+                       f"betulkan {r26a} atau 24a2 di sheet"))
     if all(row[k] for k in KEY_29) and sum(row.angka(k) for k in KEY_29) != 100:
         salah(("MODAL_29_BUKAN_100", f"jumlah 29a-29f = {sum(row.angka(k) for k in KEY_29)}"))
-    # Varian bulanan (30-33) = usaha mulai beroperasi TAHUN BERJALAN (ec_usaha_bulan
-    # template: tahun_operasi == 2026). Minimal totalnya 10.000, bukan 100.000.
-    bulanan = (row.bulanan_dari_kolom and row["tahun_operasi"].isdigit()
-               and row.angka("tahun_operasi") == tahun_berjalan)
     minimal, r_peng, r_pend = ((MINIMAL_TOTAL_RUPIAH_BULANAN, "30f", "31c") if bulanan
                                else (MINIMAL_TOTAL_RUPIAH, "26f", "27c"))
     if all(row[k] for k in KEY_26) and sum(row.angka(k) for k in KEY_26) < minimal:

@@ -101,12 +101,20 @@ form atau batasan skrip:
   skip; mode satu subsls: hanya tanda review);
 - 12c umur 10–99; 24a1+24b1 = 24a2+24b2; 29a–29f berjumlah 100; 26f & 27c minimal 100.000;
   27d ≤ 100;
+- 26a vs 24a2 (pekerja dibayar): 24a2 = 0 → 26a wajib 0; 24a2 > 0 → 26a/24a2 wajib > Rp 50.000;
 - 8b maksimal 50 karakter; Nama Jalan minimal 10 huruf;
 - 16a Ya → minimal satu 16b Ya; 13b1 Ya → 13d & 13e terisi; KBLI B–F/56 → 26c = 0;
+- usaha makan-minum (13b2 Ya atau KBLI golongan 56) → 13c hanya kode 5–11;
+- 13g KBLI tidak boleh berkategori P atau U (golongan 85/98/99) — form menolaknya;
 - tahun operasi < tahun berjalan (usaha yang mulai tahun ini memakai rincian 30–33 bulanan,
   **belum didukung**);
 - nama dokumen tidak saling memuat antarbaris (pencarian dokumen bisa salah buka), baris ganda;
 - mode murni: nama BUMDES wajib badan usaha `6. BUM Desa`; 8b tidak boleh diawali `CV`.
+
+Satu aturan form sengaja hanya jadi **tanda review**, bukan `SKIP_DATA_`: 24c1 "Cek
+konsistensi jenis kelamin pengusaha" (kolom 24 sesuai 12b tidak boleh 0). GALAT itu baru
+muncul 1x dari ~6.600 baris audit, sementara pola yang memicunya ada di ratusan baris yang
+justru TERKIRIM — men-skip semuanya lebih mahal daripada menampilkannya untuk ditinjau.
 
 ---
 

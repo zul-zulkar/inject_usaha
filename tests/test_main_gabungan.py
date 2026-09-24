@@ -4,6 +4,7 @@ dokumen per kunci utk mencegah duplikat) & pembagian sesi login.
 Jalankan: python tests/test_main_gabungan.py
 """
 import csv
+import datetime
 import sys
 import tempfile
 from pathlib import Path
@@ -287,15 +288,24 @@ teks = mg.ringkas_tanpa_url(laporan)
 check("laporan menyebut baris, nama dokumen & jamnya",
       all(x in teks for x in ("77", "WARUNG TANPA URL", "23:10:00", "51080")), True)
 # --- "dokumen apa yang terbuat di sana": dibaca dari list server, hanya DILAPORKAN ---
+# dateCreated ditulis dgn OFFSET MESIN INI, bukan "+08:00" mati: jam_dokumen()
+# memakai astimezone() (zona PC yang menjalankan skrip, sama dgn zona timestamp
+# audit), jadi fixture ber-offset tetap bikin uji ini jatuh di PC non-WITA —
+# padahal README menjanjikan hasil uji sama di komputer mana pun.
+def _iso(lokal: str) -> str:
+    """"YYYY-MM-DD HH:MM:SS" waktu lokal -> ISO ber-offset lokal (spt list API)."""
+    return datetime.datetime.strptime(lokal, "%Y-%m-%d %H:%M:%S").astimezone().isoformat()
+
+
 _list = [
     {"id": "aaa", "data1": "WARUNG LAMA", "assignmentStatusAlias": "DRAFT",
-     "dateCreated": "2026-09-23T14:00:00+08:00"},
+     "dateCreated": _iso("2026-09-23 14:00:00")},
     {"id": "bbb", "data1": "", "assignmentStatusAlias": "DRAFT",
-     "dateCreated": "2026-09-23T23:11:00+08:00"},
+     "dateCreated": _iso("2026-09-23 23:11:00")},
     {"id": "ccc", "data1": "SUDAH KIRIM", "assignmentStatusAlias": "SUBMITTED BY Pencacah",
-     "dateCreated": "2026-09-23T23:12:00+08:00"},
+     "dateCreated": _iso("2026-09-23 23:12:00")},
     {"id": "ddd", "data1": "TERCATAT", "assignmentStatusAlias": "DRAFT",
-     "dateCreated": "2026-09-23T23:13:00+08:00"},
+     "dateCreated": _iso("2026-09-23 23:13:00")},
 ]
 _asing = mg.dokumen_asing(_list, {"ddd"}, sejak="2026-09-23 23:10:00")
 check("cuma DRAFT baru yang belum tercatat yang dilaporkan",

@@ -235,6 +235,23 @@ cek("26b = 26b + 26c", r56["biaya_produksi"], "11500000")
 cek("26c jadi 0", r56["biaya_pembelian"], "0")
 cek("gol 56 + 26c dipindah -> SIAP", periksa_semua_tahap2([r56])[2].status, "SIAP")
 cek("kategori G -> 26c tetap", tulis([baris()])[0]["biaya_pembelian"], "10500000")
+
+from inti.config import DEFAULT_13C_TEMPAT_USAHA, GALAT_13C_JADI  # noqa: E402
+
+# 13c tidak ada di kuesioner tahap 2 -> TAHAP2_DEFAULT. Default "4. Toko, ruko"
+# PASTI ditolak form utk usaha makan-minum ("lokasi hanya bisa diisi kode 5-11",
+# 8 GALAT 22-23 Sep 2026) -> gol. 56 memakai GALAT_13C_JADI sejak dari loader.
+cek("gol 56 -> 13c default kode 5, bukan kode 4", r56["lokasi_usaha"], GALAT_13C_JADI)
+cek("gol 56 -> alasannya dicatat sbg asumsi",
+    any("makan-minum" in c for c in r56.koreksi), True)
+cek("non makan-minum tetap default lama", tulis([baris()])[0]["lokasi_usaha"], DEFAULT_13C_TEMPAT_USAHA)
+_f13c = Path(tempfile.mkdtemp()) / "tahap2_13c.csv"
+with _f13c.open("w", newline="", encoding="utf-8") as _fh:
+    _w = csv.writer(_fh)
+    _w.writerow([*JUDUL, "13c"])
+    _w.writerow([*baris(**{"Kode KBLI": "56304"}), "9"])
+cek("kolom 13c sheet tetap menang atas default",
+    load_tahap2(_f13c)[0]["lokasi_usaha"], "9. Restoran, warung makan, dan sejenisnya")
 cek("gol 56 & 26b+26c = 0 -> 26B_HARUS_LEBIH_0",
     periksa_semua_tahap2(tulis([baris(**{"Kode KBLI": "56304", "26c": "Rp0", "Rp26": "",
                                          "26d": "Rp200.000"})]))[2].status, "SKIP_DATA_26B_HARUS_LEBIH_0")
