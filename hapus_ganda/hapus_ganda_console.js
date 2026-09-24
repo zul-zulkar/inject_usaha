@@ -348,10 +348,14 @@
     }
   }
 
-  /** Detail satu dokumen; galat sementara ditunggu & diulang, 401/403 -> Berhenti (sejajar
-   *  hapusSatu(): 403 di API admin ini berarti sesi/akses ditolak, bukan "dokumen sudah tidak
-   *  ada" — kalau dibiarkan lolos ke nilaiDetail, SEMUA dokumen jadi TIDAK_TERBACA diam-diam
-   *  alih-alih batch berhenti dgn pesan jelas). */
+  /** Detail satu dokumen; galat sementara ditunggu & diulang. 401 -> Berhenti (jelas: sesi habis).
+   *  403 di get-by-assignment-id DUA ARTI berbeda (dibedakan dari body, dibuktikan 2026-09-24):
+   *  - body ADA isi (mis. "Invalid CSRF Token", lihat buka_wilayah_console.js) -> sesi/CSRF
+   *    beneran ditolak -> Berhenti, jangan lanjut menebak-nebak dokumen lain.
+   *  - body KOSONG -> dokumen ini sendiri yang sudah tidak ada/di luar akses (mis. sudah
+   *    dihapus manual duluan) -> BUKAN soal sesi; lolos ke nilaiDetail spt HTTP lain (ada:false,
+   *    TIDAK_TERBACA), grup lain tetap diperiksa. Memperlakukan ini sbg Berhenti membuat cek()
+   *    berhenti total di dokumen basi pertama dari daftar_ganda.csv yang belum disegarkan. */
   async function bacaDetail(id) {
     const url = `/assignment-general/api/assignment/get-by-assignment-id?assignmentId=${encodeURIComponent(id)}`;
     for (let ke = 0; ; ke++) {
@@ -364,8 +368,8 @@
         await tidur(t);
         continue;
       }
-      if (r.status === 401 || r.status === 403) {
-        throw new Berhenti("SESI_DITOLAK", `detail HTTP ${r.status} — login ulang fasih-sm (akun admin, XSRF-TOKEN segar)`);
+      if (r.status === 401 || (r.status === 403 && String(r.teks || "").trim())) {
+        throw new Berhenti("SESI_DITOLAK", `detail HTTP ${r.status} — login ulang fasih-sm (akun admin, XSRF-TOKEN segar): ${String(r.teks || "").slice(0, 150)}`);
       }
       let j = null;
       try { j = JSON.parse(r.teks); } catch (e) { /* bukan JSON: dianggap tidak terbaca */ }

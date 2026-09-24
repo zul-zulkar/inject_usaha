@@ -65,6 +65,12 @@ Setiap dokumen dibaca detailnya dari server, lalu diputuskan:
 | `BUKAN_PAPI`    | mode CAPI/CAWI atau mode tidak terbaca — tidak disentuh                                                                                   |
 | `TIDAK_TERBACA` | detail tidak terbaca (mungkin sudah dihapus)                                                                                               |
 
+`TIDAK_TERBACA` termasuk dokumen yang sudah Anda hapus manual sebelum menjalankan `cek()`
+(server menjawab 403 tanpa pesan untuk assignment yang sudah tidak ada — beda dari 403 sesi/CSRF
+yang selalu disertai pesan, lihat tabel "Kalau berhenti"). Kalau Anda sering menghapus manual
+di sela-sela menjalankan skrip ini, `daftar_ganda.csv` cepat basi — jalankan ulang
+`gabung_audit.py` sebelum `hapus_ganda.py` supaya daftarnya segar.
+
 Aturan memilih yang dipertahankan (ketetapan 2026-09-24):
 
 | Grup                  | Yang dihapus                                                                                                                                                                  |
@@ -163,5 +169,5 @@ python input_gabungan/sinkron_list.py --format tahap2 --sumber bahan/input_tahap
 | `LIMIT_PERTAMA`               | penghapusan skrip pertama wajib`limit: 1`          | jalankan dengan`limit: 1` dulu                             |
 | `DIHAPUS_BELUM_TERVERIFIKASI` | server menjawab sukses tapi dokumennya masih terbaca | cek dokumen itu di tabel; jangan lanjut sebelum jelas        |
 | `PEMBANDING_HILANG`           | dokumen yang dipertahankan ikut tidak terbaca        | cek sesi login / dokumen itu                                 |
-| `SESI_DITOLAK`                | sesi habis, atau HTTP 403 (bukan admin / XSRF-TOKEN basi) | login ulang (akun **admin**), reload halaman Data biar cookie XSRF-TOKEN segar, tempel ulang skrip (hasil tersimpan di browser) |
+| `SESI_DITOLAK`                | sesi habis (401), atau 403 **dengan pesan** (mis. "Invalid CSRF Token") | login ulang (akun **admin**), reload halaman Data biar cookie XSRF-TOKEN segar, tempel ulang skrip (hasil tersimpan di browser) |
 | `HALAMAN_SALAH`               | bukan halaman Data survei yang benar                 | buka`.../data` survei & periode yang sama                  |
