@@ -48,3 +48,12 @@ audit_*.csv
 !templates/**
 templates/**/__pycache__/
 .claude.zip
+
+# --- Cadangan audit (gabung_audit --tulis membuat audit_log_gabungan.csv.bak-<waktu>) ---
+*.bak-*
+
+# --- Catatan perintah pribadi (berisi email akun PPL) ---
+run_*.txt
+
+# --- Arsip (hasil bungkus_pc.py, salinan .git, dll) ---
+*.zip

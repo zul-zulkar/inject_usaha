@@ -7,26 +7,82 @@ standar) dan `PANDUAN_GABUNG_AUDIT.md` (menyatukan hasil antar-PC).
 
 ## 1. Siapkan PC (sekali saja)
 
-```bash
-pip install playwright
-playwright install chromium
-```
+Cara termudah: bungkus seluruh proyek di PC utama jadi **satu zip ringan**, lalu
+extract di PC tujuan.
+
+### 1a. Di PC utama — buat zip
+
+Lihat dulu apa saja yang ikut & ukurannya (tidak membuat apa pun):
 
 ```bash
-copy templates\config_lokal.contoh.py inti\config_lokal.py
+python bungkus_pc/bungkus_pc.py --daftar
 ```
 
-Isi `inti/config_lokal.py`: `FIXED_PASSWORD`, `KODE_KAB`, dan (kalau perlu)
-`KODEPOS_BY_IDSUBSLS`. Tanpa password, skrip berhenti sendiri — tidak pernah
-menebak.
+Buat zip-nya:
 
-Salin **tiga berkas** dari PC utama ke folder proyek:
+```bash
+python bungkus_pc/bungkus_pc.py
+```
 
-| Berkas | Taruh di | Kenapa |
-| --- | --- | --- |
-| `bahan/input_tahap2.xlsx` | `bahan/` | data yang diinput |
-| `audit_log_gabungan.csv` | root proyek | ingatan anti-duplikat; tanpa ini dokumen bisa dibuat dua kali |
-| `inti/config_lokal.py` | `inti/` | boleh disalin utuh dari PC lain |
+Hasilnya `split_usaha_pc_<tanggal-jam>.zip` di folder proyek (±8 MB; folder
+aslinya ratusan MB karena cache & profil browser).
+
+| Ikut | Tidak ikut |
+| --- | --- |
+| semua kode, `docs/`, `templates/`, `tests/` | cache: `__pycache__/`, `.git/`, `*.zip`, `.claude/` |
+| `bahan/`, `Agenda*.xlsx`, `export/` & data kerja lain | sesi & profil browser (`.profil_*`, `.sesi_*`) — login ulang di PC tujuan |
+| `inti/config_lokal.py` (password, kodepos) | log & screenshot |
+| audit lain (`audit_approve_pml.csv`, `audit_log.csv`) | **`audit_log_gabungan.csv`** (+ `.bak-*`, `audit_pc/`) |
+| | laporan yang bisa dibuat ulang (`cek_gabungan.csv`, `rangkum_audit.csv`, `*.siap.js`, `list_api_*.json`, …) |
+
+⚠️ Zip ini berisi **data responden dan password**. Pindahkan lewat flashdisk atau
+drive kantor — jangan diunggah ke tempat publik.
+
+**Kenapa `audit_log_gabungan.csv` tidak ikut:** kalau ikut, meng-extract zip di
+PC yang sudah pernah bekerja akan **menimpa audit PC itu** — catatan dokumen yang
+sudah dibuatnya hilang, lalu dokumennya dibuat dua kali (dan PPL tidak bisa
+menghapus dokumen). Audit dipindah lewat langkah 1c & bagian 5, bukan lewat zip.
+
+### 1b. Di PC tujuan — extract & pasang
+
+1. Extract zip-nya: klik kanan → **Extract All** → pilih `D:\`. Hasilnya folder
+   `D:\split_usaha`. Atau lewat PowerShell:
+
+   ```powershell
+   Expand-Archive -Path split_usaha_pc_XXXX.zip -DestinationPath D:\ -Force
+   ```
+
+   Kalau PC itu **sudah punya** folder proyek, extract saja ke tempat yang sama:
+   kode & bahan diperbarui, `audit_log_gabungan.csv` milik PC itu tidak disentuh.
+
+2. Pasang pustaka (sekali per PC; butuh Python):
+
+   ```bash
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
+
+3. Masuk ke folder proyek dan pastikan semuanya jalan (tanpa VPN, beberapa detik):
+
+   ```bash
+   python tests/jalankan_semua.py
+   ```
+
+`inti/config_lokal.py` sudah ikut di zip, jadi tidak perlu disalin dari templat.
+(Kalau memasang dari GitHub, bukan dari zip: `copy templates\config_lokal.contoh.py inti\config_lokal.py`,
+lalu isi `FIXED_PASSWORD`, `KODE_KAB`, dan kalau perlu `KODEPOS_BY_IDSUBSLS`. Tanpa
+password, skrip berhenti sendiri — tidak pernah menebak.)
+
+### 1c. Audit di PC tujuan
+
+| Keadaan PC tujuan | Yang dilakukan |
+| --- | --- |
+| sudah punya `audit_log_gabungan.csv` sendiri | biarkan. Disatukan nanti lewat bagian 5 |
+| PC baru, belum pernah input | salin **satu berkas** `audit_log_gabungan.csv` terbaru dari PC utama ke folder proyek — terpisah dari zip. Ini ingatan anti-duplikatnya |
+
+Kalau audit terbaru tidak bisa disalin, `--sinkron-dulu` di perintah bagian 3
+tetap membaca daftar dokumen server untuk akun yang dipakai sebelum mulai, jadi
+dokumen akun itu yang sudah ada dikenali, bukan dibuat ulang.
 
 Terakhir: **VPN kantor harus aktif**, dan jangan jalankan headless (ditolak).
 
