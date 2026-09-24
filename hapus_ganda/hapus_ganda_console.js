@@ -348,7 +348,10 @@
     }
   }
 
-  /** Detail satu dokumen; galat sementara ditunggu & diulang, 401 -> Berhenti. */
+  /** Detail satu dokumen; galat sementara ditunggu & diulang, 401/403 -> Berhenti (sejajar
+   *  hapusSatu(): 403 di API admin ini berarti sesi/akses ditolak, bukan "dokumen sudah tidak
+   *  ada" — kalau dibiarkan lolos ke nilaiDetail, SEMUA dokumen jadi TIDAK_TERBACA diam-diam
+   *  alih-alih batch berhenti dgn pesan jelas). */
   async function bacaDetail(id) {
     const url = `/assignment-general/api/assignment/get-by-assignment-id?assignmentId=${encodeURIComponent(id)}`;
     for (let ke = 0; ; ke++) {
@@ -361,7 +364,9 @@
         await tidur(t);
         continue;
       }
-      if (r.status === 401) throw new Berhenti("SESI_DITOLAK", `detail HTTP 401 — login ulang fasih-sm`);
+      if (r.status === 401 || r.status === 403) {
+        throw new Berhenti("SESI_DITOLAK", `detail HTTP ${r.status} — login ulang fasih-sm (akun admin, XSRF-TOKEN segar)`);
+      }
       let j = null;
       try { j = JSON.parse(r.teks); } catch (e) { /* bukan JSON: dianggap tidak terbaca */ }
       return nilaiDetail({ status: r.status, j, teks: r.teks });
