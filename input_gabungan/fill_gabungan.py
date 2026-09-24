@@ -26,7 +26,8 @@ from inti.config import (
 from inti.fasih_web import FasihWebSession, FieldNotFound
 from inti.fill_blok2 import read_kategori_lapangan_usaha
 from inti.gabungan_loader import (
-    KEY_16B, KEY_26, KEY_29, KEY_PEKERJA, OPSI_FORM, GabunganRow, lengkapi_13a,
+    KEY_16B, KEY_26, KEY_29, KEY_PEKERJA, OPSI_FORM, GabunganRow, judul_dari_opsi_kbli, kbli_kategori_ditolak,
+    lengkapi_13a,
 )
 
 
@@ -50,6 +51,68 @@ PETA_BULANAN_33 = dict(zip(KEY_29, ("pribadi_didirikan", "nonprofit_didirikan", 
                                     "korporasi_nonpublik_didirikan", "pemerintah_didirikan", "asing_didirikan")))
 
 
+def isi_13de(sess: FasihWebSession, row: GabunganRow, judul_kbli: str = "") -> None:
+    """13d/13e (input & proses produksi) muncul kalau 13b1 = Ya. dataKey sisi
+    fasih-web belum terpetakan -> dicari lewat label (sama dgn fill_blok2).
+    Kolom sheet kosong: baris tahap 2 yang 13b-nya baru disesuaikan dgn KBLI GenAI
+    memakai judul KBLI terpilih (TAHAP2_13DE_DARI_KBLI); selain itu berhenti."""
+    for pola, key, nama in ((r"^13\.\s*d\.", "input_produksi", "13d"),
+                            (r"^13\.\s*e\.", "proses_produksi", "13e")):
+        if not sess.datakey_by_label(pola):
+            continue
+        nilai = row[key]
+        if not nilai and judul_kbli and row.b13_dari_kbli:
+            from inti.config import TAHAP2_13DE_DARI_KBLI
+            from inti.tahap2_loader import isian_13de_dari_kbli
+            if TAHAP2_13DE_DARI_KBLI:
+                nilai = isian_13de_dari_kbli(judul_kbli, row["keg_utama"])[0 if key == "input_produksi" else 1]
+        if not nilai:
+            raise BarisPerluManual("13DE_KOSONG", f"{nama} dirender tapi kolom '{nama}' di sheet kosong.")
+        sess.isi_bersyarat_by_label(pola, nilai, nama)
+
+
+def pilih_kbli_genai(sess: FasihWebSession, row: GabunganRow, asumsi: list[str]) -> str:
+    """13g utk KBLI sheet yang ditolak form (kategori P/U): rekomendasi GenAI
+    pertama (KBLI_DITOLAK_PAKAI_GENAI) -> judul KBLI terpilih.
+
+    Baris tahap 2 menurunkan 13b1-b3 dari golongan KBLI SHEET — yang salah itu.
+    Radio 13b ada DI ATAS 13g, jadi 13b disamakan dgn golongan KBLI terpilih
+    SESUDAHNYA; perubahan 13b bisa me-reset 13g, maka rekomendasi dipilih ulang
+    (sekali). Masih tidak sejalan -> BarisPerluManual, tidak ditebak lagi."""
+    from inti.tahap2_loader import rencana_13b
+    kode, kategori, label = sess.pilih_kbli_genai_pertama()
+    asumsi.append(f"KBLI sheet {row['kbli']} (kategori {kbli_kategori_ditolak(row['kbli'])}) ditolak form -> "
+                  f"13g rekomendasi GenAI: {label[:90]}")
+    if not row.b13_dari_kbli:
+        return judul_dari_opsi_kbli(label)
+    sekarang = {k: row[k] for k in ("produk_sendiri", "layanan_mamin", "keg_penjualan")}
+    for percobaan in (1, 2):
+        target = rencana_13b(kode)
+        beda = [k for k in target if target[k] != sekarang[k]]
+        if not beda:
+            return judul_dari_opsi_kbli(label)
+        if percobaan == 2:
+            raise BarisPerluManual("KBLI_GENAI_13B_BEDA",
+                                   f"13b tidak sejalan dgn KBLI GenAI {kode} setelah disesuaikan: {beda}")
+        for k in beda:
+            if sess.komponen_ada(k, timeout_ms=4000):
+                sess.select_radio_by_datakey(k, target[k])
+            sekarang[k] = target[k]
+        asumsi.append(f"13b disesuaikan dgn golongan KBLI GenAI {kode}: "
+                      + ", ".join(f"{k} {target[k]}" for k in beda))
+        kode, kategori, label = sess.pilih_kbli_genai_pertama()
+    return judul_dari_opsi_kbli(label)
+
+
+def gabung_26c_ke_26b(row: GabunganRow, asumsi: list[str]) -> None:
+    """26c/30c tidak dirender untuk KBLI yang baru diketahui saat pengisian (13g
+    GenAI) -> 26c dijumlahkan ke 26b, sama dgn TAHAP2_26C_KE_26B yang dilakukan
+    loader utk KBLI sheet. row.v diubah (pengisian ulang tidak menjumlah dua kali)."""
+    b, c = row.angka("biaya_produksi"), row.angka("biaya_pembelian")
+    row.v["biaya_produksi"], row.v["biaya_pembelian"] = str(b + c), "0"
+    asumsi.append(f"26c {c:,} tidak dirender utk KBLI GenAI -> dijumlahkan ke 26b ({b:,} -> {b + c:,})")
+
+
 def isi_varian_bulanan(sess: FasihWebSession, row: GabunganRow, asumsi: list[str]) -> None:
     """Rincian 30-33 (usaha mulai beroperasi tahun berjalan) diisi dari kolom
     26-29 sheet APA ADANYA — ketetapan user 2026-09-22: kuesioner kertas tahap 2
@@ -58,6 +121,9 @@ def isi_varian_bulanan(sess: FasihWebSession, row: GabunganRow, asumsi: list[str
     `bulanan_dari_kolom` (format tahap 2); format standar tetap berhenti."""
     log = sess._log
     if not sess.komponen_ada("biaya_pembelian_bln", timeout_ms=4000) and row.angka("biaya_pembelian") > 0:
+        if row.kbli_genai and row.pindah_26c_ke_26b:
+            gabung_26c_ke_26b(row, asumsi)
+    if not sess.komponen_ada("biaya_pembelian_bln", timeout_ms=1000) and row.angka("biaya_pembelian") > 0:
         raise BarisPerluManual(
             "26C_TIDAK_DIRENDER",
             f"30c tidak dirender utk KBLI {row['kbli']} padahal sheet 26c={row['biaya_pembelian']}.")
@@ -153,25 +219,24 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
     if not row["produk"] and row.produk_utama:
         asumsi.append("13f disalin dari 13a")
 
-    # 13d/13e (input & proses produksi) muncul kalau 13b1 = Ya. dataKey sisi
-    # fasih-web belum terpetakan -> dicari lewat label (sama dgn fill_blok2).
-    for pola, key, nama in ((r"^13\.\s*d\.", "input_produksi", "13d"),
-                            (r"^13\.\s*e\.", "proses_produksi", "13e")):
-        if not sess.datakey_by_label(pola):
-            continue
-        if not row[key]:
-            raise BarisPerluManual("13DE_KOSONG", f"{nama} dirender tapi kolom '{nama}' di sheet kosong.")
-        sess.isi_bersyarat_by_label(pola, row[key], nama)
+    # 13d/13e (input & proses produksi) muncul kalau 13b1 = Ya.
+    isi_13de(sess, row)
 
     # 13g KBLI. Frasa cadangan = 13a; pilih() tetap memverifikasi KODE ada
     # di teks opsi sebelum mengklik, jadi frasa ini tidak bisa salah pilih.
-    sess.fill_kbli_master(row["kbli"], search_phrase_fallback=row["keg_utama"])
+    # KBLI sheet kategori P/U (ditolak form) -> rekomendasi GenAI pertama.
+    judul_genai = ""
+    if row.kbli_genai:
+        judul_genai = pilih_kbli_genai(sess, row, asumsi)
+        isi_13de(sess, row, judul_genai)   # 13b1 bisa baru jadi Ya
+    else:
+        sess.fill_kbli_master(row["kbli"], search_phrase_fallback=row["keg_utama"])
     sess.page.wait_for_timeout(500)
     kategori = read_kategori_lapangan_usaha(sess.page)
     log(f"13h Kategori Lapangan Usaha (auto) = '{kategori}'")
 
     if keg_pendek:
-        judul = row.judul_kbli or sess.judul_kbli_terpilih()
+        judul = row.judul_kbli or judul_genai or sess.judul_kbli_terpilih()
         baru = "" if row.murni else lengkapi_13a(keg, judul)
         if len(baru) < MIN_KARAKTER_13A:
             raise BarisPerluManual("13A_KURANG_15_KARAKTER",
@@ -286,6 +351,9 @@ def fill_blok2_gabungan(sess: FasihWebSession, row: GabunganRow) -> list[str]:
         log("BLOK II (varian bulanan) selesai diisi." + (f" ASUMSI: {asumsi}" if asumsi else ""))
         return asumsi
 
+    if (row.kbli_genai and row.pindah_26c_ke_26b and row.angka("biaya_pembelian") > 0
+            and not sess.komponen_ada("biaya_pembelian")):
+        gabung_26c_ke_26b(row, asumsi)
     if not sess.komponen_ada("biaya_pembelian") and row.angka("biaya_pembelian") > 0:
         # Kategori B-F & I gol.56 tidak punya 26c terpisah. Menggabungkannya
         # ke 26b adalah keputusan data, bukan urusan skrip — berhenti.

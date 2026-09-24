@@ -2104,6 +2104,105 @@ class FasihWebSession:
             return ""
         return "" if not re.match(r"^\s*\[[A-Z]\]", teks) else judul_dari_opsi_kbli(teks)
 
+    def opsi_radio(self, datakey_or_key: str) -> list[str]:
+        """Label SEMUA opsi radio sebuah komponen, urut tampil ([] kalau tidak terbaca)."""
+        try:
+            return self.komponen(datakey_or_key).first.evaluate(r"""el => {
+                const bersih = t => (t || '').replace(/\s+/g, ' ').trim();
+                return [...el.querySelectorAll('input[type=radio]')].map(c => {
+                    if (c.labels && c.labels.length) return bersih(c.labels[0].innerText);
+                    const w = c.closest('[id*="-item-"]');
+                    const l = w && w.querySelector('label');
+                    return bersih(l ? l.innerText : (w ? w.innerText : ''));
+                });
+            }""") or []
+        except Exception:
+            return []
+
+    def pilih_kbli_genai_pertama(self, tunggu_ms: int = 90_000) -> tuple[str, str, str]:
+        """Rincian 13g lewat rekomendasi GenAI (KBLI_DITOLAK_PAKAI_GENAI, ketetapan
+        user 2026-09-24) -> (kode, kategori, label opsi terpilih).
+
+        Struktur (dump kbli_setelah_pilih_master + export fasih-sm asli):
+          #genai_button  tombol "DAPATKAN REKOMENDASI KBLI"
+          #kbli_genai    radio 13g. Setelah tombol diklik, rekomendasi masuk sbg
+                         opsi "[G] 47112 Judul…" (urut skor), di samping opsi
+                         "Pilih dari Master KBLI". Memilih rekomendasi mengisi
+                         KBLI & 13h tanpa #kbli (Master).
+        Yang dipilih = rekomendasi PERTAMA; kategori P/U dilewati (pilih_opsi_genai).
+        Rekomendasi sah yang SUDAH terpilih (pengisian ulang) tidak diklik ulang."""
+        from inti.gabungan_loader import KATEGORI_KBLI_DITOLAK, opsi_kbli_genai, pilih_opsi_genai
+        comp = self._komponen_wajib("kbli_radio", timeout_ms=15_000)
+
+        def kategori_13h(tunggu: int) -> str:
+            try:
+                kat = self._visible(self.komponen("kategori_lapangan_usaha").locator("input")).first
+                kat.wait_for(state="visible", timeout=tunggu)
+                batas = time.time() + tunggu / 1000
+                while not (kat.input_value() or "").strip() and time.time() < batas:
+                    self.page.wait_for_timeout(300)
+                return (kat.input_value() or "").strip()
+            except Exception:
+                return ""
+
+        terpilih = self._label_radio_tercentang(comp) or ""
+        lama = opsi_kbli_genai(terpilih)
+        if lama and lama[0] not in KATEGORI_KBLI_DITOLAK:
+            self._log(f"  [kbli_genai] sudah '{terpilih[:80]}' — tidak dipilih ulang.")
+            return lama[1], lama[0], terpilih
+
+        def rekomendasi() -> list[str]:
+            return [o for o in self.opsi_radio("kbli_radio") if opsi_kbli_genai(o)]
+
+        if not rekomendasi():
+            tombol = self._visible(self.komponen("kbli_genai_tombol").get_by_role(
+                "button", name=re.compile(re.escape(L["kbli_genai_tombol"]), re.I))).first
+            try:
+                tombol.wait_for(state="visible", timeout=15_000)
+            except Exception:
+                self.dump("kbli_genai_tombol_tidak_ada", paksa=True)
+                self._fail(f"13g GenAI: tombol '{L['kbli_genai_tombol']}' tidak ada")
+            self.klik_tahan(tombol, "tombol DAPATKAN REKOMENDASI KBLI")
+            batas = time.time() + tunggu_ms / 1000
+            while not rekomendasi() and time.time() < batas:
+                self.page.wait_for_timeout(1000)
+        opsi = rekomendasi()
+        if not opsi:
+            self.dump("kbli_genai_tanpa_rekomendasi", paksa=True)
+            self._fail(f"13g GenAI: tidak ada rekomendasi {tunggu_ms // 1000} dtk setelah tombol diklik "
+                       f"(opsi radio: {self.opsi_radio('kbli_radio')})")
+        self._log(f"  [kbli_genai] rekomendasi: {[o[:60] for o in opsi]}")
+        # Struktur opsi GenAI di DOM belum pernah terekam live -> simpan sekali per pemakaian.
+        self.dump("kbli_genai_rekomendasi", paksa=True)
+        i, ket = pilih_opsi_genai(opsi)
+        if i < 0:
+            self._fail(f"13g GenAI: {ket}")
+        if ket:
+            self._log(f"  ⚠️ {ket}")
+        label = opsi[i]
+        kat_opsi, kode, _ = opsi_kbli_genai(label)
+        # Klik label opsi ke-N (urut DOM) — teks opsi panjang & mirip antar-rekomendasi,
+        # jadi opsinya ditandai dulu lewat indeks, bukan dicari lewat teks.
+        indeks = self.opsi_radio("kbli_radio").index(label)
+        comp.first.evaluate("""(el, n) => {
+            el.querySelectorAll('[data-pilih-genai]').forEach(x => x.removeAttribute('data-pilih-genai'));
+            const c = el.querySelectorAll('input[type=radio]')[n];
+            const w = c && (c.closest('[id*="-item-"]') || c.parentElement);
+            const l = (c && c.labels && c.labels[0]) || (w && w.querySelector('label')) || w;
+            if (l) l.setAttribute('data-pilih-genai', '1');
+        }""", indeks)
+        self.klik_tahan(comp.first.locator('[data-pilih-genai="1"]').first, f"rekomendasi GenAI {kode}")
+        tercentang = self._tunggu_radio(comp, 3_000) or ""
+        if f"{kode}" not in tercentang:
+            self.dump("kbli_genai_tidak_menempel", paksa=True)
+            self._fail(f"13g GenAI: diklik '{label[:60]}' tapi yang tercentang '{tercentang[:60]}'")
+        kat = kategori_13h(10_000)
+        self._log(f"  [kbli_genai] -> {label[:80]} | 13h '{kat}'")
+        if not kat.upper().startswith(kat_opsi):
+            self.dump("kbli_genai_13h_beda", paksa=True)
+            self._fail(f"13g GenAI: 13h '{kat}' tidak sesuai kategori rekomendasi [{kat_opsi}] {kode}")
+        return kode, kat_opsi, label
+
     def fill_kbli_master(self, kbli_code: str, search_phrase_fallback: str = "") -> bool:
         """Rincian 13g — pilih KBLI dari Master KBLI.
 

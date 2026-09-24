@@ -24,6 +24,7 @@ from inti.tahap2_loader import (
     _wilayah_dari_info, desimal_ke_titik, kodepos_untuk, load_tahap2, normalkan_hp, opsi_dari_kode,
     periksa_semua_tahap2, periksa_total, persen_ke_bulat, rencana_13b, rupiah_ke_angka,
 )
+from inti.config import MINIMAL_TOTAL_RUPIAH, TAHAP2_TAHUN_OPERASI_KOSONG_JADI, TAHAP2_UMUR_KOSONG_JADI
 
 gagal = 0
 
@@ -252,9 +253,14 @@ with _f13c.open("w", newline="", encoding="utf-8") as _fh:
     _w.writerow([*baris(**{"Kode KBLI": "56304"}), "9"])
 cek("kolom 13c sheet tetap menang atas default",
     load_tahap2(_f13c)[0]["lokasi_usaha"], "9. Restoran, warung makan, dan sejenisnya")
-cek("gol 56 & 26b+26c = 0 -> 26B_HARUS_LEBIH_0",
+_b0 = tulis([baris(**{"Kode KBLI": "56304", "26c": "Rp0", "Rp26": "", "26d": "Rp200.000"})])
+cek("gol 56 & 26b+26c = 0 -> 26d dipindah ke 26b (ketetapan 2026-09-24)",
+    (_b0[0]["biaya_produksi"], _b0[0]["operasional"], periksa_semua_tahap2(_b0)[2].status), ("200000", "0", "SIAP"))
+t2.TAHAP2_26B_NOL_AMBIL_DARI_26D = False
+cek("saklar mati: gol 56 & 26b+26c = 0 -> 26B_HARUS_LEBIH_0",
     periksa_semua_tahap2(tulis([baris(**{"Kode KBLI": "56304", "26c": "Rp0", "Rp26": "",
                                          "26d": "Rp200.000"})]))[2].status, "SKIP_DATA_26B_HARUS_LEBIH_0")
+t2.TAHAP2_26B_NOL_AMBIL_DARI_26D = True
 
 hasil = periksa_semua_tahap2(tulis([baris(**{"5": "9999999999000101"})]))
 cek_benar("kodepos tidak diketahui -> skip",
@@ -276,15 +282,29 @@ cek("tahunan: 26f/27c < 100.000 -> dinaikkan ke pos terbesar (ketetapan 2026-09-
     (_kecil[0]["biaya_pembelian"], _kecil[0]["nilai_pendapatan"], periksa_semua_tahap2(_kecil)[2].status),
     ("100000", "100000", "SIAP"))
 cek_benar("... dicatat DINAIKKAN", any("DINAIKKAN" in k for k in _kecil[0].koreksi))
-cek("total 0 (tidak ada data) TIDAK dikarang -> tetap ditolak", periksa_semua_tahap2(tulis([baris(**{
+_p0 = tulis([baris(**{"26c": "Rp0", "26d": "Rp0", "Rp26": ""})])
+cek("26f 0 -> 26d minimal (ketetapan 2026-09-24)",
+    (_p0[0]["operasional"], periksa_semua_tahap2(_p0)[2].status), ("100000", "SIAP"))
+t2.TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL = False
+cek("saklar mati: 26f 0 TIDAK dikarang -> tetap ditolak", periksa_semua_tahap2(tulis([baris(**{
     "26c": "Rp0", "26d": "Rp0", "Rp26": ""})]))[2].status, "SKIP_DATA_DI_BAWAH_MINIMAL")
+t2.TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL = True
 t2.TAHAP2_NAIKKAN_KE_MINIMAL = False
 cek("saklar mati: 26f < 100.000 ditolak", periksa_semua_tahap2(tulis([baris(**{
     "26c": "Rp20.000", "26d": "Rp0", "Rp26": "", "27a": "Rp50.000", "27c": ""})]))[2].status,
     "SKIP_DATA_DI_BAWAH_MINIMAL")
 t2.TAHAP2_NAIKKAN_KE_MINIMAL = True
-cek("bulanan kategori G + 26c 0 -> 30C_HARUS_LEBIH_0", periksa_semua_tahap2(tulis([baris(**{
+_c0 = tulis([baris(**{"25": _th, "26b": "Rp50.000", "26c": "Rp0", "26d": "Rp200.000", "Rp26": ""})])
+cek("bulanan kategori G + 30c 0 -> 30b dipindah ke 30c (ketetapan 2026-09-24)",
+    (_c0[0]["biaya_pembelian"], _c0[0]["biaya_produksi"], periksa_semua_tahap2(_c0)[2].status),
+    ("50000", "0", "SIAP"))
+_c1 = tulis([baris(**{"25": _th, "26c": "Rp0", "26d": "Rp200.000", "Rp26": ""})])
+cek("... 30b juga 0 -> pos terbesar (30d) dipindah", (_c1[0]["biaya_pembelian"], _c1[0]["operasional"]),
+    ("200000", "0"))
+t2.TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN = False
+cek("saklar mati: bulanan kategori G + 26c 0 -> 30C_HARUS_LEBIH_0", periksa_semua_tahap2(tulis([baris(**{
     "25": _th, "26c": "Rp0", "26d": "Rp200.000", "Rp26": ""})]))[2].status, "SKIP_DATA_30C_HARUS_LEBIH_0")
+t2.TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN = True
 cek("tahun operasi di masa depan -> ditolak",
     periksa_semua_tahap2(tulis([baris(**{"25": str(int(_th) + 1)})]))[2].status, "SKIP_DATA_ANGKA_TIDAK_VALID")
 t2.TAHAP2_ISI_VARIAN_BULANAN = False
@@ -558,6 +578,46 @@ for dibayar, harap in (("1", "100000"), ("3", "300000")):
     cek(f"{dibayar} pekerja dibayar -> 26a {harap}", rk["gaji"], harap)
     cek(f"{dibayar} pekerja dibayar -> tidak lagi 26A_PER_PEKERJA_DI_BAWAH_MINIMAL",
         "26A_PER_PEKERJA_DI_BAWAH_MINIMAL" in [k for k, _ in periksa_semua_tahap2([rk])[2].masalah], False)
+
+print("\n== sel kosong yang dilengkapi (ketetapan user 2026-09-24) ==")
+# Umur & tahun operasi: salin dari usaha lain PEMILIK yang sama, sisanya nilai pengganti.
+r1, r2, r3 = tulis([baris(**{"8b.": "JUAL BERAS", "12c": "", "25": ""}),
+                    baris(**{"8b.": "JUAL GAS", "12c": "34", "25": "2025"}),
+                    baris(**{"8b.": "JUAL KOPI", "12a": "PEMILIK LAIN", "12c": "", "25": ""})])
+cek("umur & tahun kosong disalin dari usaha lain pemilik yang sama",
+    (r1["umur"], r1["tahun_operasi"]), ("34", "2025"))
+cek("pemilik tanpa isian -> nilai pengganti config",
+    (r3["umur"], r3["tahun_operasi"]), (TAHAP2_UMUR_KOSONG_JADI, TAHAP2_TAHUN_OPERASI_KOSONG_JADI))
+cek_benar("nilai pengganti ditandai di koreksi", any("nilai pengganti" in k for k in r3.koreksi))
+a, b, c = tulis([baris(**{"8b.": "A", "12c": ""}), baris(**{"8b.": "B", "12c": "30"}),
+                 baris(**{"8b.": "C", "12c": "40"})])
+cek("usaha lain pemilik berbeda-beda -> nilai pengganti, tidak memilih salah satu",
+    a["umur"], TAHAP2_UMUR_KOSONG_JADI)
+# 24: satu rincian kosong, kolom total terisi -> selisihnya (baris 1383).
+(rk,) = tulis([baris(**{"24.Dibayar": "3", "24.Tidak dibayar": ""})])
+cek("24b2 kosong = total bayar - 24a2", (rk["tk_dibayar"], rk["tk_tdk_dibayar"]), ("3", "0"))
+# 27a & 27b kosong -> 27a minimal form (baris 1374/1375).
+(rp,) = tulis([baris(**{"27a": "", "27b": "", "27c": "Rp0"})])
+cek("27c 0 -> 27a minimal", (rp["nilai_pendapatan"], rp["pendapatan_lain"]), (str(MINIMAL_TOTAL_RUPIAH), "0"))
+cek("27c 0 -> tidak lagi DI_BAWAH_MINIMAL",
+    "DI_BAWAH_MINIMAL" in [k for k, _ in periksa_semua_tahap2([rp])[rp.baris].masalah], False)
+# KBLI P/U -> 13g GenAI; 26c TIDAK dipindah ke 26b (KBLI sebenarnya belum diketahui).
+(rg,) = tulis([baris(**{"Kode KBLI": "98100", "Judul KBLI": "AKTIVITAS PRODUKSI BARANG OLEH RUMAH TANGGA"})])
+cek("KBLI 98100 -> GenAI, 13b dari KBLI, 26c tetap",
+    (rg.kbli_genai, rg.b13_dari_kbli, rg["biaya_pembelian"], rg.judul_kbli), (True, True, "10500000", ""))
+cek("KBLI 98100 -> tidak di-skip KBLI_KATEGORI_DITOLAK",
+    periksa_semua_tahap2([rg])[rg.baris].status.startswith("SIAP"), True)
+
+(rw,) = tulis([baris(**{"12b": "2", "24.L": "", "24.P": "", "24.Total": "", "24.Dibayar": "",
+                        "24.Tidak dibayar": ""})])
+cek("24 kosong semua -> 1 pekerja perempuan (ikut pemilik) tidak dibayar",
+    tuple(rw[k] for k in ("tk_laki", "tk_pr", "tk_dibayar", "tk_tdk_dibayar")), ("0", "1", "0", "1"))
+(rw,) = tulis([baris(**{"24.L": "", "24.P": "", "24.Total": "", "24.Dibayar": "", "24.Tidak dibayar": "",
+                        "26a": "Rp4.800.000"})])
+cek("24 kosong semua + 26a terisi -> 1 pekerja dibayar",
+    tuple(rw[k] for k in ("tk_laki", "tk_pr", "tk_dibayar", "tk_tdk_dibayar")), ("1", "0", "1", "0"))
+(rw,) = tulis([baris(**{"16a": "1", "16b1-b6": "1", "27d": ""})])
+cek("27d kosong (16a Ya) -> 0", rw["pendapatan_online"], "0")
 
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)

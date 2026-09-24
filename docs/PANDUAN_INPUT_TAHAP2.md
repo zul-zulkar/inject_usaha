@@ -173,6 +173,15 @@ tercatat di kolom `tanda` / `review_disarankan`.
 | 24 laki+perempuan ≠ dibayar+tidak dibayar, atau 1 pekerja beda jenis kelamin dengan pemilik | seluruh pekerja = jenis kelamin pemilik, jumlahnya = dibayar + tidak dibayar | `TAHAP2_PEKERJA_IKUT_JK_PEMILIK` |
 | NIK bukan 16 digit (mis. 15 digit, `5,11E+15`) | diganti `9999` ("lainnya", sesuai pesan form) | `TAHAP2_NIK_TIDAK_VALID_JADI` |
 | Koordinat rusak (`-8.148.438` / `1.145.951`) | diperlakukan belum ada → DRAFT | `--koordinat wajib` |
+| 12c umur / 25 tahun operasi kosong | disalin dari usaha lain **pemilik yang sama** (akun + idsubsls + 12a) kalau isiannya sepakat; sisanya nilai pengganti umur `45` / tahun `2019` | `TAHAP2_UMUR_KOSONG_JADI`, `TAHAP2_TAHUN_OPERASI_KOSONG_JADI` |
+| Satu kolom 24 kosong (mis. `24.Tidak dibayar`) tapi kolom `24.Total`-nya terisi | diisi selisihnya (total − rincian lain) | — |
+| 27a & 27b kosong/nol (27c = 0) | 27a diisi minimal form 100.000 (bulanan 10.000) | `TAHAP2_PENJUALAN_NOL_JADI_MINIMAL` |
+| Semua pengeluaran 26a–26e kosong/nol (26f = 0) | 26d diisi minimal form 100.000 (bulanan 10.000) | `TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL` |
+| Usaha dagang yang mulai tahun ini (form bulanan) dengan 30c = 0 — form mewajibkan > 0 | 26b dipindah ke 26c; 26b juga 0 → pos terbesar dari 26d/26e. Total tetap | `TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN` |
+| KBLI kategori B–F / golongan 56 dengan 26b = 0 — form mewajibkan > 0 | 26d dipindah ke 26b (26d 0 → 26e). Total tetap | `TAHAP2_26B_NOL_AMBIL_DARI_26D` |
+| Keempat kolom 24 kosong | 1 pekerja berjenis kelamin pemilik (pemilik ikut dihitung di rincian 24); dibayar kalau 26a > 0, selain itu tidak dibayar | `TAHAP2_PEKERJA_KOSONG_JADI_MINIMAL` |
+| 27d kosong padahal 16a Ya | 0 | `TAHAP2_UANG_KOSONG_JADI_NOL` |
+| KBLI kategori P/U (golongan 85/98/99) — ditolak 13g | 13g diklik **DAPATKAN REKOMENDASI KBLI** lalu rekomendasi GenAI **pertama** dipilih (kategori P/U dilewati); 13b1–b3 disesuaikan dengan golongan KBLI terpilih, 26c yang tidak dirender dijumlahkan ke 26b | `KBLI_DITOLAK_PAKAI_GENAI` |
 
 ## 6. Nama dokumen
 

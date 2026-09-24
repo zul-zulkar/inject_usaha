@@ -105,7 +105,9 @@ form atau batasan skrip:
 - 8b maksimal 50 karakter; Nama Jalan minimal 10 huruf;
 - 16a Ya → minimal satu 16b Ya; 13b1 Ya → 13d & 13e terisi; KBLI B–F/56 → 26c = 0;
 - usaha makan-minum (13b2 Ya atau KBLI golongan 56) → 13c hanya kode 5–11;
-- 13g KBLI tidak boleh berkategori P atau U (golongan 85/98/99) — form menolaknya;
+- 13g KBLI tidak boleh berkategori P atau U (golongan 85/98/99) — form menolaknya. Mode normal:
+  13g diisi rekomendasi GenAI pertama saat pengisian (`KBLI_DITOLAK_PAKAI_GENAI`, hanya tanda
+  review); mode murni / saklar dimatikan: `SKIP_DATA_KBLI_KATEGORI_DITOLAK`;
 - tahun operasi < tahun berjalan (usaha yang mulai tahun ini memakai rincian 30–33 bulanan,
   **belum didukung**);
 - nama dokumen tidak saling memuat antarbaris (pencarian dokumen bisa salah buka), baris ganda;
