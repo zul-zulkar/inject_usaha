@@ -348,6 +348,7 @@
     }
   }
 
+<<<<<<< HEAD
   /** Sesi admin masih hidup? Dibaca ulang detail dokumen lain yang terakhir terbaca, cadangan
    *  tabel Data (1 baris). Dipakai memisahkan 403 "dokumen ini" dari 403 "sesi habis". */
   let idTerbaca = "";
@@ -372,6 +373,16 @@
    *  itu sesi dibuktikan dulu lewat dokumen/tabel lain: hidup -> dokumen ini "tidak ada"
    *  (ada:false, http 403 = tanda HILANG); mati -> Berhenti (jangan sampai SEMUA dokumen jadi
    *  TIDAK_TERBACA diam-diam). */
+=======
+  /** Detail satu dokumen; galat sementara ditunggu & diulang. 401 -> Berhenti (jelas: sesi habis).
+   *  403 di get-by-assignment-id DUA ARTI berbeda (dibedakan dari body, dibuktikan 2026-09-24):
+   *  - body ADA isi (mis. "Invalid CSRF Token", lihat buka_wilayah_console.js) -> sesi/CSRF
+   *    beneran ditolak -> Berhenti, jangan lanjut menebak-nebak dokumen lain.
+   *  - body KOSONG -> dokumen ini sendiri yang sudah tidak ada/di luar akses (mis. sudah
+   *    dihapus manual duluan) -> BUKAN soal sesi; lolos ke nilaiDetail spt HTTP lain (ada:false,
+   *    TIDAK_TERBACA), grup lain tetap diperiksa. Memperlakukan ini sbg Berhenti membuat cek()
+   *    berhenti total di dokumen basi pertama dari daftar_ganda.csv yang belum disegarkan. */
+>>>>>>> baa3a14a20ba4b2aeb65172acd924b76d0586a77
   async function bacaDetail(id) {
     const url = `/assignment-general/api/assignment/get-by-assignment-id?assignmentId=${encodeURIComponent(id)}`;
     for (let ke = 0; ; ke++) {
@@ -384,8 +395,13 @@
         await tidur(t);
         continue;
       }
+<<<<<<< HEAD
       if (r.status === 401 || (r.status === 403 && !(await sesiHidup(id)))) {
         throw new Berhenti("SESI_DITOLAK", `detail HTTP ${r.status} — login ulang fasih-sm (akun admin, XSRF-TOKEN segar)`);
+=======
+      if (r.status === 401 || (r.status === 403 && String(r.teks || "").trim())) {
+        throw new Berhenti("SESI_DITOLAK", `detail HTTP ${r.status} — login ulang fasih-sm (akun admin, XSRF-TOKEN segar): ${String(r.teks || "").slice(0, 150)}`);
+>>>>>>> baa3a14a20ba4b2aeb65172acd924b76d0586a77
       }
       if (r.status === 403) {
         return nilaiDetail({ status: 403, j: { success: false,
