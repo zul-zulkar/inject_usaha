@@ -64,6 +64,14 @@ saklar di `inti/config.py` kalau perlu dimatikan:
 | 12a kosong atau `-` | Nama di dalam kurung pada nama usaha; kalau tidak ada, `PEMILIK <nama usaha>` | `TAHAP2_PENGUSAHA_KOSONG_AWALAN` |
 | Nama dokumen masih kembar persis sesudah pembeda 13f | Dibedakan nama **desa**, lalu **kecamatan**, lalu **penomoran** | `TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR` |
 | Judul KBLI tidak berbagi satu kata pun dengan 13a/13f | **Tanda review saja**, baris tetap diproses | `TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG` |
+| Nama usaha memuat BUMDes/Bumdes/Badan Usaha Milik Desa | 11a → `6. BUM Desa`, 11d → `1. Ya`, 29 modal pemerintah 100% | `TAHAP2_KOREKSI_BUMDES` |
+
+Koreksi BUMDES memakai aturan & nilai yang SAMA dengan format standar (ketetapan
+2026-09-15, fungsi `koreksi_bumdes()` yang kini dipakai kedua format) — sebelumnya
+koreksi itu hanya jalan di format standar, jadi baris BUMDES tahap 2 lolos `--cek`
+sebagai `SIAP` lalu GALAT di form. Ketiga isiannya dibetulkan **sekaligus** karena
+form menolak kode 6 yang 11d-nya Tidak, dan menolak kode 6 yang modal pemerintahnya
+tidak dominan: membetulkan 11a saja hanya menukar satu GALAT dengan GALAT berikutnya.
 
 Dua pengaman yang sengaja dipasang pada dua baris terakhir:
 

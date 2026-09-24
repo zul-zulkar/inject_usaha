@@ -450,6 +450,15 @@ TAHAP2_PENGUSAHA_KOSONG_AWALAN = "PEMILIK"
 # mengganti KBLI tetap di tangan pemeriksa — di form bisa lewat tombol generate
 # KBLI lalu opsi 1. False = matikan penandaan.
 TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG = True
+# Nama usaha memuat BUMDes/Bumdes/Badan Usaha Milik Desa -> 11a "6. BUM Desa",
+# 11d catatan keuangan "1. Ya", 29 modal pemerintah 100% (ketetapan user 2026-09-24;
+# aturan & nilai SAMA dgn koreksi format standar 2026-09-15, lihat koreksi_bumdes()).
+# Sebelum ini koreksi itu hanya jalan di format standar, jadi baris BUMDES tahap 2
+# lolos cek offline sbg SIAP lalu GALAT di form ("status badan usaha harus berkode 6").
+# Ketiganya dibetulkan sekaligus: form menolak kode 6 yang 11d-nya Tidak atau yang
+# modal pemerintahnya tidak dominan, jadi membetulkan 11a saja tidak menyelesaikan.
+# False = baris BUMDES tahap 2 dibiarkan spt semula (akan GALAT di form).
+TAHAP2_KOREKSI_BUMDES = True
 # Kata yang diabaikan saat mencocokkan 13a/13f dgn judul KBLI (terlalu umum,
 # hampir semua judul KBLI memuatnya -> kalau dihitung, semua baris terlihat cocok).
 KATA_UMUM_KBLI = frozenset("""

@@ -640,6 +640,27 @@ cek("KBLI nyambung -> tidak ditandai",
         periksa_semua_tahap2(tulis([baris(**{"Judul KBLI": "Perdagangan Eceran Beras"})]))[2].tanda), False)
 cek("Judul KBLI kosong -> tidak dinilai",
     any("generate KBLI" in t for t in periksa_semua_tahap2(tulis([baris()]))[2].tanda), False)
+# BUMDES: koreksi format standar (2026-09-15) dulu TIDAK berlaku di tahap 2, jadi
+# barisnya lolos SIAP lalu GALAT "status badan usaha harus berkode 6" di form.
+for _nama in ("PANGKALAN GAS BUMDES PANCA GIRI", "PANGKALAN GAS BUM DESA MAJU",
+              "TOKO BADAN USAHA MILIK DESA PATAS"):
+    _rb = tulis([baris(**{"8b.": _nama})])[0]
+    cek(f"'{_nama[:22]}...' -> 11a kode 6 + 11d Ya + 29e 100",
+        (_rb["badan_usaha"], _rb["lap_keuangan"], _rb["pemerintah"], _rb["pribadi"]),
+        ("6. BUM Desa", "1. Ya", "100", "0"))
+cek("koreksi BUMDES dicatat sbg asumsi",
+    any("BUMDES" in k for k in tulis([baris(**{"8b.": "GAS BUMDES X"})])[0].koreksi), True)
+cek("nama tanpa BUMDES tidak diubah",
+    (tulis([baris()])[0]["badan_usaha"], tulis([baris()])[0]["lap_keuangan"]),
+    ("13. Bukan Badan Usaha", "2. Tidak"))
+# 11a yang SUDAH kode 6 di sheet tidak dianggap koreksi (tidak ada yang berubah).
+from inti.gabungan_loader import koreksi_bumdes  # noqa: E402
+
+cek("11a sudah kode 6 -> tidak ada koreksi",
+    koreksi_bumdes({"nama": "GAS BUMDES X", "badan_usaha": "6. BUM Desa"}), "")
+cek("nama tanpa pola BUMDES -> tidak ada koreksi",
+    koreksi_bumdes({"nama": "GAS BIASA", "badan_usaha": "13. Bukan Badan Usaha"}), "")
+
 cek("judul yang cuma berisi kata umum -> tidak menuduh",
     any("generate KBLI" in t for t in
         periksa_semua_tahap2(tulis([baris(**{"Judul KBLI": "Jasa Lainnya"})]))[2].tanda), False)

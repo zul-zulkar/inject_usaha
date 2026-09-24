@@ -57,11 +57,11 @@ from inti.config import (
     TAHAP2_26B_NOL_AMBIL_DARI_26D, TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN, TAHAP2_PEKERJA_KOSONG_JADI_MINIMAL,
     TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL, TAHAP2_16B_YA_TUNGGAL, TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR,
     TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN, TAHAP2_PENGUSAHA_KOSONG_AWALAN,
-    TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG, KATA_UMUM_KBLI,
+    TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG, TAHAP2_KOREKSI_BUMDES, KATA_UMUM_KBLI,
 )
 from inti.gabungan_loader import (
     KEY_16B, KEY_26, KEY_27, KEY_28, KEY_29, KEY_PEKERJA, MAKS_8B, OPSI_FORM, YA_TIDAK, GabunganRow, Pemeriksaan,
-    _norm_judul, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, kbli_26b_wajib_positif,
+    _norm_judul, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, koreksi_bumdes, kbli_26b_wajib_positif,
     kbli_kategori_ditolak, kbli_makan_minum, kbli_punya_30c, kbli_tanpa_26c,
     koordinat_kosong, koordinat_valid, nama_muat, nama_tampil, nik_valid, periksa_semua,
 )
@@ -1040,6 +1040,12 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
             if key not in ("ubah_sls", "is_new", "ada_bang_usaha", "keberadaan_usaha", "kode_bang",
                            "pilih_umkm_sls", "nama_info_list", "nomor_domisili"):
                 catatan.append(f"{key} default '{bawaan}' (tidak ada di kuesioner tahap 2)")
+
+    # 6a. BUMDES -> 11a kode 6 + 11d Ya + 29 pemerintah 100 (TAHAP2_KOREKSI_BUMDES).
+    #     HARUS sesudah bagian 6: 11a/11d/29 tahap 2 datang dari TAHAP2_DEFAULT, jadi
+    #     kalau dijalankan lebih dulu koreksinya langsung ditimpa default.
+    if TAHAP2_KOREKSI_BUMDES and (ket_bumdes := koreksi_bumdes(v)):
+        catatan.append(ket_bumdes)
 
     # 7. Kodepos & akun PPL.
     v["kodepos"] = kodepos_untuk(v["idsubsls"], sel.get("kodepos", ""), kodepos_cadangan)

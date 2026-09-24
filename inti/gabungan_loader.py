@@ -374,6 +374,27 @@ KOREKSI_BADAN_DARI_AWALAN = (   # (regex awalan, opsi 11a, akhiran yang dipindah
 POLA_BUMDES = r"bum\s*des|badan usaha milik desa"
 OPSI_BUMDES = "6. BUM Desa"
 
+
+def koreksi_bumdes(v: dict) -> str:
+    """Nama memuat BUMDES tapi 11a bukan kode 6 -> betulkan `v` di tempat, return
+    catatan koreksinya ("" kalau tidak ada yang diubah).
+
+    Ketiga isian dibetulkan sekaligus & memang harus bertiga: form menolak kode 6
+    yang 11d-nya Tidak, dan menolak kode 6 yang modal pemerintah (29e) tidak
+    dominan — membetulkan 11a saja hanya menukar satu GALAT dgn GALAT berikutnya.
+
+    Dipakai format standar (mode non-murni) DAN format tahap 2, supaya aturannya
+    tidak ditulis dua kali lalu menyimpang."""
+    if (not re.search(POLA_BUMDES, f"{v.get('nama', '')} {v.get('nama_komersial', '')}", flags=re.I)
+            or v.get("badan_usaha") == OPSI_BUMDES):
+        return ""
+    lama = (v.get("badan_usaha"), v.get("lap_keuangan"), "/".join(v.get(k, "") for k in KEY_29))
+    v["badan_usaha"], v["lap_keuangan"] = OPSI_BUMDES, "1. Ya"
+    v.update({k: "0" for k in KEY_29})
+    v["pemerintah"] = "100"
+    return (f"BUMDES: 11a/11d/29 {lama} -> ('{OPSI_BUMDES}', '1. Ya', pemerintah 100) "
+            "(validasi form, ketetapan user)")
+
 # Nama usaha yang diganti (ketetapan user 2026-09-15, Agenda1-1): baris 137 termuat
 # di nama baris 60 ("PUSKESMAS PEMBANTU MUNDUK [BESTALA]", pencarian list bisa membuka
 # dokumen yang salah), baris 90 55 karakter. Kunci UPPERCASE nama sheet; kunci baris
@@ -877,14 +898,8 @@ def load_gabungan(path: str | Path, murni: bool | None = None) -> list[GabunganR
                     row.akhiran_badan = akhiran
                     row.koreksi.append(f"11a '{BADAN_USAHA_PT_CV}' -> '{opsi}' dari awalan nama (ketetapan user)")
                     break
-        if (not murni and re.search(POLA_BUMDES, f"{v.get('nama', '')} {v.get('nama_komersial', '')}", flags=re.I)
-                and v.get("badan_usaha") != OPSI_BUMDES):
-            lama = (v.get("badan_usaha"), v.get("lap_keuangan"), "/".join(v.get(k, "") for k in KEY_29))
-            v["badan_usaha"], v["lap_keuangan"] = OPSI_BUMDES, "1. Ya"
-            v.update({k: "0" for k in KEY_29})
-            v["pemerintah"] = "100"
-            row.koreksi.append(f"BUMDES: 11a/11d/29 {lama} -> ('{OPSI_BUMDES}', '1. Ya', pemerintah 100) "
-                               "(validasi form, ketetapan user)")
+        if not murni and (ket_bumdes := koreksi_bumdes(v)):
+            row.koreksi.append(ket_bumdes)
         if not murni and " ".join(v.get("nama", "").split()).upper() in KOREKSI_NAMA:
             row.koreksi.append(f"nama usaha diganti -> '{nama_tampil(v['nama'])}' (ketetapan user)")
         ref = WILAYAH_BY_IDSUBSLS.get(row.idsubsls) or {}
