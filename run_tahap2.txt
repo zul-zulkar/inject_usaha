@@ -1,4 +1,0 @@
-python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --akun-tunggal suliyantiketut20@gmail.com --subsls-tunggal 5108060006000224 --dari 2 --sampai 500 --sinkron-dulu --lewati-selesai --izinkan-wilayah-beda --submit
-
-python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --akun-tunggal suliyantiketut20@gmail.com --subsls-tunggal 5108060006000224 --sinkron-dulu --hanya-galat --izinkan-wilayah-beda
-python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --akun-tunggal windasariani1301@gmail.com --subsls-tunggal 5108060006000116 --sinkron-dulu --hanya-galat --izinkan-wilayah-beda

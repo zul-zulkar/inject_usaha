@@ -7,26 +7,80 @@ standar) dan `PANDUAN_GABUNG_AUDIT.md` (menyatukan hasil antar-PC).
 
 ## 1. Siapkan PC (sekali saja)
 
-```bash
-pip install playwright
-playwright install chromium
-```
+Cara termudah: bungkus seluruh proyek di PC utama jadi **satu zip ringan**, lalu
+extract di PC tujuan.
+
+### 1a. Di PC utama — buat zip
+
+Lihat dulu apa saja yang ikut & ukurannya (tidak membuat apa pun):
 
 ```bash
-copy templates\config_lokal.contoh.py inti\config_lokal.py
+python bungkus_pc/bungkus_pc.py --daftar
 ```
 
-Isi `inti/config_lokal.py`: `FIXED_PASSWORD`, `KODE_KAB`, dan (kalau perlu)
-`KODEPOS_BY_IDSUBSLS`. Tanpa password, skrip berhenti sendiri — tidak pernah
-menebak.
+Buat zip-nya:
 
-Salin **tiga berkas** dari PC utama ke folder proyek:
+```bash
+python bungkus_pc/bungkus_pc.py
+```
 
-| Berkas | Taruh di | Kenapa |
-| --- | --- | --- |
-| `bahan/input_tahap2.xlsx` | `bahan/` | data yang diinput |
-| `audit_log_gabungan.csv` | root proyek | ingatan anti-duplikat; tanpa ini dokumen bisa dibuat dua kali |
-| `inti/config_lokal.py` | `inti/` | boleh disalin utuh dari PC lain |
+Hasilnya `split_usaha_pc_<tanggal-jam>.zip` di folder proyek (±8 MB; folder
+aslinya ratusan MB karena cache & profil browser).
+
+| Ikut                                                        | Tidak ikut                                                                                                           |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| semua kode,`docs/`, `templates/`, `tests/`            | cache:`__pycache__/`, `.git/`, `*.zip`, `.claude/`                                                           |
+| `bahan/`, `Agenda*.xlsx`, `export/` & data kerja lain | sesi & profil browser (`.profil_*`, `.sesi_*`) — login ulang di PC tujuan                                       |
+| `inti/config_lokal.py` (password, kodepos)                | log & screenshot                                                                                                     |
+| audit lain (`audit_approve_pml.csv`, `audit_log.csv`)   | **`audit_log_gabungan.csv`** (+ `.bak-*`, `audit_pc/`)                                                   |
+|                                                             | laporan yang bisa dibuat ulang (`cek_gabungan.csv`, `rangkum_audit.csv`, `*.siap.js`, `list_api_*.json`, …) |
+
+⚠️ Zip ini berisi **data responden dan password**. Pindahkan lewat flashdisk atau
+drive kantor — jangan diunggah ke tempat publik.
+
+**Kenapa `audit_log_gabungan.csv` tidak ikut:** kalau ikut, meng-extract zip di
+PC yang sudah pernah bekerja akan **menimpa audit PC itu** — catatan dokumen yang
+sudah dibuatnya hilang, lalu dokumennya dibuat dua kali (dan PPL tidak bisa
+menghapus dokumen). Audit dipindah lewat langkah 1c & bagian 5, bukan lewat zip.
+
+### 1b. Di PC tujuan — extract & pasang
+
+1. Extract zip-nya: klik kanan → **Extract All** → pilih `D:\`. Hasilnya folder
+   `D:\split_usaha`. Atau lewat PowerShell:
+
+   ```powershell
+   Expand-Archive -Path split_usaha_pc_XXXX.zip -DestinationPath D:\ -Force
+   ```
+
+   Kalau PC itu **sudah punya** folder proyek, extract saja ke tempat yang sama:
+   kode & bahan diperbarui, `audit_log_gabungan.csv` milik PC itu tidak disentuh.
+2. Pasang pustaka (sekali per PC; butuh Python):
+
+   ```bash
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
+3. Masuk ke folder proyek dan pastikan semuanya jalan (tanpa VPN, beberapa detik):
+
+   ```bash
+   python tests/jalankan_semua.py
+   ```
+
+`inti/config_lokal.py` sudah ikut di zip, jadi tidak perlu disalin dari templat.
+(Kalau memasang dari GitHub, bukan dari zip: `copy templates\config_lokal.contoh.py inti\config_lokal.py`,
+lalu isi `FIXED_PASSWORD`, `KODE_KAB`, dan kalau perlu `KODEPOS_BY_IDSUBSLS`. Tanpa
+password, skrip berhenti sendiri — tidak pernah menebak.)
+
+### 1c. Audit di PC tujuan
+
+| Keadaan PC tujuan                             | Yang dilakukan                                                                                                                                  |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| sudah punya`audit_log_gabungan.csv` sendiri | biarkan. Disatukan nanti lewat bagian 5                                                                                                         |
+| PC baru, belum pernah input                   | salin**satu berkas** `audit_log_gabungan.csv` terbaru dari PC utama ke folder proyek — terpisah dari zip. Ini ingatan anti-duplikatnya |
+
+Kalau audit terbaru tidak bisa disalin, `--sinkron-dulu` di perintah bagian 3
+tetap membaca daftar dokumen server untuk akun yang dipakai sebelum mulai, jadi
+dokumen akun itu yang sudah ada dikenali, bukan dibuat ulang.
 
 Terakhir: **VPN kantor harus aktif**, dan jangan jalankan headless (ditolak).
 
@@ -52,13 +106,13 @@ jalan sendiri sampai rentangnya habis.
 
 Apa yang dikerjakan perintah itu, berurutan:
 
-| Flag | Gunanya |
-| --- | --- |
-| `--sinkron-dulu` | baca daftar dokumen di server dulu, catat ke audit — dokumen buatan PC lain dikenali & dibuka, bukan dibuat ulang |
-| `--lewati-selesai` | lewati baris yang memang sudah tuntas |
-| `--izinkan-wilayah-beda` | jangan berhenti kalau dokumen ada di subsls lain milik akun yang sama (wadah sementara) |
-| `--submit` | benar-benar mengirim (tanpa ini cuma dry-run) |
-| `--dari/--sampai` | jatah baris PC ini |
+| Flag                       | Gunanya                                                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `--sinkron-dulu`         | baca daftar dokumen di server dulu, catat ke audit — dokumen buatan PC lain dikenali & dibuka, bukan dibuat ulang |
+| `--lewati-selesai`       | lewati baris yang memang sudah tuntas                                                                              |
+| `--izinkan-wilayah-beda` | jangan berhenti kalau dokumen ada di subsls lain milik akun yang sama (wadah sementara)                            |
+| `--submit`               | benar-benar mengirim (tanpa ini cuma dry-run)                                                                      |
+| `--dari/--sampai`        | jatah baris PC ini                                                                                                 |
 
 Urutan kerjanya sudah otomatis: **draft bertanda error di server** dikerjakan
 lebih dulu, lalu dokumen yang sudah ada, baru baris yang belum punya dokumen.
@@ -74,13 +128,13 @@ python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --akun-tungg
 **Jangan sampai tumpang tindih**, dan **satu akun hanya untuk satu PC pada satu
 waktu** — dua proses dengan akun sama saling memutus sesi login.
 
-| PC | Rentang |
-| --- | --- |
-| PC1 | `--dari 2 --sampai 500` |
-| PC2 | `--dari 501 --sampai 1000` |
+| PC  | Rentang                       |
+| --- | ----------------------------- |
+| PC1 | `--dari 2 --sampai 500`     |
+| PC2 | `--dari 501 --sampai 1000`  |
 | PC3 | `--dari 1001 --sampai 1500` |
 | PC4 | `--dari 1501 --sampai 2000` |
-| PC5 | `--dari 2001` |
+| PC5 | `--dari 2001`               |
 
 ## 5. Selesai: kirim audit kembali
 
@@ -94,15 +148,78 @@ python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
 Hasil gabungannya disebar lagi ke semua PC. Gabungkan **setelah** semua batch
 berhenti, bukan saat masih jalan.
 
+## 6. Rekap progres
+
+Ada empat tingkat. Urutan lengkapnya sesudah semua PC berhenti: gabung → sinkron
+→ rangkum & bersihkan. Kalau cuma ingin angka progres, **6a saja sudah cukup**.
+
+### 6a. Progres per baris sheet — offline, beberapa detik
+
+Jumlah terkirim / draft / ditolak, plus alasan tiap baris yang TIDAK akan
+dikerjakan run berikutnya. Rinciannya ke `rangkum_audit.csv`. Jalankan sekali per
+akun (ganti `EMAIL` & `SUBSLS`):
+
+```bash
+python gabung_audit/rangkum_audit.py --sumber bahan/input_tahap2.xlsx --format tahap2 --akun-tunggal EMAIL --subsls-tunggal SUBSLS
+```
+
+Rekap **semua akun sekaligus**: hilangkan `--akun-tunggal` & `--subsls-tunggal`.
+
+```bash
+python gabung_audit/rangkum_audit.py --sumber bahan/input_tahap2.xlsx --format tahap2
+```
+
+Bagian `PROGRES` angkanya sama persis (dihitung dari audit, tidak bergantung
+akun). Bedanya di `RUN BERIKUTNYA`: yang dihitung hanya baris yang **belum punya
+dokumen di akun mana pun**, dan baris yang sudah punya dokumen muncul di `ALASAN`
+sebagai "dokumennya sudah dibuat proses lain (akun / subsls)" — itu sekaligus
+rincian jumlah baris per akun.
+
+### 6b. Satukan audit beberapa PC
+
+Salin `audit_log_gabungan.csv` tiap PC ke folder `audit_pc/` (nama berbeda,
+mis. `pc1.csv`, `pc2.csv`). Lihat laporannya dulu — tidak menulis apa pun:
+
+```bash
+python gabung_audit/gabung_audit.py --sumber audit_pc
+```
+
+Tidak ada peringatan bentrok → tulis hasil gabungannya (audit lama otomatis
+dicadangkan `.bak-<waktu>`):
+
+```bash
+python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
+```
+
+### 6c. Cocokkan dengan server — butuh VPN, hanya membaca
+
+Audit bisa mencatat "terkirim" padahal server masih DRAFT (toast sukses ≠
+terkirim). Tanpa `--tulis` cuma laporan (`sinkron_list.csv`); tambahkan `--tulis`
+untuk mencatat hasilnya ke audit:
+
+```bash
+python input_gabungan/sinkron_list.py --sumber bahan/input_tahap2.xlsx --format tahap2 --akun-tunggal EMAIL --subsls-tunggal SUBSLS
+```
+
+### 6d. Sisa error + perintah untuk membereskannya — offline
+
+Dikelompokkan jadi `ULANGI` / `LENGKAPI_KOORDINAT` / `PERBAIKI_DATA` /
+`SINKRON_DULU` / `TUNGGU_KOORDINAT` / `MANUAL`, lengkap dengan perintah siap
+jalan. Hasilnya ke `bersihkan_error.csv`:
+
+```bash
+python gabung_audit/bersihkan_error.py --sumber bahan/input_tahap2.xlsx --format tahap2
+```
+
 ## Kalau berhenti di tengah
 
-| Pesan | Artinya | Tindakan |
-| --- | --- | --- |
-| `STOP_WILAYAH_DOKUMEN_BEDA` | wilayah dokumen di luar kabupaten | benar-benar salah wilayah — jangan dipaksa |
-| `SKIP_DOKUMEN_BELUM_ADA` | subsls itu belum punya assignment | buat satu dokumen manual dulu |
-| `ERROR_AKUN_SALAH` | sesi nyangkut di akun lain | jalankan ulang; skrip membersihkan cookie sendiri |
-| `DRAFT_TANPA_KOORDINAT` | bukan galat | isi Latitude/Longitude di Excel, lalu jalankan ulang perintah yang sama |
-| `DOKUMEN_TERKUNCI` | dokumen read-only di UI (padahal daftar server bisa bilang DRAFT) | PPL tidak bisa apa-apa — minta admin/PML memeriksa. Sesudah dibuka, jalankan dengan `--coba-terkunci` |
+| Pesan                         | Artinya                                                           | Tindakan                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `STOP_WILAYAH_DOKUMEN_BEDA` | wilayah dokumen di luar kabupaten                                 | benar-benar salah wilayah — jangan dipaksa                                                             |
+| `SKIP_DOKUMEN_BELUM_ADA`    | subsls itu belum punya assignment                                 | buat satu dokumen manual dulu                                                                           |
+| `ERROR_AKUN_SALAH`          | sesi nyangkut di akun lain                                        | jalankan ulang; skrip membersihkan cookie sendiri                                                       |
+| `DRAFT_TANPA_KOORDINAT`     | bukan galat                                                       | isi Latitude/Longitude di Excel, lalu jalankan ulang perintah yang sama                                 |
+| `DOKUMEN_TERKUNCI`          | dokumen read-only di UI (padahal daftar server bisa bilang DRAFT) | PPL tidak bisa apa-apa — minta admin/PML memeriksa. Sesudah dibuka, jalankan dengan`--coba-terkunci` |
 
 Menjalankan ulang perintah yang sama **aman**: dokumen lama dibuka lewat URL di
 audit, tidak dibuat ulang.
@@ -124,11 +241,11 @@ python input_gabungan/sinkron_list.py --format tahap2 --sumber bahan/input_tahap
 
 Perintah itu memeriksa daftar dokumen di server dan memutuskan sendiri:
 
-| Yang ditemukan | Yang ditulis | Akibatnya |
-| --- | --- | --- |
-| dokumen bernama sama **ada** | `DOKUMEN_DIBUAT` + URL-nya | run berikutnya membuka dokumen itu & melanjutkannya |
-| **tidak ada**, dan tidak ada DRAFT kosong tanpa nama | `DOKUMEN_DIHAPUS` (catatan digugurkan) | run berikutnya **membuat usahanya dari awal** |
-| tidak ada, tapi ada DRAFT kosong tanpa nama | tidak ada — dilaporkan `TANDA_TANPA_URL_PERIKSA_MANUAL` | dokumen baris itu bisa jadi salah satu DRAFT kosong itu; minta admin menghapusnya, lalu jalankan sinkron lagi |
+| Yang ditemukan                                             | Yang ditulis                                              | Akibatnya                                                                                                     |
+| ---------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| dokumen bernama sama**ada**                          | `DOKUMEN_DIBUAT` + URL-nya                              | run berikutnya membuka dokumen itu & melanjutkannya                                                           |
+| **tidak ada**, dan tidak ada DRAFT kosong tanpa nama | `DOKUMEN_DIHAPUS` (catatan digugurkan)                  | run berikutnya**membuat usahanya dari awal**                                                            |
+| tidak ada, tapi ada DRAFT kosong tanpa nama                | tidak ada — dilaporkan`TANDA_TANPA_URL_PERIKSA_MANUAL` | dokumen baris itu bisa jadi salah satu DRAFT kosong itu; minta admin menghapusnya, lalu jalankan sinkron lagi |
 
 Jalankan dulu tanpa `--tulis` untuk melihat keputusannya di kolom `kategori`
 (`sinkron_list.csv`) sebelum apa pun ditulis.

@@ -13,6 +13,7 @@ Sama dengan menu **Aksi Lainnya → Change Region by Selection** di halaman Data
 - **Cara:** DevTools Console di Chrome biasa. fasih-sm menolak Playwright/browser otomatis.
 - **Yang dipindah:** hanya dokumen yang **sudah di-approve otomatis** oleh `approve_pml.py`
   (`APPROVED_TERVERIFIKASI` di `audit_approve_pml.csv`) dan di server statusnya masih **APPROVED**.
+  Cara approve: [`PANDUAN_APPROVE_PML.md`](PANDUAN_APPROVE_PML.md).
 - **Petugas:** otomatis diisi **Pengawas & Pencacah subsls tujuan** (masing-masing harus tepat
   1 orang). Skrip tidak pernah memindah "tanpa petugas".
 - **Wilayah tujuan harus sudah dibuka** (Proses Listing). Yang belum dibuka dilewati

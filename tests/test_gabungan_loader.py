@@ -568,10 +568,29 @@ check("std: 13b2 Ya (KBLI bukan 56) + 13c kode 4 -> skip",
       muat_std(layanan_mamin="1. Ya")[1].status, "SKIP_DATA_13C_MAMIN_BUKAN_5_11")
 check("std: bukan makan-minum -> 13c kode 4 tetap boleh", muat_std()[1].status, "SIAP")
 
-# 13g: KBLI kategori P/U ditolak form (2x GALAT, KBLI 98100).
-check("std: KBLI 98100 (kategori U) -> skip",
+# 13g: KBLI kategori P/U ditolak form (2x GALAT, KBLI 98100). Ketetapan user
+# 2026-09-24: 13g diisi rekomendasi GenAI pertama saat pengisian (KBLI_DITOLAK_PAKAI_GENAI).
+import inti.gabungan_loader as _gl  # noqa: E402
+_r, _h = muat_std(kbli="98100", biaya_pembelian="2000000", biaya_produksi="0")
+check("std: KBLI 98100 (kategori U) -> SIAP, 13g GenAI, 26c tidak dicek offline",
+      (_h.status, _r.kbli_genai, any("GenAI" in t for t in _h.tanda)), ("SIAP", True, True))
+check("std: KBLI GenAI -> judul KBLI sheet tidak dipakai", _r.judul_kbli, "")
+_gl.KBLI_DITOLAK_PAKAI_GENAI = False
+check("std: KBLI 98100 tanpa GenAI -> skip (perilaku lama)",
       muat_std(kbli="98100", biaya_pembelian="0", biaya_produksi="30000000")[1].status,
       "SKIP_DATA_KBLI_KATEGORI_DITOLAK")
+_gl.KBLI_DITOLAK_PAKAI_GENAI = True
+
+from inti.gabungan_loader import judul_dari_opsi_kbli, opsi_kbli_genai, pilih_opsi_genai  # noqa: E402
+check("opsi GenAI (label export fasih-sm asli)",
+      opsi_kbli_genai("[A] 01282 Pertanian Cengkih"), ("A", "01282", "Pertanian Cengkih"))
+check("opsi Master bukan rekomendasi GenAI", opsi_kbli_genai("Pilih dari Master KBLI"), None)
+check("judul dari opsi GenAI", judul_dari_opsi_kbli("[G] 47112 Perdagangan Eceran"), "Perdagangan Eceran")
+check("pilih rekomendasi PERTAMA", pilih_opsi_genai(["[G] 47599 A", "[G] 47192 B", "Pilih dari Master KBLI"]),
+      (0, ""))
+check("rekomendasi kategori P/U dilewati",
+      pilih_opsi_genai(["[P] 85550 A", "[U] 98100 B", "[S] 96230 C"])[0], 2)
+check("semua P/U -> tidak ada yang dipilih", pilih_opsi_genai(["[P] 85550 A", "Pilih dari Master KBLI"])[0], -1)
 
 # 26a vs 24a2 — dua aturan file-validation `gaji`.
 check("std: 24a2=0 tapi 26a > 0 -> skip",

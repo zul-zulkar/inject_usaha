@@ -43,7 +43,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from inti.config import (
-    GABUNGAN_13F_DARI_13A, GABUNGAN_IZINKAN_JALAN_KOSONG, GABUNGAN_MODE_MURNI, LENGKAPI_13A_DGN_KBLI,
+    GABUNGAN_13F_DARI_13A, GABUNGAN_IZINKAN_JALAN_KOSONG, GABUNGAN_MODE_MURNI, KBLI_DITOLAK_PAKAI_GENAI,
+    LENGKAPI_13A_DGN_KBLI,
     LENGKAPI_13F_DGN, MIN_KARAKTER_13A, MIN_KARAKTER_13F, MINIMAL_TOTAL_RUPIAH,
     MINIMAL_TOTAL_RUPIAH_BULANAN, WILAYAH_BY_IDSUBSLS,
 )
@@ -237,6 +238,37 @@ def kbli_kategori_ditolak(kbli: str) -> str:
     return KBLI_GOLONGAN_KATEGORI_DITOLAK.get((kbli or "")[:2], "")
 
 
+KATEGORI_KBLI_DITOLAK = tuple(sorted(set(KBLI_GOLONGAN_KATEGORI_DITOLAK.values())))   # ("P", "U")
+# Opsi rekomendasi GenAI di radio 13g (#kbli_genai): "[G] 47112 Perdagangan Eceran ..."
+# — label jawaban kbli_genai di export fasih-sm asli (value "1" + kode, urut skor
+# result_gen_ai). Opsi lain di radio yang sama: "Pilih dari Master KBLI" (value 999999).
+POLA_OPSI_GENAI = re.compile(r"^\s*\[([A-Z])\]\s*\[?(\d{5})\]?\s*(.*)$", re.S)
+
+
+def opsi_kbli_genai(label: str) -> tuple[str, str, str] | None:
+    """Label opsi rekomendasi GenAI -> (kategori, kode, judul); None kalau bukan
+    rekomendasi (mis. "Pilih dari Master KBLI")."""
+    m = POLA_OPSI_GENAI.match(" ".join(str(label or "").split()))
+    return (m.group(1), m.group(2), m.group(3).strip()) if m else None
+
+
+def pilih_opsi_genai(labels: list[str]) -> tuple[int, str]:
+    """Indeks rekomendasi yang dipilih dari `labels` (urut tampil) -> (indeks, catatan).
+    Yang PERTAMA (ketetapan user 2026-09-24), kecuali kategorinya P/U (form menolak
+    13g) -> rekomendasi sah berikutnya, dicatat. Tidak ada yang sah -> (-1, sebab)."""
+    lewat = []
+    for i, label in enumerate(labels):
+        o = opsi_kbli_genai(label)
+        if not o:
+            continue
+        if o[0] in KATEGORI_KBLI_DITOLAK:
+            lewat.append(f"[{o[0]}] {o[1]}")
+            continue
+        return i, (f"rekomendasi GenAI {', '.join(lewat)} dilewati (kategori ditolak form)" if lewat else "")
+    return -1, ("semua rekomendasi GenAI berkategori P/U: " + ", ".join(lewat) if lewat
+                else "tidak ada opsi rekomendasi GenAI")
+
+
 def kode_opsi(nilai: str) -> int | None:
     """Angka di depan opsi form ("10. Keliling" -> 10), None kalau tidak ada.
     Perbandingan kode WAJIB numerik: startswith("5") salah utk "11. Daring"."""
@@ -425,10 +457,11 @@ def nama_muat(nama: str, pemilik: str) -> str:
 
 
 def judul_dari_opsi_kbli(teks: str) -> str:
-    """"[G][47241]Perdagangan Eceran Beras" (teks opsi/textarea Master KBLI)
-    -> "Perdagangan Eceran Beras". Teks tanpa awalan kode dikembalikan rapi."""
+    """"[G][47241]Perdagangan Eceran Beras" (teks opsi/textarea Master KBLI) atau
+    "[G] 47241 Perdagangan Eceran Beras" (opsi rekomendasi GenAI) -> "Perdagangan
+    Eceran Beras". Teks tanpa awalan kode dikembalikan rapi."""
     t = " ".join(str(teks or "").split())
-    m = re.match(r"^\[[A-Z]\]\s*\[\d{5}\]\s*(.*?)(?=\s*\[[A-Z]\]\s*\[\d{5}\]|$)", t)
+    m = re.match(r"^\[[A-Z]\]\s*\[?\d{5}\]?\s*(.*?)(?=\s*\[[A-Z]\]\s*\[?\d{5}\]?|$)", t)
     return m.group(1).strip() if m else t
 
 
@@ -666,8 +699,26 @@ class GabunganRow:
     @property
     def judul_kbli(self) -> str:
         """Kolom "Judul KBLI" sheet (format tahap 2). Format standar tidak punya
-        kolomnya -> "" (13a pendek dilengkapi judul opsi Master KBLI di form)."""
-        return " ".join(self["judul_kbli"].split())
+        kolomnya -> "" (13a pendek dilengkapi judul opsi Master KBLI di form).
+        KBLI sheet ditolak & diganti GenAI -> "" (judulnya milik KBLI yang salah)."""
+        return "" if self.kbli_genai else " ".join(self["judul_kbli"].split())
+
+    @property
+    def kbli_genai(self) -> bool:
+        """KBLI sheet berkategori P/U (ditolak 13g) -> 13g diisi rekomendasi GenAI
+        pertama saat pengisian (KBLI_DITOLAK_PAKAI_GENAI). Mode murni: tidak."""
+        return KBLI_DITOLAK_PAKAI_GENAI and not self.murni and bool(kbli_kategori_ditolak(self["kbli"]))
+
+    @property
+    def b13_dari_kbli(self) -> bool:
+        """13b1-b3 diturunkan dari golongan KBLI sheet (aturan tahap 2) — kalau
+        True dan 13g diisi GenAI, 13b disesuaikan dgn KBLI terpilih saat pengisian."""
+        return False
+
+    @property
+    def pindah_26c_ke_26b(self) -> bool:
+        """26c yang tidak dirender form dijumlahkan ke 26b (aturan tahap 2)."""
+        return False
 
     @property
     def punya_koordinat(self) -> bool:
@@ -997,7 +1048,10 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
         salah(("13C_MAMIN_BUKAN_5_11",
                f"13c '{row['lokasi_usaha']}' berkode {kode_13c} tapi usaha makan-minum ({sebab}): form "
                f"hanya menerima kode {LOKASI_MAMIN_MIN}-11 — perbaiki 13c di sheet"))
-    if kat_ditolak := kbli_kategori_ditolak(row["kbli"]):
+    if row.kbli_genai:
+        hasil.tanda.append(f"KBLI {row['kbli']} kategori {kbli_kategori_ditolak(row['kbli'])} ditolak form -> "
+                           "13g diisi rekomendasi GenAI pertama saat pengisian")
+    elif kat_ditolak := kbli_kategori_ditolak(row["kbli"]):
         salah(("KBLI_KATEGORI_DITOLAK",
                f"KBLI {row['kbli']} masuk kategori {kat_ditolak}: form menolak 13g dgn 'Kategori tidak boleh "
                f"berisi P atau U' — pilih KBLI usaha yang sesuai di sheet, bukan kategori {kat_ditolak}"))
@@ -1100,14 +1154,17 @@ def periksa_baris(row: GabunganRow, tahun_berjalan: int | None = None,
             salah(("ANGKA_TIDAK_VALID", f"tahun_operasi={th}"))
     if row["internet"].startswith("1") and not any(row[k].startswith("1") for k in KEY_16B):
         salah(("16B_TANPA_YA", "16a = Ya tapi 16b1-16b6 tidak ada yang Ya (form menolak)"))
-    if kbli_tanpa_26c(row["kbli"]) and row["biaya_pembelian"] and row.angka("biaya_pembelian") > 0:
+    if row.kbli_genai:
+        pass   # KBLI sebenarnya baru diketahui saat GenAI memilih — 26b/26c/30c dicek form.
+    elif kbli_tanpa_26c(row["kbli"]) and row["biaya_pembelian"] and row.angka("biaya_pembelian") > 0:
         salah(("26C_KATEGORI_TANPA_26C",
                f"KBLI {row['kbli']} bukan perdagangan: form tidak punya 26c — pindahkan "
                f"26c={row['biaya_pembelian']} ke 26b di sheet"))
     elif kbli_26b_wajib_positif(row["kbli"]) and row["biaya_produksi"] and row.angka("biaya_produksi") == 0:
         salah(("26B_HARUS_LEBIH_0", f"KBLI {row['kbli']} (kategori B-F / golongan 56): form mewajibkan "
                                     f"{'30b' if bulanan else '26b'} biaya produksi > 0"))
-    if bulanan and kbli_punya_30c(row["kbli"]) and row["biaya_pembelian"] and row.angka("biaya_pembelian") == 0:
+    if (bulanan and not row.kbli_genai and kbli_punya_30c(row["kbli"]) and row["biaya_pembelian"]
+            and row.angka("biaya_pembelian") == 0):
         salah(("30C_HARUS_LEBIH_0", f"varian bulanan KBLI {row['kbli']}: form mewajibkan 30c (biaya pembelian "
                                     "barang yang terjual) > 0"))
 

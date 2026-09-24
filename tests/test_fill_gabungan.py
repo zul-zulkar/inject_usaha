@@ -240,5 +240,43 @@ check("murni: 19/20 lengkap di sheet -> terisi, tanpa ASUMSI",
       (sess.nilai("halal"), sess.nilai("belum_halal"), sess.nilai("izin_edar"), sess.nilai("belum_bpom"), asumsi),
       (["3. Tidak/Belum"], ["2"], ["3. Tidak"], ["1"], []))
 
+# --- 13g GenAI utk KBLI sheet kategori P/U (ketetapan user 2026-09-24) ---------
+# Baris tahap 2 menurunkan 13b dari KBLI sheet (98100 -> semua Tidak); setelah
+# GenAI memilih KBLI perdagangan, 13b3 harus jadi Ya lalu rekomendasi dipilih ulang.
+from input_gabungan.fill_gabungan import pilih_kbli_genai  # noqa: E402
+from inti.tahap2_loader import Tahap2Row  # noqa: E402
+
+
+class GenaiSess(FakeSess):
+    def __init__(self, hasil):
+        super().__init__({"produk_sendiri", "layanan_mamin", "keg_penjualan"})
+        self.hasil = list(hasil)
+
+    def pilih_kbli_genai_pertama(self):
+        self.aksi.append(("genai", "kbli_genai", ""))
+        return self.hasil.pop(0)
+
+
+def baris_genai():
+    v = {**BARIS_LPG, "kbli": "98100", "produk_sendiri": "2. Tidak", "layanan_mamin": "2. Tidak",
+         "keg_penjualan": "2. Tidak"}
+    return Tahap2Row(2, v, info={"13b_dari_kbli": "1"})
+
+
+G = ("47599", "G", "[G] 47599 Perdagangan Eceran Peralatan Rumah Tangga Lainnya")
+s, asumsi = GenaiSess([G, G]), []
+check("GenAI perdagangan -> 13b3 Ya, rekomendasi dipilih ulang, judul dikembalikan",
+      (pilih_kbli_genai(s, baris_genai(), asumsi), s.nilai("keg_penjualan"), len(s.nilai("kbli_genai"))),
+      ("Perdagangan Eceran Peralatan Rumah Tangga Lainnya", ["1. Ya"], 2))
+s = GenaiSess([("96230", "S", "[S] 96230 Aktivitas SPA Harian")])
+pilih_kbli_genai(s, baris_genai(), [])
+check("GenAI jasa (13b tetap semua Tidak) -> tanpa klik 13b, dipilih sekali",
+      ([a for a in s.aksi if a[0] == "radio"], len(s.nilai("kbli_genai"))), ([], 1))
+try:
+    pilih_kbli_genai(GenaiSess([G, ("10710", "C", "[C] 10710 Industri Roti")]), baris_genai(), [])
+    check("13b tetap tidak sejalan -> berhenti", "lanjut", "KBLI_GENAI_13B_BEDA")
+except BarisPerluManual as e:
+    check("13b tetap tidak sejalan -> berhenti", e.kode, "KBLI_GENAI_13B_BEDA")
+
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

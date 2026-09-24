@@ -70,16 +70,63 @@ DEFAULT_13C_TEMPAT_USAHA = "4. Toko, ruko, dan sejenisnya"
 # LANGSUNG diganti ini lalu ringkasan dibaca ulang — ketetapan user 2026-09-23
 # ("13c kalau ada kode error, langsung ubah ke kode 5 saja"). "" = matikan.
 GALAT_13C_JADI = "5. Kedai, stan, tenda"
+# KBLI sheet berkategori P/U (form menolak 13g: "Kategori tidak boleh berisi P atau
+# U") -> 13g diisi lewat tombol "DAPATKAN REKOMENDASI KBLI" lalu rekomendasi GenAI
+# PERTAMA dipilih (ketetapan user 2026-09-24). Rekomendasi yang kategorinya juga P/U
+# dilewati. False = baris di-skip KBLI_KATEGORI_DITOLAK (perilaku lama). Mode murni
+# tidak memakainya.
+KBLI_DITOLAK_PAKAI_GENAI = True
 
 # Indikator ekonomi (26a-26e, 27a-27b, 28a-28b) yang selnya KOSONG di kuesioner
 # kertas = tidak ada nilainya = NOL — ketetapan user 2026-09-23 ("untuk indikator
 # ekonomi yang ga ada datanya harusnya kau peka kalau itu diisikan dengan nol").
 # Sebelum ini baris spt itu ter-skip SKIP_DATA_WAJIB_KOSONG sebelum dokumen dibuat.
 TAHAP2_UANG_KOSONG_JADI_NOL = True
+# 12c umur / 25 tahun mulai operasi KOSONG di sheet (2026-09-24: 62 baris di
+# 1301-1500, pemilik yang sama pun kosong di semua usahanya). Urutan: (1) disalin
+# dari usaha lain PEMILIK yang sama (akun + idsubsls + 12a) kalau yang terisi
+# sepakat satu nilai; (2) sisanya diisi nilai ini — ketetapan user 2026-09-24,
+# median data tahap 2 hari itu (umur 45, tahun 2019; sengaja bukan tahun berjalan
+# supaya tidak memicu varian bulanan). "" = baris tetap skip WAJIB_KOSONG.
+TAHAP2_UMUR_KOSONG_JADI = "45"
+TAHAP2_TAHUN_OPERASI_KOSONG_JADI = "2019"
+# 27c = 0 (penjualan 27a & 27b kosong/nol) -> 27a diisi minimal form (100.000;
+# varian bulanan 10.000) — ketetapan user 2026-09-24 (baris 1374/1375). False =
+# skip DI_BAWAH_MINIMAL (perilaku lama). 26f = 0 TETAP skip.
+TAHAP2_PENJUALAN_NOL_JADI_MINIMAL = True
+# Lanjutan ketetapan user 2026-09-24 ("blok ekonomi yang kosong isikan 0, kalau tidak
+# boleh nilai minimal"). False = baris itu di-skip seperti dulu.
+#   26f = 0 (semua pengeluaran kosong/nol) -> 26d = minimal form (100.000 / bulanan 10.000).
+TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL = True
+#   Usaha dagang varian bulanan dgn 30c = 0 (form mewajibkan > 0) -> 26b dipindah ke 26c;
+#   26b juga 0 -> pos terbesar dari 26d/26e. Total pengeluaran tetap.
+TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN = True
+#   KBLI B-F / gol. 56 dgn 26b = 0 (form mewajibkan > 0) -> 26d dipindah ke 26b (26d 0 -> 26e).
+TAHAP2_26B_NOL_AMBIL_DARI_26D = True
+#   Kolom 24 kosong SEMUA -> 1 pekerja berjenis kelamin pemilik (pemilik ikut dihitung di
+#   24), dibayar kalau 26a > 0, selain itu tidak dibayar. 27d kosong (16a Ya) -> 0 ikut
+#   TAHAP2_UANG_KOSONG_JADI_NOL.
+TAHAP2_PEKERJA_KOSONG_JADI_MINIMAL = True
 # Form menolak 24a2 (pekerja DIBAYAR) > 0 sementara 26a = 0 ("gaji": 26a/24a2 harus
 # > Rp50.000). Ketetapan user 2026-09-23: "kalau error karena ada tenaga kerja yang
 # dibayar, isikan 26a 100.000". 0 = matikan aturan ini.
+# Nilainya PER PEKERJA DIBAYAR (2026-09-24): 100.000 rata utk 2+ pekerja jatuh
+# <= Rp50.000/orang -> ditolak lagi oleh aturan kedua `gaji` (baris 285/828/1680
+# ter-skip 26A_PER_PEKERJA_DI_BAWAH_MINIMAL padahal sheetnya 26a = 0 apa adanya).
 TAHAP2_GAJI_JIKA_DIBAYAR = 100_000
+# Koordinat yang formatnya dirusak Excel (2026-09-24, 114 baris "tanpa koordinat"
+# yang sebenarnya berisi titik): "-8.148.438" (titik jadi pemisah ribuan),
+# bujur negatif "-115,142881", lat & long dalam satu sel "-8.142753,115.059837",
+# "-8155247,". Dipulihkan HANYA kalau hasilnya jatuh di kotak ini
+# (lat_min, lat_maks, lon_min, lon_maks) — contoh: Kabupaten Buleleng + margin
+# (kotak se-Bali meloloskan baris 1266/1267: "-8,47722" = 37 km dari desanya,
+# hampir pasti salah ketik). Kabupaten lain menimpanya di config_lokal.py.
+# None = tidak dipulihkan (perilaku lama: DRAFT).
+TAHAP2_KOTAK_KOORDINAT = (-8.45, -8.0, 114.4, 115.45)
+# Kolom idsubsls yang 4 digit awalnya salah ketik ("5100090007000901") padahal
+# kode kecamatannya (digit 5-7) sama dgn kolom "Sumber/Kec." -> awalan diganti
+# KODE_KAB. False = baris itu tetap di-skip KODEPOS_TIDAK_DIKETAHUI.
+TAHAP2_PERBAIKI_AWALAN_IDSUBSLS = True
 DEFAULT_19A = "3. Tidak/Belum"
 DEFAULT_19C = "1"
 DEFAULT_20C_VARIAN_BELUM_BPOM = "1"
@@ -354,6 +401,18 @@ TAHAP2_TOTAL_BEDA = "rincian"
 # berurutan, b6 "Lainnya" diisi nilai ini (ketetapan user 2026-09-23). "" = skip
 # 16B_TIDAK_JELAS (perilaku lama). Kelimanya "2" padahal 16a Ya tetap ditolak 16B_TANPA_YA.
 TAHAP2_16B_LIMA_NILAI_B6 = "2. Tidak"
+# 16a Ya tapi kolom 16b tidak memuat satu pun Ya ("2" / "2,2,2,2,2"; 77 baris data
+# 2026-09-24, PPL yang sama SELALU menulis begitu) -> 16b6 "Lainnya" = Ya, b1-b5
+# tetap Tidak (ketetapan user 2026-09-24). False = skip 16B_TANPA_YA (perilaku lama).
+TAHAP2_16B_TANPA_YA_JADI_B6 = True
+# 26f/27c (bulanan 30f/31c) > 0 tapi < minimal form (100.000 / 10.000): kekurangannya
+# ditambahkan ke pos terbesar (ketetapan user 2026-09-24, sama dgn aturan backlog
+# lama). Total 0 = tidak ada data -> TETAP di-skip DI_BAWAH_MINIMAL, tidak dikarang.
+TAHAP2_NAIKKAN_KE_MINIMAL = True
+# 26a > 0 tapi 24a2 (pekerja dibayar) = 0 -> form mewajibkan 26a = 0. Ketetapan user
+# 2026-09-24: semua pekerja dipindah ke DIBAYAR (24a2 = 24a2 + 24b2, 24b2 = 0), 26a
+# tetap. False = skip 26A_HARUS_0_TANPA_PEKERJA_DIBAYAR (perilaku lama).
+TAHAP2_UPAH_ADA_PEKERJA_JADI_DIBAYAR = True
 # Usaha pecahan: beberapa baris dgn akun+idsubsls+8b+12a SAMA tapi 13f beda (satu
 # warung, produk berbeda) -> nama dokumen & 8b diberi 13f: "<8b> <13f> (<12a>)"
 # (ketetapan user 2026-09-23). 13f juga sama -> tetap BARIS_GANDA. False = perilaku lama.
@@ -491,6 +550,7 @@ L = {
     "tempat_usaha": "tempat usaha",  # 13c
     "produk_utama": "produk utama",  # 13f (textarea)
     "pilih_master_kbli_radio": "Pilih dari Master KBLI",  # EXACT
+    "kbli_genai_tombol": "DAPATKAN REKOMENDASI KBLI",      # EXACT (dump kbli_setelah_pilih_master)
     "kbli_search_box": "Cari",  # kotak pencarian dropdown Master KBLI
     "kbli_clear_x": "Konfirmasi Hapus Pilihan",  # EXACT (dialog title)
     "kategori_lapangan_usaha": "Kategori Lapangan Usaha",  # 13h, readonly auto
@@ -708,6 +768,7 @@ DK = {
     "produk_utama": "produk",                 # 13f
     "kbli_radio": "kbli_genai",               # 13g — radio "Pilih dari Master KBLI"
     "kbli_pilihan": "kbli",                   # 13g — combobox (textarea) hasil pilihan KBLI
+    "kbli_genai_tombol": "genai_button",      # 13g — tombol "DAPATKAN REKOMENDASI KBLI" (opsi GenAI masuk ke kbli_genai)
     "kategori_lapangan_usaha": "kategori",    # 13h — readonly, auto dari KBLI
     "jaringan_usaha": "jaringan",
     "pakai_internet": "internet",                    # 16a

@@ -37,6 +37,7 @@ kolomnya di Excel (mis. "11a", "13c", "29a") — lihat KOLOM_TAHAP2_TAMBAHAN.
 from __future__ import annotations
 
 import csv
+import datetime
 import hashlib
 import re
 from collections import defaultdict
@@ -45,19 +46,24 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 from inti.config import (
-    GALAT_13C_JADI, KODEPOS_BY_DESA, KODEPOS_BY_IDSUBSLS, TAHAP2_13B_DARI_KBLI, TAHAP2_13DE_DARI_KBLI,
-    TAHAP2_26C_KE_26B, TAHAP2_DEFAULT, TAHAP2_GAJI_JIKA_DIBAYAR, TAHAP2_HP_TIDAK_VALID_JADI,
-    TAHAP2_ISI_VARIAN_BULANAN,
+    GALAT_13C_JADI, KBLI_DITOLAK_PAKAI_GENAI, KODE_KAB, KODEPOS_BY_DESA, KODEPOS_BY_IDSUBSLS, TAHAP2_13B_DARI_KBLI,
+    TAHAP2_13DE_DARI_KBLI, TAHAP2_26C_KE_26B, TAHAP2_DEFAULT, TAHAP2_GAJI_JIKA_DIBAYAR,
+    TAHAP2_HP_TIDAK_VALID_JADI, TAHAP2_ISI_VARIAN_BULANAN, TAHAP2_KOTAK_KOORDINAT,
+    TAHAP2_PERBAIKI_AWALAN_IDSUBSLS, TAHAP2_16B_TANPA_YA_JADI_B6, TAHAP2_NAIKKAN_KE_MINIMAL,
+    TAHAP2_UPAH_ADA_PEKERJA_JADI_DIBAYAR, MINIMAL_TOTAL_RUPIAH, MINIMAL_TOTAL_RUPIAH_BULANAN,
     TAHAP2_NIK_TIDAK_VALID_JADI, TAHAP2_PEKERJA_IKUT_JK_PEMILIK, TAHAP2_TOTAL_BEDA,
-    TAHAP2_UANG_KOSONG_JADI_NOL, TAHAP2_16B_LIMA_NILAI_B6, TAHAP2_16B_YA_TUNGGAL,
-    TAHAP2_PEMBEDA_13F_UTK_GANDA, TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR,
+    TAHAP2_UANG_KOSONG_JADI_NOL, TAHAP2_16B_LIMA_NILAI_B6, TAHAP2_PEMBEDA_13F_UTK_GANDA,
+    TAHAP2_PENJUALAN_NOL_JADI_MINIMAL, TAHAP2_TAHUN_OPERASI_KOSONG_JADI, TAHAP2_UMUR_KOSONG_JADI,
+    TAHAP2_26B_NOL_AMBIL_DARI_26D, TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN, TAHAP2_PEKERJA_KOSONG_JADI_MINIMAL,
+    TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL, TAHAP2_16B_YA_TUNGGAL, TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR,
     TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN, TAHAP2_PENGUSAHA_KOSONG_AWALAN,
     TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG, KATA_UMUM_KBLI,
 )
 from inti.gabungan_loader import (
     KEY_16B, KEY_26, KEY_27, KEY_28, KEY_29, KEY_PEKERJA, MAKS_8B, OPSI_FORM, YA_TIDAK, GabunganRow, Pemeriksaan,
-    _norm_judul, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, kbli_makan_minum, kbli_tanpa_26c,
-    nama_muat, nama_tampil, nik_valid, periksa_semua,
+    _norm_judul, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, kbli_26b_wajib_positif,
+    kbli_kategori_ditolak, kbli_makan_minum, kbli_punya_30c, kbli_tanpa_26c,
+    koordinat_kosong, koordinat_valid, nama_muat, nama_tampil, nik_valid, periksa_semua,
 )
 
 # Nama tab yang diterima. File contoh dari user bertab "Sheet1"; tab yang
@@ -220,6 +226,64 @@ def desimal_ke_titik(teks) -> str:
     if "," in t:
         t = t.replace(".", "").replace(",", ".")
     return t
+
+
+def _di_kotak(nilai: float, sumbu: str) -> bool:
+    lat_min, lat_maks, lon_min, lon_maks = TAHAP2_KOTAK_KOORDINAT
+    return lat_min <= nilai <= lat_maks if sumbu == "lat" else lon_min <= nilai <= lon_maks
+
+
+def _pulihkan_satu(teks: str, sumbu: str) -> str:
+    """Satu nilai koordinat rusak -> "-8.148438" / "" (tidak bisa dipulihkan).
+    Urutan: angka biasa; bujur bertanda minus (Indonesia di bujur TIMUR);
+    lalu angka yang titik desimalnya hilang ("-8.148.438" = -8148438, "-8155247,")
+    -> desimal disisipkan setelah digit ke-1 (lintang) / ke-3 (bujur).
+    Notasi ilmiah ("1,15E+09") digitnya sudah hilang -> tidak dipulihkan."""
+    t = str(teks or "").strip().rstrip(",;").strip()
+    if not t or "E" in t.upper():
+        return ""
+    try:
+        nilai = float(desimal_ke_titik(t))
+    except ValueError:
+        nilai = None
+    if nilai is not None:
+        if _di_kotak(nilai, sumbu):
+            return f"{nilai}"
+        if sumbu == "lon" and _di_kotak(-nilai, sumbu):
+            return f"{-nilai}"
+    digit = re.sub(r"\D", "", t)
+    for lebar in ((1, 2) if sumbu == "lat" else (3,)):
+        if len(digit) <= lebar:
+            continue
+        nilai = float(f"{digit[:lebar]}.{digit[lebar:]}")
+        nilai = -nilai if sumbu == "lat" else nilai     # sisi selatan khatulistiwa
+        if _di_kotak(nilai, sumbu):
+            return f"{nilai}"
+    return ""
+
+
+def pulihkan_koordinat(lat_mentah, lon_mentah) -> tuple[str, str, str]:
+    """(lat, lon) sheet -> (lat, lon, catatan). Nilai yang sudah benar kembali
+    apa adanya (catatan ""). Yang rusak dipulihkan HANYA kalau hasilnya jatuh di
+    TAHAP2_KOTAK_KOORDINAT; kalau tidak, nilai lama dikembalikan (baris tetap
+    jadi draft tanpa koordinat, tidak ditebak)."""
+    lat, lon = desimal_ke_titik(lat_mentah), desimal_ke_titik(lon_mentah)
+    if TAHAP2_KOTAK_KOORDINAT is None or koordinat_valid(lat, lon) or koordinat_kosong(lat_mentah):
+        return lat, lon, ""
+    a, b = str(lat_mentah or "").strip(), str(lon_mentah or "").strip()
+    if koordinat_kosong(lon_mentah):
+        # Lat & long ditulis di SATU sel: "-8.142753,115.059837" / "-8,14, 115,06".
+        dua = [x for x in re.split(r"\s*[,;]\s+|\s*;\s*", a) if x]
+        if len(dua) != 2 and a.count(",") == 1 and "." in a:
+            dua = a.split(",")
+        if len(dua) != 2:
+            return lat, lon, ""
+        a, b = dua
+    p_lat, p_lon = _pulihkan_satu(a, "lat"), _pulihkan_satu(b, "lon")
+    if not (p_lat and p_lon):
+        return lat, lon, ""
+    return p_lat, p_lon, (f"koordinat sheet '{lat_mentah}' / '{lon_mentah or ''}' (format rusak Excel) "
+                          f"-> {p_lat}, {p_lon}")
 
 
 def persen_ke_bulat(teks) -> str:
@@ -453,6 +517,12 @@ def kodepos_untuk(idsubsls: str, dari_sheet: str = "", cadangan: str = "") -> st
 # Baris
 # ---------------------------------------------------------------------------
 
+# Kata umum di DEPAN nama usaha yang boleh dibuang kalau nama dokumen > 50
+# karakter (Tahap2Row._nama_ringkas) — nama pemilik & produknya tetap.
+KATA_UMUM_NAMA = frozenset({"PEDAGANG", "PENJUAL", "JUAL", "MENJUAL", "ECERAN", "USAHA", "DAGANG",
+                            "PERDAGANGAN", "JASA"})
+
+
 @dataclass
 class Tahap2Row(GabunganRow):
     """GabunganRow + kolom khas tahap 2 yang TIDAK dikirim ke form."""
@@ -468,11 +538,41 @@ class Tahap2Row(GabunganRow):
         nama_muat tanpa (<12a>): tanpa pemilik, 13f generik ("air galon") bentrok
         dgn usaha pecahan pemilik lain."""
         if not self.pembeda:
-            return nama_muat(nama_tampil(nama, self.akhiran_badan), self["pengusaha"])
+            hasil = nama_muat(nama_tampil(nama, self.akhiran_badan), self["pengusaha"])
+            if len(hasil) > MAKS_8B:
+                # nama_muat membuang kurungnya tapi nama pemilik yang sudah tertulis
+                # di 8b tetap ikut -> ringkas bentuk "<usaha> (<12a>)"-nya.
+                hasil = self._nama_ringkas(format_nama_usaha(nama_tampil(nama, self.akhiran_badan),
+                                                             self["pengusaha"])) or hasil
+            return hasil
         hasil = format_nama_usaha(nama_tampil(f"{nama} {self.pembeda}", self.akhiran_badan), self["pengusaha"])
         if len(hasil) > MAKS_8B:
             hasil = format_nama_usaha(self.pembeda, self["pengusaha"])
+        if len(hasil) > MAKS_8B:
+            hasil = self._nama_ringkas(hasil) or hasil
         return hasil
+
+    def _nama_ringkas(self, hasil: str) -> str:
+        """Cadangan terakhir (2026-09-24) kalau "<usaha> (<12a>)" > MAKS_8B: bagian
+        USAHA diringkas, nama pemilik tetap (pembeda antar-responden). 8b sheet
+        sendiri wajar ("TOKO CONTOH") — yang kepanjangan susunan skrip / 8b yang
+        sudah memuat pemilik ("Pedagang eceran sparepart mobil (I Made Contoh
+        Wirawan Putra)" 53; 8 baris dulu ter-skip 8B_TERLALU_PANJANG). Kata umum di depan
+        (KATA_UMUM_NAMA: "Pedagang eceran", "Jual") dibuang dulu, lalu kata di
+        belakang. "" kalau tidak bisa (baris tetap 8B_TERLALU_PANJANG)."""
+        pemilik = " ".join(re.sub(r"[()]", " ", self["pengusaha"]).split())
+        akhir = f" ({pemilik})"
+        if not pemilik or not hasil.endswith(akhir):
+            return ""
+        kata = hasil[: -len(akhir)].split()
+        while len(kata) > 1 and kata[0].upper().strip(".,") in KATA_UMUM_NAMA:
+            kata.pop(0)
+        while len(kata) > 1 and len(" ".join(kata)) + len(akhir) > MAKS_8B:
+            kata.pop()
+        usaha = " ".join(kata).strip(" ,;:-/&")
+        if len(usaha) + len(akhir) > MAKS_8B or len(re.sub(r"[^A-Za-z]", "", usaha)) < 4:
+            return ""
+        return usaha + akhir
 
     @property
     def nama_dokumen(self) -> str:
@@ -491,6 +591,14 @@ class Tahap2Row(GabunganRow):
         di-skip SKIP_DOKUMEN_NAMA_LAMA gara-gara dokumen responden pertama.
         Pembeda antar-responden ada di nama dokumen: "<8b> (<12a>)"."""
         return ""
+
+    @property
+    def b13_dari_kbli(self) -> bool:
+        return self.info.get("13b_dari_kbli") == "1"
+
+    @property
+    def pindah_26c_ke_26b(self) -> bool:
+        return TAHAP2_26C_KE_26B
 
     @property
     def bulanan_dari_kolom(self) -> bool:
@@ -533,23 +641,47 @@ def beri_pembeda_ganda(rows: list[Tahap2Row]) -> None:
     kosong) dibiarkan -> tetap BARIS_GANDA (duplikat asli, tidak ditebak)."""
     if not TAHAP2_PEMBEDA_13F_UTK_GANDA:
         return
+    # Putaran 1 (aturan 2026-09-23, JANGAN diubah: pembedanya ikut `kunci`, jadi
+    # mengubah hasil putaran ini memutus audit baris yang sudah punya dokumen).
     grup: dict[str, list[Tahap2Row]] = defaultdict(list)
     for r in rows:
         grup[r._kunci_dasar()].append(r)
     for anggota in grup.values():
-        if len(anggota) < 2:
-            continue
-        produk = [" ".join(r["produk"].split()) for r in anggota]
-        jumlah = defaultdict(int)
-        for p in produk:
-            jumlah[p.upper()] += 1
-        daftar = [r.baris for r in anggota]
-        for r, p in zip(anggota, produk):
-            if p and jumlah[p.upper()] == 1:
-                r.pembeda = p
-                r.koreksi.append(f"usaha pecahan bernama sama (baris {daftar}) -> nama dibedakan 13f "
-                                 f"'{p}': {r.nama_dokumen}")
+        _beri_pembeda(anggota, "produk", "13f")
+    # Putaran 2 (2026-09-24) — HANYA menambah pembeda utk baris yang putaran 1
+    # tidak memberinya (baris itu dulu ter-skip, jadi belum punya audit):
+    #  a. 8b+12a sama tapi idsubsls BEDA (baris 498/499 "WR CONTOH (MD CONTOH)"):
+    #     mode satu subsls memasukkan semuanya ke SATU list -> nama dokumen bentrok.
+    #  b. 13f juga sama, 13a beda (baris 441/442 "penjualan alat tulis").
+    grup = defaultdict(list)
+    for r in rows:
+        grup[f"{r.akun_ppl}|{r.nama.upper()}|{r['pengusaha'].upper()}"].append(r)
+    for anggota in grup.values():
+        _beri_pembeda(anggota, "produk", "13f", hanya_kosong=True)
+        _beri_pembeda(anggota, "keg_utama", "13a", hanya_kosong=True)
+    # Putaran 3 (2026-09-24): nama, 13f & 13a sama persis -> desa/kecamatan/nomor.
     bedakan_nama_kembar(rows)
+
+
+def _beri_pembeda(anggota: list[Tahap2Row], key: str, rincian: str, hanya_kosong: bool = False) -> None:
+    """Beri `pembeda` = isian `key` pada anggota grup yang isiannya UNIK di grup.
+    hanya_kosong: anggota yang sudah berpembeda tidak diubah, tapi isiannya tetap
+    dihitung (supaya pembeda baru tidak kembar dgn yang sudah ada)."""
+    if len(anggota) < 2:
+        return
+    isian = [" ".join(r[key].split()) for r in anggota]
+    jumlah: dict[str, int] = defaultdict(int)
+    for p in isian:
+        jumlah[p.upper()] += 1
+    terpakai = {r.pembeda.upper() for r in anggota if r.pembeda}
+    daftar = [r.baris for r in anggota]
+    for r, p in zip(anggota, isian):
+        if hanya_kosong and (r.pembeda or p.upper() in terpakai):
+            continue
+        if p and jumlah[p.upper()] == 1:
+            r.pembeda = p
+            r.koreksi.append(f"usaha pecahan bernama sama (baris {daftar}) -> nama dibedakan {rincian} "
+                             f"'{p}': {r.nama_dokumen}")
 
 
 def _nama_wilayah(row: Tahap2Row, bagian: str) -> str:
@@ -558,25 +690,26 @@ def _nama_wilayah(row: Tahap2Row, bagian: str) -> str:
 
 
 def bedakan_nama_kembar(rows: list[Tahap2Row]) -> None:
-    """Nama dokumen yang MASIH kembar persis sesudah pembeda 13f -> dibedakan
-    bertahap: nama DESA, lalu KECAMATAN, lalu PENOMORAN (ketetapan user 2026-09-24,
-    TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR). Tanpa ini baris kembar cuma di-skip
-    (BARIS_GANDA kalau subsls-nya sama, NAMA_TUMPANG_TINDIH kalau beda) dan
-    usahanya tidak pernah masuk.
+    """Putaran 3 (ketetapan user 2026-09-24, TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR):
+    nama dokumen yang MASIH kembar persis sesudah putaran 13f & 13a dibedakan
+    bertahap — nama DESA, lalu KECAMATAN, lalu PENOMORAN. Kasusnya baris
+    1214/1223 ("toko ni luh sri ameni" gas LPG) & 1362/1363 (sabun/sampo Yuda):
+    nama, 13f DAN 13a sama persis, cuma angka uangnya yang beda, jadi kedua
+    putaran sebelumnya tidak punya bahan pembeda & barisnya cuma ter-skip.
 
     Wilayah dicoba lebih dulu karena lebih informatif drpd angka, tapi hanya
     kalau nilainya MEMBEDAKAN SEMUA anggota — desa yang cuma memisah sebagian
     menyisakan kembar, jadi kasus itu langsung jatuh ke penomoran.
 
-    HANYA baris yang benar-benar bentrok yang diubah; baris lain kuncinya tetap,
-    jadi dokumen yang sudah tercatat di audit tidak jadi dibuat ulang.
+    Sama dgn putaran 2, yang diubah HANYA baris yang masih bentrok — baris lain
+    kuncinya tetap, jadi audit dokumen yang sudah ada tidak terputus.
 
     Syaratnya baris-baris itu memang USAHA BERBEDA ("kalau memang dua usaha
-    berbeda, bedakan namanya"): isian yang dikirim harus ada yang beda (baris
-    1214/1223 & 1362/1363 beda angka uangnya). Kalau ada dua baris yang isinya
-    SAMA PERSIS, itu duplikat entri, bukan dua usaha — seluruh kelompok dibiarkan
-    di-skip BARIS_GANDA spt semula, karena menomorinya berarti mengirim dua
-    dokumen sensus utk satu usaha yang sama & itu tidak bisa dibatalkan."""
+    berbeda, bedakan namanya"): isian yang dikirim harus ada yang beda. Kalau ada
+    dua baris yang isinya SAMA PERSIS, itu duplikat entri, bukan dua usaha —
+    seluruh kelompok dibiarkan di-skip BARIS_GANDA spt semula, karena menomorinya
+    berarti mengirim dua dokumen sensus utk satu usaha yang sama & itu tidak bisa
+    dibatalkan."""
     if not TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR:
         return
     kembar: dict[str, list[Tahap2Row]] = defaultdict(list)
@@ -590,12 +723,12 @@ def bedakan_nama_kembar(rows: list[Tahap2Row]) -> None:
             continue    # ada baris yang isinya sama persis -> duplikat, tidak ditebak
         anggota.sort(key=lambda r: r.baris)
         daftar = [r.baris for r in anggota]
-        for bagian, sebut in (("desa", "desa"), ("kecamatan", "kecamatan")):
+        for bagian in ("desa", "kecamatan"):
             nilai = [_nama_wilayah(r, bagian) for r in anggota]
             if all(nilai) and len(set(nilai)) == len(anggota):
                 for r, n in zip(anggota, nilai):
                     r.pembeda = f"{r.pembeda} {n}".strip()
-                    r.koreksi.append(f"nama kembar persis (baris {daftar}) -> dibedakan {sebut} "
+                    r.koreksi.append(f"nama kembar persis (baris {daftar}) -> nama dibedakan {bagian} "
                                      f"'{n}': {r.nama_dokumen}")
                 break
         else:
@@ -604,7 +737,7 @@ def bedakan_nama_kembar(rows: list[Tahap2Row]) -> None:
             for ke, r in enumerate(anggota, start=1):
                 r.pembeda = f"{r.pembeda} {ke}".strip()
                 r.koreksi.append(f"nama kembar persis (baris {daftar}) & wilayahnya sama -> "
-                                 f"dibedakan penomoran '{ke}': {r.nama_dokumen}")
+                                 f"nama dibedakan penomoran '{ke}': {r.nama_dokumen}")
 
 
 def _indeks_tahap2(judul: list[str]) -> dict[str, int]:
@@ -661,6 +794,16 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
     # 1. Nilai apa adanya dari sheet (teks).
     v["nama"] = v["nama_komersial"] = sel.get("nama_komersial", "")
     v["idsubsls"] = re.sub(r"\D", "", sel.get("idsubsls", ""))
+    # Awalan kabupaten salah ketik ("5100090007000901", baris 1719-1726 data
+    # 2026-09-24): kode kecamatannya cocok dgn kolom "Sumber/Kec." -> awalan KODE_KAB.
+    kec = re.sub(r"\D", "", sel.get("info_sumber_kec", ""))
+    if (TAHAP2_PERBAIKI_AWALAN_IDSUBSLS and len(v["idsubsls"]) == 16 and len(kec) == 3
+            and not v["idsubsls"].startswith(KODE_KAB) and v["idsubsls"][:2] == KODE_KAB[:2]
+            and v["idsubsls"][4:7] == kec):
+        lama = v["idsubsls"]
+        v["idsubsls"] = KODE_KAB + lama[4:]
+        catatan.append(f"idsubsls '{lama}' -> '{v['idsubsls']}' (awalan kabupaten salah ketik; "
+                       f"kecamatan {kec} cocok dgn kolom Sumber/Kec.)")
     for key in ("pengusaha", "nik_pengusaha", "keg_utama", "produk", "jalan_domisili",
                 "nib_nomor", "input_produksi", "proses_produksi"):
         v[key] = sel.get(key, "")
@@ -671,10 +814,24 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
     for key in KEY_BULAT:
         mentah = sel.get(key, "")
         v[key] = re.sub(r"\D", "", mentah) if mentah else ""
-    for key in ("latitude", "longitude"):
-        v[key] = desimal_ke_titik(sel.get(key, ""))
+    # 2a. Satu rincian 24 kosong tapi kolom TOTAL-nya terisi -> selisihnya (baris 1383
+    #     data 2026-09-24: 24.Total 2, dibayar 2, tidak dibayar kosong -> 0). Hitungan,
+    #     bukan tebakan; total lebih kecil dari rincian lainnya -> tetap kosong.
+    for key_cek, pasangan in (("cek_tk_gender", ("tk_laki", "tk_pr")),
+                              ("cek_tk_bayar", ("tk_dibayar", "tk_tdk_dibayar"))):
+        total = re.sub(r"\D", "", cek.get(key_cek, "") or "")
+        for kosong, isi in (pasangan, pasangan[::-1]):
+            if not v[kosong] and v[isi] and total and int(total) >= int(v[isi]):
+                v[kosong] = str(int(total) - int(v[isi]))
+                catatan.append(f"{kosong} kosong -> {v[kosong]} (total {total} - {isi} {v[isi]})")
+    v["latitude"], v["longitude"], ket = pulihkan_koordinat(sel.get("latitude", ""), sel.get("longitude", ""))
+    if ket:
+        catatan.append(ket)
     v["kbli"] = re.sub(r"\D", "", sel.get("kbli", ""))
     v["judul_kbli"] = sel.get("info_judul_kbli", "")   # dipakai melengkapi 13a < 15 karakter
+    # KBLI P/U ditolak form -> 13g diisi rekomendasi GenAI saat pengisian (KBLI_DITOLAK_PAKAI_GENAI);
+    # turunan yang bergantung KBLI (26c -> 26b) ditunda sampai KBLI sebenarnya terpilih.
+    kbli_genai = KBLI_DITOLAK_PAKAI_GENAI and bool(kbli_kategori_ditolak(v["kbli"]))
     v["pendapatan_online"] = persen_ke_bulat(sel.get("pendapatan_online", ""))
     if v["pendapatan_online"] and _beda_angka(sel.get("pendapatan_online", ""), v["pendapatan_online"]):
         catatan.append(f"27d '{sel.get('pendapatan_online')}' dibulatkan -> {v['pendapatan_online']}")
@@ -703,9 +860,16 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
                 v[key] = nilai
     if ket_16b and rencana is not None and v.get("internet", "").startswith("1"):
         catatan.append(ket_16b)
-    # 27d: pesanan masuk lewat internet (16b1 Ya) tapi persentase pendapatan online
+    # 4a. 16a Ya tapi 16b tidak ada Ya -> b6 "Lainnya" Ya (TAHAP2_16B_TANPA_YA_JADI_B6).
+    if (TAHAP2_16B_TANPA_YA_JADI_B6 and rencana and v.get("internet", "").startswith("1")
+            and not any(v.get(k, "").startswith("1") for k in KEY_16B)):
+        v[KEY_16B[-1]] = "1. Ya"
+        catatan.append(f"16a Ya tapi 16b '{sel.get('internet_semua', '')}' tanpa Ya -> 16b6 Lainnya = Ya")
+    # 4b. 27d: pesanan masuk lewat internet (16b1 Ya) tapi persentase pendapatan online
     # kosong/0 -> tidak konsisten. Ketetapan user 2026-09-24 (baris 1556-1559): isi
     # TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN. Nilai sheet yang > 0 TIDAK diubah.
+    # Harus di DEPAN pengisian "indikator ekonomi kosong = 0" (bagian 5c): kalau
+    # dibalik, 27d sudah jadi "0" & aturan ini tidak pernah kelihatan berlaku.
     if (TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN and v.get("internet", "").startswith("1")
             and v.get("internet_pesanan", "").startswith("1")
             and int(v.get("pendapatan_online") or 0) == 0):
@@ -718,6 +882,8 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
     for key, nilai in dari_kbli.items():
         if not v.get(key):
             v[key] = nilai
+    if all(not sel.get(k) for k in dari_kbli):
+        info["13b_dari_kbli"] = "1"
     if any(not sel.get(k) for k in dari_kbli):
         catatan.append(f"13b1/b2/b3 diturunkan dari golongan KBLI {v['kbli'][:2]}: "
                        + "/".join(dari_kbli[k][0] for k in ("produk_sendiri", "layanan_mamin", "keg_penjualan")))
@@ -745,12 +911,23 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
             catatan.append(f"13d/13e diisi dari judul KBLI: '{v['input_produksi']}' / '{v['proses_produksi']}'")
 
     # 5c. KBLI non-perdagangan tidak punya 26c di form -> dijumlahkan ke 26b.
-    if (TAHAP2_26C_KE_26B and kbli_tanpa_26c(v["kbli"]) and v["biaya_pembelian"].isdigit()
+    if (TAHAP2_26C_KE_26B and not kbli_genai and kbli_tanpa_26c(v["kbli"]) and v["biaya_pembelian"].isdigit()
             and int(v["biaya_pembelian"]) > 0 and (v["biaya_produksi"] or "0").isdigit()):
         lama_b, lama_c = int(v["biaya_produksi"] or 0), int(v["biaya_pembelian"])
         v["biaya_produksi"], v["biaya_pembelian"] = str(lama_b + lama_c), "0"
         catatan.append(f"KBLI {v['kbli']} tanpa 26c di form: 26c {lama_c:,} dijumlahkan ke 26b "
                        f"({lama_b:,} -> {lama_b + lama_c:,})")
+
+    # 5c2. Kolom 24 kosong SEMUA -> nilai minimal (TAHAP2_PEKERJA_KOSONG_JADI_MINIMAL): 1 pekerja
+    #      berjenis kelamin pemilik — pemilik ikut dihitung di 24 (cek 24c1 form) & tidak ada satu
+    #      pun baris sheet ber-24 nol; dibayar hanya kalau 26a > 0 (24a2 = 0 -> 26a wajib 0).
+    if (TAHAP2_PEKERJA_KOSONG_JADI_MINIMAL and not any(v[k] for k in KEY_PEKERJA)
+            and v.get("jk", "")[:1] in ("1", "2")):
+        laki, dibayar = v["jk"].startswith("1"), int(v.get("gaji") or 0) > 0
+        v["tk_laki"], v["tk_pr"] = ("1", "0") if laki else ("0", "1")
+        v["tk_dibayar"], v["tk_tdk_dibayar"] = ("1", "0") if dibayar else ("0", "1")
+        catatan.append(f"24 kosong semua -> 1 pekerja {'laki-laki' if laki else 'perempuan'} (ikut pemilik), "
+                       f"{'dibayar (26a terisi)' if dibayar else 'tidak dibayar'} (nilai minimal)")
 
     # 5d. Pekerja per jenis kelamin mengikuti PEMILIK (lihat TAHAP2_PEKERJA_IKUT_JK_PEMILIK).
     if TAHAP2_PEKERJA_IKUT_JK_PEMILIK and all(v[k].isdigit() for k in KEY_PEKERJA) and v.get("jk", "")[:1] in "12":
@@ -768,18 +945,81 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
     #     baris rentang 2-500, 78 di antaranya cuma kolom 27b).
     if TAHAP2_UANG_KOSONG_JADI_NOL:
         nol = [k for k in (*KEY_26, *KEY_27, *KEY_28) if not v.get(k)]
+        # 27d (% pendapatan online) hanya ditanyakan kalau 16a Ya (ketetapan user 2026-09-24:
+        # "blok ekonomi yang kosong isikan 0").
+        if not v.get("pendapatan_online") and v.get("internet", "").startswith("1"):
+            nol.append("pendapatan_online")
         for key in nol:
             v[key] = "0"
         if nol:
             catatan.append(f"indikator ekonomi kosong dianggap 0: {', '.join(nol)}")
 
+    # 5e2. 26a > 0 tapi tidak ada pekerja dibayar -> semua pekerja jadi dibayar
+    #      (TAHAP2_UPAH_ADA_PEKERJA_JADI_DIBAYAR; form: "Wajib terisi = 0, karena
+    #      jumlah pekerja dibayar=0"). Total & jenis kelamin tidak berubah.
+    if (TAHAP2_UPAH_ADA_PEKERJA_JADI_DIBAYAR and all(v.get(k, "").isdigit() for k in ("tk_dibayar", "tk_tdk_dibayar"))
+            and int(v["tk_dibayar"]) == 0 and int(v["tk_tdk_dibayar"]) > 0 and int(v.get("gaji") or 0) > 0):
+        catatan.append(f"26a {int(v['gaji']):,} terisi tapi 24a2 = 0 -> {v['tk_tdk_dibayar']} pekerja tidak "
+                       f"dibayar dipindah ke dibayar (24a2 {v['tk_tdk_dibayar']}, 24b2 0)")
+        v["tk_dibayar"], v["tk_tdk_dibayar"] = v["tk_tdk_dibayar"], "0"
+
     # 5f. Form menolak pekerja DIBAYAR > 0 sementara 26a = 0 (validasi "gaji":
     #     26a/24a2 harus > Rp50.000). Ketetapan user: isi 26a TAHAP2_GAJI_JIKA_DIBAYAR.
     if (TAHAP2_GAJI_JIKA_DIBAYAR and (v.get("tk_dibayar") or "0").isdigit()
             and int(v.get("tk_dibayar") or 0) > 0 and int(v.get("gaji") or 0) == 0):
-        v["gaji"] = str(TAHAP2_GAJI_JIKA_DIBAYAR)
-        catatan.append(f"26a diisi {TAHAP2_GAJI_JIKA_DIBAYAR:,} krn ada {v['tk_dibayar']} pekerja dibayar "
+        # PER pekerja: 100.000 rata utk 2+ pekerja jatuh <= Rp50.000/orang -> GALAT lagi.
+        v["gaji"] = str(TAHAP2_GAJI_JIKA_DIBAYAR * int(v["tk_dibayar"]))
+        catatan.append(f"26a diisi {int(v['gaji']):,} ({TAHAP2_GAJI_JIKA_DIBAYAR:,} x {v['tk_dibayar']} pekerja dibayar) "
                        f"(form menolak 26a = 0)")
+
+    # 5g. Total 26f / 27c > 0 tapi < minimal form -> kekurangan ke pos terbesar
+    #     (TAHAP2_NAIKKAN_KE_MINIMAL). Varian bulanan (tahun operasi = tahun ini) 10.000.
+    #     Total 0 (semua pos kosong/nol) -> 26d / 27a = minimal (TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL,
+    #     TAHAP2_PENJUALAN_NOL_JADI_MINIMAL; ketetapan user 2026-09-24).
+    bulanan = (TAHAP2_ISI_VARIAN_BULANAN and v.get("tahun_operasi", "").isdigit()
+               and int(v["tahun_operasi"]) == datetime.date.today().year)
+    minimal = MINIMAL_TOTAL_RUPIAH_BULANAN if bulanan else MINIMAL_TOTAL_RUPIAH
+    r = "30" if bulanan else "26"    # awalan nomor rincian pengeluaran di form
+    for kelompok, nama, pos_nol, rincian_nol, saklar_nol in (
+            (KEY_26, f"{r}f", "operasional", f"{r}d", TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL),
+            (KEY_27, "31c" if bulanan else "27c", KEY_27[0], "31a" if bulanan else "27a",
+             TAHAP2_PENJUALAN_NOL_JADI_MINIMAL)):
+        if not all(v.get(k, "").isdigit() for k in kelompok):
+            continue
+        total = sum(int(v[k]) for k in kelompok)
+        if total == 0 and saklar_nol:
+            v[pos_nol] = str(minimal)
+            catatan.append(f"{nama} 0 (semua pos kosong/nol) -> {rincian_nol} diisi minimal {minimal:,} (DINAIKKAN)")
+        elif 0 < total < minimal and TAHAP2_NAIKKAN_KE_MINIMAL:
+            terbesar = max(kelompok, key=lambda k: int(v[k]))
+            v[terbesar] = str(int(v[terbesar]) + minimal - total)
+            catatan.append(f"{nama} {total:,} < minimal {minimal:,} -> {terbesar} ditambah "
+                           f"{minimal - total:,} (DINAIKKAN)")
+
+    # 5h/5i. Pos pengeluaran yang WAJIB > 0 menurut KBLI tapi 0 di sheet -> diisi dari pos lain
+    #        (dipindah, total 26f tetap; ketetapan user 2026-09-24). KBLI yang akan diganti
+    #        GenAI dilewati — KBLI sebenarnya belum diketahui.
+    nama_pos = {"biaya_produksi": f"{r}b", "operasional": f"{r}d", "non_operasional": f"{r}e"}
+
+    def pindahkan(ke: str, dari: tuple[str, ...], alasan: str) -> None:
+        asal = next((k for k in dari if int(v[k]) > 0), "")
+        if asal:
+            catatan.append(f"{alasan} -> {nama_pos[asal]} {int(v[asal]):,} dipindah ke "
+                           f"{nama_pos.get(ke, r + 'c')}")
+            v[ke], v[asal] = v[asal], "0"
+
+    if not kbli_genai and all(v.get(k, "").isdigit() for k in KEY_26):
+        # 5h. Usaha dagang varian bulanan: form mewajibkan 30c (pembelian barang dagangan) > 0.
+        #     26b dulu, 26b 0 -> pos terbesar dari 26d/26e (baris 405/563/1076/1586).
+        if (TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN and bulanan and kbli_punya_30c(v["kbli"])
+                and int(v["biaya_pembelian"]) == 0):
+            lain = sorted(("operasional", "non_operasional"), key=lambda k: -int(v[k]))
+            pindahkan("biaya_pembelian", ("biaya_produksi", *lain), f"{r}c 0 (usaha dagang, varian bulanan)")
+        # 5i. KBLI B-F / gol. 56: form mewajibkan 26b > 0 (baris 1675/1676/1730).
+        if (TAHAP2_26B_NOL_AMBIL_DARI_26D and kbli_26b_wajib_positif(v["kbli"])
+                and int(v["biaya_produksi"]) == 0):
+            pindahkan("biaya_produksi", ("operasional", "non_operasional"),
+                      f"{r}b 0 (KBLI {v['kbli']} wajib biaya produksi)")
 
     # 6. Default utk rincian yang tidak ditanyakan di kuesioner kertas.
     for key, bawaan in TAHAP2_DEFAULT.items():
@@ -819,6 +1059,44 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
     return v, cek, info, catatan
 
 
+def lengkapi_umur_tahun(sels: list[dict]) -> list[list[str]]:
+    """12c umur & 25 tahun operasi yang KOSONG (sel mentah, diubah di tempat) ->
+    catatan per baris. (1) Disalin dari usaha lain PEMILIK yang sama (PPL + idsubsls
+    + 12a) kalau yang terisi sepakat satu nilai — usaha pecahan satu orang;
+    (2) sisanya TAHAP2_UMUR_KOSONG_JADI / TAHAP2_TAHUN_OPERASI_KOSONG_JADI
+    (ketetapan user 2026-09-24; "" = dibiarkan kosong -> WAJIB_KOSONG)."""
+    def angka(teks: str) -> str:
+        return re.sub(r"\D", "", teks or "")
+
+    def pemilik(sel: dict) -> tuple:
+        return ((sel.get("akun_ppl") or sel.get("info_nama_ppl") or "").strip().lower(),
+                angka(sel.get("idsubsls", "")), " ".join(sel.get("pengusaha", "").upper().split()))
+
+    grup: dict[tuple, list[int]] = defaultdict(list)
+    for i, sel in enumerate(sels):
+        if pemilik(sel)[2]:
+            grup[pemilik(sel)].append(i)
+    catatan: list[list[str]] = [[] for _ in sels]
+    for key, nama, bawaan in (("umur", "12c umur", TAHAP2_UMUR_KOSONG_JADI),
+                              ("tahun_operasi", "25 tahun operasi", TAHAP2_TAHUN_OPERASI_KOSONG_JADI)):
+        # Nilai saudara diambil dari sheet ASLI dulu, supaya nilai pengganti yang
+        # baru dipasang tidak ikut "disalin" ke baris pemilik yang sama.
+        asli = [angka(sel.get(key, "")) for sel in sels]
+        for i, sel in enumerate(sels):
+            if asli[i]:
+                continue
+            nilai = {asli[j] for j in grup.get(pemilik(sel), []) if j != i} - {""}
+            if len(nilai) == 1:
+                (isi,) = nilai
+                sel[key] = isi
+                catatan[i].append(f"{nama} kosong -> {isi} (disalin dari usaha lain pemilik yang sama)")
+            elif bawaan:
+                sel[key] = bawaan
+                catatan[i].append(f"{nama} kosong -> {bawaan} (nilai pengganti, tidak ada di sheet)"
+                                  + (f"; usaha lain pemilik ini berbeda-beda: {sorted(nilai)}" if nilai else ""))
+    return catatan
+
+
 def load_tahap2(path: str | Path, kodepos: str = "") -> list[Tahap2Row]:
     """Baca sheet tahap 2 -> [Tahap2Row] siap dipakai periksa_semua_tahap2()
     & fill_blok2_gabungan(). `kodepos` = cadangan terakhir (CLI --kodepos)."""
@@ -829,14 +1107,17 @@ def load_tahap2(path: str | Path, kodepos: str = "") -> list[Tahap2Row]:
     if not mentah:
         raise ValueError(f"{path.name} kosong.")
     idx = _indeks_tahap2([_sel(j) for j in mentah[0]])
-    out: list[Tahap2Row] = []
+    sels: list[tuple[int, dict]] = []
     for nomor, baris in enumerate(mentah[1:], start=2):
         if not any(_sel(x) for x in baris):
             continue
-        sel = {k: (_sel(baris[i]) if i < len(baris) else "") for k, i in idx.items()}
+        sels.append((nomor, {k: (_sel(baris[i]) if i < len(baris) else "") for k, i in idx.items()}))
+    catatan_isi = lengkapi_umur_tahun([sel for _, sel in sels])
+    out: list[Tahap2Row] = []
+    for (nomor, sel), tambahan in zip(sels, catatan_isi):
         v, cek, info, catatan = _v_dari_sheet(sel, kodepos)
         row = Tahap2Row(nomor, v, cek=cek, info=info, murni=False)
-        row.koreksi.extend(catatan)
+        row.koreksi.extend(tambahan + catatan)
         # Wilayah baris: dipakai lengkapi_alamat() kalau Nama Jalan < 10 huruf.
         # Nama kec/desa diambil dari kolom informasi "3"/"4" ("GEROKGAK 510801").
         row.wilayah = _wilayah_dari_info(info)
