@@ -32,16 +32,23 @@ aslinya ratusan MB karena cache & profil browser).
 | semua kode,`docs/`, `templates/`, `tests/`            | cache:`__pycache__/`, `.git/`, `*.zip`, `.claude/`                                                           |
 | `bahan/`, `Agenda*.xlsx`, `export/` & data kerja lain | sesi & profil browser (`.profil_*`, `.sesi_*`) — login ulang di PC tujuan                                       |
 | `inti/config_lokal.py` (password, kodepos)                | log & screenshot                                                                                                     |
-| audit lain (`audit_approve_pml.csv`, `audit_log.csv`)   | **`audit_log_gabungan.csv`** (+ `.bak-*`, `audit_pc/`)                                                   |
+| audit lain (`audit_approve_pml.csv`, `audit_log.csv`)   | cadangan audit (`*.bak-*`) & audit per-PC (`audit_pc/`)                                                        |
+| **`audit_log_gabungan.csv`** (sejak 2026-09-24)       |                                                                                                                        |
 |                                                             | laporan yang bisa dibuat ulang (`cek_gabungan.csv`, `rangkum_audit.csv`, `*.siap.js`, `list_api_*.json`, …) |
 
 ⚠️ Zip ini berisi **data responden dan password**. Pindahkan lewat flashdisk atau
 drive kantor — jangan diunggah ke tempat publik.
 
-**Kenapa `audit_log_gabungan.csv` tidak ikut:** kalau ikut, meng-extract zip di
-PC yang sudah pernah bekerja akan **menimpa audit PC itu** — catatan dokumen yang
-sudah dibuatnya hilang, lalu dokumennya dibuat dua kali (dan PPL tidak bisa
-menghapus dokumen). Audit dipindah lewat langkah 1c & bagian 5, bukan lewat zip.
+⚠️ **`audit_log_gabungan.csv` IKUT di zip** (sejak 2026-09-24), supaya hasil
+`gabung_audit` bisa disebar ke semua PC sekaligus. Konsekuensinya: meng-extract zip
+di PC yang **sudah bekerja lagi** akan **menimpa audit PC itu** — catatan dokumen
+yang sudah dibuatnya hilang, lalu dokumennya dibuat dua kali (dan PPL tidak bisa
+menghapus dokumen).
+
+Jadi zip ini hanya boleh disebar **sesudah semua PC berhenti dan auditnya digabung**
+(`docs/PANDUAN_GABUNG_AUDIT.md`). Kalau sebuah PC masih punya pekerjaan yang belum
+masuk gabungan, jangan extract zip ini di sana — perbarui kodenya saja, lalu salin
+auditnya ke PC utama dulu (bagian 5).
 
 ### 1b. Di PC tujuan — extract & pasang
 
@@ -52,8 +59,10 @@ menghapus dokumen). Audit dipindah lewat langkah 1c & bagian 5, bukan lewat zip.
    Expand-Archive -Path split_usaha_pc_XXXX.zip -DestinationPath D:\ -Force
    ```
 
-   Kalau PC itu **sudah punya** folder proyek, extract saja ke tempat yang sama:
-   kode & bahan diperbarui, `audit_log_gabungan.csv` milik PC itu tidak disentuh.
+   Kalau PC itu **sudah punya** folder proyek, extract ke tempat yang sama akan
+   memperbarui kode & bahan — **dan menimpa `audit_log_gabungan.csv` PC itu** dengan
+   audit gabungan dari zip. Itu memang yang diinginkan sesudah penggabungan; kalau
+   PC itu masih menyimpan pekerjaan yang belum digabung, salin auditnya keluar dulu.
 2. Pasang pustaka (sekali per PC; butuh Python):
 
    ```bash

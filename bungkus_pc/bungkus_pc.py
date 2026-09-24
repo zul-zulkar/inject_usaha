@@ -55,7 +55,9 @@ FOLDER_DIBUANG: list[tuple[str, str]] = [
 BERKAS_DIBUANG: list[tuple[str, str]] = [
     ("cache", "*.pyc"), ("cache", "*.zip"), ("cache", "nul"),
     ("sesi browser", ".sesi_*.json"), ("sesi browser", ".proses_*.lock"),
-    # ("audit gabungan", "audit_log_gabungan.csv"),
+    # audit_log_gabungan.csv SENGAJA tidak dibuang sejak 2026-09-24: zip dipakai
+    # menyebarkan hasil gabung_audit ke semua PC sekaligus. Risikonya (menimpa audit
+    # PC yang masih bekerja) diperingatkan saat zip dibuat — lihat akhir main().
     ("audit gabungan", "audit_log_gabungan.csv.bak-*"),
     ("audit gabungan", "*.bak-*"),
     ("hasil turunan", "cek_gabungan.csv"), ("hasil turunan", "rangkum_audit.csv"),
@@ -162,7 +164,10 @@ def main(argv=None) -> int:
             zf.write(ROOT / rel, arcname=f"split_usaha/{rel.as_posix()}")
     print(f"\nZip dibuat : {keluaran}  ({mb(keluaran.stat().st_size).strip()})")
     print("Berisi data responden & password (inti/config_lokal.py) — pindahkan lewat flashdisk/drive kantor.")
-    # print("audit_log_gabungan.csv TIDAK ada di zip — lihat docs/MULAI_CEPAT.md bagian 'Pindah ke PC lain'.")
+    if (ROOT / "audit_log_gabungan.csv") in (ROOT / r for r in ikut):
+        print("\n⚠️  audit_log_gabungan.csv IKUT di zip. Meng-extract-nya di PC yang SUDAH bekerja lagi akan")
+        print("    MENIMPA audit PC itu — ingatan anti-duplikatnya hilang & dokumen bisa terbuat GANDA.")
+        print("    Sebar hanya sesudah semua PC berhenti & auditnya digabung (docs/PANDUAN_GABUNG_AUDIT.md).")
     return 0
 
 

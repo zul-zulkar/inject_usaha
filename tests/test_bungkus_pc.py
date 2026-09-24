@@ -2,9 +2,14 @@
 """test_bungkus_pc.py — uji OFFLINE aturan isi zip bungkus_pc.py.
 Jalankan: python tests/test_bungkus_pc.py
 
-Yang dikunci: audit gabungan TIDAK PERNAH ikut (meng-extract zip di PC yang
-sudah bekerja akan menimpa audit-nya = ingatan anti-duplikat hilang), sesi
-browser & cache tidak ikut, bahan & config lokal ikut."""
+Yang dikunci: audit gabungan `audit_log_gabungan.csv` IKUT (2026-09-24 — zip
+dipakai menyebarkan hasil gabung_audit ke semua PC sekaligus), tapi CADANGANNYA
+(`*.bak-*`) & audit per-PC (`audit_pc/`) tetap tidak ikut; sesi browser & cache
+tidak ikut; bahan & config lokal ikut.
+
+⚠️ Konsekuensi yang disengaja: meng-extract zip ini di PC yang SUDAH bekerja lagi
+akan MENIMPA audit PC itu, dan ingatan anti-duplikatnya hilang. Zip hanya boleh
+disebar setelah semua PC berhenti & auditnya digabung (docs/PANDUAN_GABUNG_AUDIT.md)."""
 
 import os
 os.environ["FASIH_ABAIKAN_CONFIG_LOKAL"] = "1"   # uji pakai data contoh Buleleng di config.py
@@ -29,8 +34,7 @@ def cek(nama, dapat, harap):
 
 
 print("\n== yang TIDAK ikut ==")
-for path, kelompok in (("audit_log_gabungan.csv", "audit gabungan"),
-                       ("audit_log_gabungan.csv.bak-20260924-081355", "audit gabungan"),
+for path, kelompok in (("audit_log_gabungan.csv.bak-20260924-081355", "audit gabungan"),
                        ("audit_pc/pc2.csv", "audit gabungan"),
                        ("inti/__pycache__/config.cpython-312.pyc", "cache"),
                        (".git/HEAD", "cache"),
@@ -48,7 +52,8 @@ for path, kelompok in (("audit_log_gabungan.csv", "audit gabungan"),
     cek(path, alasan_dibuang(Path(path)), kelompok)
 
 print("\n== yang IKUT ==")
-for path in ("bahan/input_tahap2.xlsx", "Agenda.xlsx", "inti/config_lokal.py", "inti/config.py",
+for path in ("audit_log_gabungan.csv",   # sengaja IKUT sejak 2026-09-24 (lihat docstring)
+             "bahan/input_tahap2.xlsx", "Agenda.xlsx", "inti/config_lokal.py", "inti/config.py",
              "export/2510_abc.converted.json", "audit_approve_pml.csv", "docs/MULAI_CEPAT.md",
              "templates/input_usaha.kosong.xlsx", "CLAUDE.md", "input_tahap2/main_tahap2.py",
              "pindah_wilayah/pindah_wilayah_console.js"):
