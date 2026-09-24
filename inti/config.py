@@ -79,7 +79,23 @@ TAHAP2_UANG_KOSONG_JADI_NOL = True
 # Form menolak 24a2 (pekerja DIBAYAR) > 0 sementara 26a = 0 ("gaji": 26a/24a2 harus
 # > Rp50.000). Ketetapan user 2026-09-23: "kalau error karena ada tenaga kerja yang
 # dibayar, isikan 26a 100.000". 0 = matikan aturan ini.
+# Nilainya PER PEKERJA DIBAYAR (2026-09-24): 100.000 rata utk 2+ pekerja jatuh
+# <= Rp50.000/orang -> ditolak lagi oleh aturan kedua `gaji` (baris 285/828/1680
+# ter-skip 26A_PER_PEKERJA_DI_BAWAH_MINIMAL padahal sheetnya 26a = 0 apa adanya).
 TAHAP2_GAJI_JIKA_DIBAYAR = 100_000
+# Koordinat yang formatnya dirusak Excel (2026-09-24, 114 baris "tanpa koordinat"
+# yang sebenarnya berisi titik): "-8.148.438" (titik jadi pemisah ribuan),
+# bujur negatif "-115,142881", lat & long dalam satu sel "-8.142753,115.059837",
+# "-8155247,". Dipulihkan HANYA kalau hasilnya jatuh di kotak ini
+# (lat_min, lat_maks, lon_min, lon_maks) — contoh: Kabupaten Buleleng + margin
+# (kotak se-Bali meloloskan baris 1266/1267: "-8,47722" = 37 km dari desanya,
+# hampir pasti salah ketik). Kabupaten lain menimpanya di config_lokal.py.
+# None = tidak dipulihkan (perilaku lama: DRAFT).
+TAHAP2_KOTAK_KOORDINAT = (-8.45, -8.0, 114.4, 115.45)
+# Kolom idsubsls yang 4 digit awalnya salah ketik ("5100090007000901") padahal
+# kode kecamatannya (digit 5-7) sama dgn kolom "Sumber/Kec." -> awalan diganti
+# KODE_KAB. False = baris itu tetap di-skip KODEPOS_TIDAK_DIKETAHUI.
+TAHAP2_PERBAIKI_AWALAN_IDSUBSLS = True
 DEFAULT_19A = "3. Tidak/Belum"
 DEFAULT_19C = "1"
 DEFAULT_20C_VARIAN_BELUM_BPOM = "1"
@@ -354,6 +370,18 @@ TAHAP2_TOTAL_BEDA = "rincian"
 # berurutan, b6 "Lainnya" diisi nilai ini (ketetapan user 2026-09-23). "" = skip
 # 16B_TIDAK_JELAS (perilaku lama). Kelimanya "2" padahal 16a Ya tetap ditolak 16B_TANPA_YA.
 TAHAP2_16B_LIMA_NILAI_B6 = "2. Tidak"
+# 16a Ya tapi kolom 16b tidak memuat satu pun Ya ("2" / "2,2,2,2,2"; 77 baris data
+# 2026-09-24, PPL yang sama SELALU menulis begitu) -> 16b6 "Lainnya" = Ya, b1-b5
+# tetap Tidak (ketetapan user 2026-09-24). False = skip 16B_TANPA_YA (perilaku lama).
+TAHAP2_16B_TANPA_YA_JADI_B6 = True
+# 26f/27c (bulanan 30f/31c) > 0 tapi < minimal form (100.000 / 10.000): kekurangannya
+# ditambahkan ke pos terbesar (ketetapan user 2026-09-24, sama dgn aturan backlog
+# lama). Total 0 = tidak ada data -> TETAP di-skip DI_BAWAH_MINIMAL, tidak dikarang.
+TAHAP2_NAIKKAN_KE_MINIMAL = True
+# 26a > 0 tapi 24a2 (pekerja dibayar) = 0 -> form mewajibkan 26a = 0. Ketetapan user
+# 2026-09-24: semua pekerja dipindah ke DIBAYAR (24a2 = 24a2 + 24b2, 24b2 = 0), 26a
+# tetap. False = skip 26A_HARUS_0_TANPA_PEKERJA_DIBAYAR (perilaku lama).
+TAHAP2_UPAH_ADA_PEKERJA_JADI_DIBAYAR = True
 # Usaha pecahan: beberapa baris dgn akun+idsubsls+8b+12a SAMA tapi 13f beda (satu
 # warung, produk berbeda) -> nama dokumen & 8b diberi 13f: "<8b> <13f> (<12a>)"
 # (ketetapan user 2026-09-23). 13f juga sama -> tetap BARIS_GANDA. False = perilaku lama.

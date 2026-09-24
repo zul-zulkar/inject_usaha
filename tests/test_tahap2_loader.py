@@ -271,9 +271,18 @@ cek("mulai tahun berjalan -> SIAP (30-33 diisi dari kolom 26-29)", hasil[2].stat
 cek_benar("... ditandai varian bulanan", any("varian bulanan" in t for t in hasil[2].tanda))
 cek("bulanan: minimal 10.000 (bukan 100.000)", periksa_semua_tahap2(tulis([baris(**{
     "25": _th, "26c": "Rp20.000", "26d": "Rp0", "Rp26": "", "27a": "Rp50.000", "27c": ""})]))[2].status, "SIAP")
-cek("tahunan: 26f < 100.000 tetap ditolak", periksa_semua_tahap2(tulis([baris(**{
+_kecil = tulis([baris(**{"26c": "Rp20.000", "26d": "Rp0", "Rp26": "", "27a": "Rp50.000", "27c": ""})])
+cek("tahunan: 26f/27c < 100.000 -> dinaikkan ke pos terbesar (ketetapan 2026-09-24)",
+    (_kecil[0]["biaya_pembelian"], _kecil[0]["nilai_pendapatan"], periksa_semua_tahap2(_kecil)[2].status),
+    ("100000", "100000", "SIAP"))
+cek_benar("... dicatat DINAIKKAN", any("DINAIKKAN" in k for k in _kecil[0].koreksi))
+cek("total 0 (tidak ada data) TIDAK dikarang -> tetap ditolak", periksa_semua_tahap2(tulis([baris(**{
+    "26c": "Rp0", "26d": "Rp0", "Rp26": ""})]))[2].status, "SKIP_DATA_DI_BAWAH_MINIMAL")
+t2.TAHAP2_NAIKKAN_KE_MINIMAL = False
+cek("saklar mati: 26f < 100.000 ditolak", periksa_semua_tahap2(tulis([baris(**{
     "26c": "Rp20.000", "26d": "Rp0", "Rp26": "", "27a": "Rp50.000", "27c": ""})]))[2].status,
     "SKIP_DATA_DI_BAWAH_MINIMAL")
+t2.TAHAP2_NAIKKAN_KE_MINIMAL = True
 cek("bulanan kategori G + 26c 0 -> 30C_HARUS_LEBIH_0", periksa_semua_tahap2(tulis([baris(**{
     "25": _th, "26c": "Rp0", "26d": "Rp200.000", "Rp26": ""})]))[2].status, "SKIP_DATA_30C_HARUS_LEBIH_0")
 cek("tahun operasi di masa depan -> ditolak",
@@ -330,14 +339,20 @@ cek("16b teks asing -> tidak dikenali", rencana_16b("WA BISNIS")[0], None)
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1", "16b1-b6": "2,1,2,2,2"})]))
 cek("16a Ya + 16b 5 nilai (ada Ya) -> SIAP", hasil[2].status, "SIAP")
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1", "16b1-b6": "2,2,2,2,2"})]))
-cek("16a Ya + 16b 5 nilai semua Tidak -> 16B_TANPA_YA", hasil[2].status, "SKIP_DATA_16B_TANPA_YA")
+cek("16a Ya + 16b 5 nilai semua Tidak -> b6 Lainnya Ya (ketetapan 2026-09-24)", hasil[2].status, "SIAP")
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1", "16b1-b6": "2,1,2,2"})]))
 cek("16a Ya + 16b 4 nilai -> 16B_TIDAK_JELAS", hasil[2].status, "SKIP_DATA_16B_TIDAK_JELAS")
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "2", "16b1-b6": "2,2,2,2,2"})]))
 cek("16a Tidak + 16b 5 nilai -> tidak dipakai, SIAP", hasil[2].status, "SIAP")
+_r16 = tulis([baris(**{"16a": "1"})])
+cek("16a Ya tapi 16b '2' -> b1-b5 Tidak, b6 Ya", [_r16[0][k][:1] for k in (
+    "internet_pesanan", "internet_produksi", "internet_distribusi", "internet_beli", "internet_promosi",
+    "internet_lainnya")], ["2", "2", "2", "2", "2", "1"])
+t2.TAHAP2_16B_TANPA_YA_JADI_B6 = False
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1"})]))
-cek_benar("16a Ya tapi 16b1-b6 semua Tidak -> ditolak form",
+cek_benar("saklar mati: 16a Ya tapi 16b1-b6 semua Tidak -> ditolak form",
           any(k == "16B_TANPA_YA" for k, _ in hasil[2].masalah))
+t2.TAHAP2_16B_TANPA_YA_JADI_B6 = True
 
 hasil = periksa_semua_tahap2(tulis([baris(**{"12b": "3"})]))
 cek_benar("kode opsi tidak dikenal -> kolom kosong -> skip",
@@ -377,7 +392,7 @@ t2.TAHAP2_NIK_TIDAK_VALID_JADI = "9999"
 
 print("\n== koordinat belum ada / rusak -> DRAFT (--koordinat otomatis) ==")
 for lat, lon, ket in (("", "", "kosong"), ("-", "-", "strip"), ("0", "0", "nol"), ("-8,2004731", "", "hanya lat"),
-                      ("-8.148.438", "1.145.951", "rusak (titik ribuan Excel)"), ("abc", "114,79", "bukan angka")):
+                      ("-8,2004731", "1,15E+09", "rusak (notasi ilmiah Excel)"), ("abc", "114,79", "bukan angka")):
     rk = tulis([baris(Latitude=lat, Longitude=lon)])[0]
     cek(f"{ket}: punya_koordinat False", rk.punya_koordinat, False)
     h = periksa_semua_tahap2([rk], izinkan_tanpa_koordinat=True)[2]
@@ -390,8 +405,40 @@ cek_benar("hanya lat: disebut di tanda",
           any("hanya latitude" in t for t in periksa_semua_tahap2(
               tulis([baris(Latitude="-8,2004731", Longitude="")]), izinkan_tanpa_koordinat=True)[2].tanda))
 cek_benar("rusak: nilainya disebut di tanda",
-          any("TIDAK TERBACA '-8.148.438'" in t for t in periksa_semua_tahap2(
-              tulis([baris(Latitude="-8.148.438", Longitude="1.145.951")]), izinkan_tanpa_koordinat=True)[2].tanda))
+          any("TIDAK TERBACA" in t for t in periksa_semua_tahap2(
+              tulis([baris(Latitude="-8,2004731", Longitude="1,15E+09")]), izinkan_tanpa_koordinat=True)[2].tanda))
+
+print("\n== koordinat yang formatnya dirusak Excel dipulihkan (2026-09-24) ==")
+for lat, lon, harap in (("-8.148.438", "1.145.951", ("-8.148438", "114.5951")),
+                        ("-8,152133", "-115,142881", ("-8.152133", "115.142881")),
+                        ("-8.142753,115.059837", "", ("-8.142753", "115.059837")),
+                        ("-8.149636, 115.057187", None, ("-8.149636", "115.057187")),
+                        ("-8,1423759, 115,0601420", None, ("-8.1423759", "115.060142")),
+                        ("-8155247,", "115.098819", ("-8.155247", "115.098819")),
+                        ("-81362115", "115,35943", ("-8.1362115", "115.35943")),
+                        ("-8,136239", "115.359.466", ("-8.136239", "115.359466"))):
+    rk = tulis([baris(Latitude=lat, Longitude=lon)])[0]
+    cek(f"{lat!r}/{lon!r} -> {harap}", (rk["latitude"], rk["longitude"]), harap)
+    cek_benar(f"{lat!r}: tercatat sbg koreksi", any("format rusak Excel" in k for k in rk.koreksi))
+for lat, lon, ket in (("-8,1423759,", "1,15E+09", "notasi ilmiah (digit hilang)"),
+                      ("-8,14773115", "149223166", "bujur di luar kotak"),
+                      ("-8,1395", "-8,1306", "bujur = lintang"),
+                      ("-8,47722", "-115,142003", "lintang di luar kabupaten (baris 1266)")):
+    rk = tulis([baris(Latitude=lat, Longitude=lon)])[0]
+    cek(f"{ket}: TIDAK ditebak", rk.punya_koordinat, False)
+rk = tulis([baris(Latitude="-8,2004731", Longitude="114,7987732")])[0]
+cek("koordinat benar: tidak ada koreksi", any("format rusak" in k for k in rk.koreksi), False)
+t2.TAHAP2_KOTAK_KOORDINAT = None
+cek("kotak None -> tidak dipulihkan", tulis([baris(Latitude="-8.148.438", Longitude="1.145.951")])[0].punya_koordinat,
+    False)
+t2.TAHAP2_KOTAK_KOORDINAT = (-8.45, -8.0, 114.4, 115.45)
+
+print("\n== awalan kabupaten idsubsls salah ketik (2026-09-24) ==")
+rk = tulis([baris(**{"Sumber/Kec.": "010", "5": "5100010010000302"})])[0]
+cek("5100010... + kec 010 -> 5108010...", rk.idsubsls, "5108010010000302")
+cek_benar("dicatat", any("awalan kabupaten salah ketik" in k for k in rk.koreksi))
+cek("kec tidak cocok -> dibiarkan", tulis([baris(**{"Sumber/Kec.": "020", "5": "5100010010000302"})])[0].idsubsls,
+    "5100010010000302")
 rk = tulis([baris()])[0]
 cek("koordinat lengkap: punya_koordinat", rk.punya_koordinat, True)
 cek("koordinat lengkap + otomatis -> SIAP biasa (dikirim)",
@@ -454,7 +501,22 @@ panjang = tulis([baris(**{"8b.": "WARUNG BU", "12a": "NI LUH PUTU SETIAWATI KART
                  baris(**{"8b.": "WARUNG BU", "12a": "NI LUH PUTU SETIAWATI KARTIKA", "13f": "GAS LPG"})])
 cek_benar("> 50 karakter tetap memuat (12a), tidak jatuh ke nama tanpa pemilik",
           "(NI LUH PUTU SETIAWATI KARTIKA)" in panjang[0].nama_dokumen)
-cek("... dan di-skip 8B_TERLALU_PANJANG", periksa_semua_tahap2(panjang)[2].status, "SKIP_DATA_8B_TERLALU_PANJANG")
+cek("... bagian usahanya diringkas di belakang (2026-09-24)", panjang[0].nama_dokumen,
+    "AIR MINUM KEMASAN (NI LUH PUTU SETIAWATI KARTIKA)")
+cek("... jadi tidak lagi di-skip", periksa_semua_tahap2(panjang)[2].status, "SIAP")
+rk = tulis([baris(**{"8b.": "Pedagang eceran sparepart mobil (I Made Contoh Wirawan)", "12a": "I Made Contoh Wirawan"})])[0]
+cek("8b sudah memuat pemilik & > 50 -> kata umum di depan dibuang", rk.nama_dokumen,
+    "sparepart mobil (I Made Contoh Wirawan)")
+cek("8b ikut", rk.nama_komersial, "sparepart mobil (I Made Contoh Wirawan)")
+beda_sls = tulis([baris(**{"8b.": "WR CONTOH", "12a": "MD CONTOH", "13f": "Eceran bumbu dapur"}),
+                  baris(**{"8b.": "WR CONTOH", "12a": "MD CONTOH", "13f": "Eceran kue kering",
+                           "5": "5108010010000301"})])
+cek("8b+12a sama di subsls BEDA -> tetap dibedakan 13f (satu list PENDATAAN)",
+    [r.nama_dokumen for r in beda_sls], ["WR CONTOH Eceran bumbu dapur (MD CONTOH)", "WR CONTOH Eceran kue kering (MD CONTOH)"])
+beda_13a = tulis([baris(**{"8b.": "WR PUTU", "13a": "Eceran perlengkapan AT", "13f": "alat tulis"}),
+                  baris(**{"8b.": "WR PUTU", "13a": "Jual eceran alat penunjang", "13f": "alat tulis"})])
+cek("13f kembar tapi 13a beda -> dibedakan 13a",
+    [h.status for h in periksa_semua_tahap2(beda_13a).values()], ["SIAP", "SIAP"])
 t2.TAHAP2_PEMBEDA_13F_UTK_GANDA = False
 cek("saklar mati -> semua BARIS_GANDA", {h.status for h in periksa_semua_tahap2(tulis(
     [baris(**{"13f": "A B C D"}), baris(**{"13f": "E F G H"})])).values()}, {"SKIP_DATA_BARIS_GANDA"})
@@ -481,6 +543,21 @@ cek("huruf kecil ikut cocok", _opsi("peran_mbg", "tidak"), "5. Tidak terlibat MB
 cek("'YA' peran_mbg TIDAK ditebak (ada 4 varian Ya)", _opsi("peran_mbg", "YA"), "YA")
 cek("alias khusus tidak bocor ke rincian lain", _opsi("mitra_kdkmp", "TIDAK"), "2. Tidak")
 cek("kode angka tetap menang", _opsi("peran_mbg", "2"), "2. Ya, sebagai supplier")
+
+print("\n== 26a > 0 tapi 24a2 = 0 -> pekerja jadi dibayar (ketetapan 2026-09-24) ==")
+_ru = tulis([baris(**{"24.Dibayar": "0", "24.Tidak dibayar": "2", "24.L": "1", "24.P": "1", "24.Total": "2",
+                     "26a": "Rp17.000.000"})])
+cek("24a2/24b2 0/2 -> 2/0, 26a tetap", (_ru[0]["tk_dibayar"], _ru[0]["tk_tdk_dibayar"], _ru[0]["gaji"]),
+    ("2", "0", "17000000"))
+cek("... tidak lagi ditolak", periksa_semua_tahap2(_ru)[2].status, "SIAP")
+
+print("\n== 26a = 0 + pekerja dibayar -> 100.000 PER pekerja (2026-09-24) ==")
+for dibayar, harap in (("1", "100000"), ("3", "300000")):
+    rk = tulis([baris(**{"24.L": dibayar, "24.P": "0", "24.Dibayar": dibayar, "24.Tidak dibayar": "0",
+                         "26a": "Rp0"})])[0]
+    cek(f"{dibayar} pekerja dibayar -> 26a {harap}", rk["gaji"], harap)
+    cek(f"{dibayar} pekerja dibayar -> tidak lagi 26A_PER_PEKERJA_DI_BAWAH_MINIMAL",
+        "26A_PER_PEKERJA_DI_BAWAH_MINIMAL" in [k for k, _ in periksa_semua_tahap2([rk])[2].masalah], False)
 
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)
