@@ -55,7 +55,8 @@ FOLDER_DIBUANG: list[tuple[str, str]] = [
 BERKAS_DIBUANG: list[tuple[str, str]] = [
     ("cache", "*.pyc"), ("cache", "*.zip"), ("cache", "nul"),
     ("sesi browser", ".sesi_*.json"), ("sesi browser", ".proses_*.lock"),
-    ("audit gabungan", "audit_log_gabungan.csv"), ("audit gabungan", "audit_log_gabungan.csv.bak-*"),
+    # ("audit gabungan", "audit_log_gabungan.csv"),
+    ("audit gabungan", "audit_log_gabungan.csv.bak-*"),
     ("audit gabungan", "*.bak-*"),
     ("hasil turunan", "cek_gabungan.csv"), ("hasil turunan", "rangkum_audit.csv"),
     ("hasil turunan", "bersihkan_error.csv"), ("hasil turunan", "laporan_gabung*.csv"),
@@ -161,7 +162,7 @@ def main(argv=None) -> int:
             zf.write(ROOT / rel, arcname=f"split_usaha/{rel.as_posix()}")
     print(f"\nZip dibuat : {keluaran}  ({mb(keluaran.stat().st_size).strip()})")
     print("Berisi data responden & password (inti/config_lokal.py) — pindahkan lewat flashdisk/drive kantor.")
-    print("audit_log_gabungan.csv TIDAK ada di zip — lihat docs/MULAI_CEPAT.md bagian 'Pindah ke PC lain'.")
+    # print("audit_log_gabungan.csv TIDAK ada di zip — lihat docs/MULAI_CEPAT.md bagian 'Pindah ke PC lain'.")
     return 0
 
 
