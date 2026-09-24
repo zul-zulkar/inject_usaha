@@ -34,6 +34,8 @@ skrip** — dan setiap pemakaiannya dicatat sebagai ASUMSI di kolom
 | 11a badan usaha | `13. Bukan Badan Usaha` |
 | 11d catatan keuangan | `2. Tidak` |
 | 13c tempat usaha | `4. Toko, ruko, dan sejenisnya` |
+
+Kalau ringkasan pra-kirim masih menyisakan GALAT yang tidak dikenali, skrip **mencoba** mengganti 13c jadi `5. Kedai, stan, tenda` (`GALAT_13C_JADI` di `inti/config.py`) lalu membaca ulang ringkasannya. Galatnya berkurang → dipertahankan; tidak berkurang → 13c dikembalikan ke jawaban semula, jadi baris yang galatnya bukan soal 13c tidak ikut berubah. Keduanya dicatat di `review_disarankan`. Galat lain tetap tidak pernah ditebak.
 | 16c teknologi digital | `2. Tidak` (hanya dirender kalau 16a = Ya) |
 | 17a produksi ramah lingkungan | `3. Tidak sama sekali` |
 | 18 produk seni | `2. Tidak` |
@@ -154,7 +156,8 @@ tercatat di kolom `tanda` / `review_disarankan`.
 | Keadaan di sheet | Yang dilakukan | Saklar |
 |---|---|---|
 | Jawaban berupa teks: `LAKI-LAKI`, `L`, `P`, `YA`, `TIDAK`, `2. PEREMPUAN` | dicocokkan ke opsi form (harus sama persis, setelah membuang nomor/spasi/tanda baca) | — |
-| `16b1-b6` berisi daftar `1,2,1,1,1,1`, kode `B1,B3`, atau kata `PROMOSI`, `KOMUNIKASI` (→ b6 Lainnya) | diurai per rincian; daftar yang **bukan 6 nilai** → `SKIP_DATA_16B_TIDAK_JELAS` (tidak ditebak) | — |
+| `16b1-b6` berisi daftar `1,2,1,1,1,1`, kode `B1,B3`, atau kata `PROMOSI`, `KOMUNIKASI` (→ b6 Lainnya) | diurai per rincian; daftar **5 nilai** = b1–b5, b6 Lainnya = Tidak (`TAHAP2_16B_LIMA_NILAI_B6`); jumlah nilai lain → `SKIP_DATA_16B_TIDAK_JELAS` (tidak ditebak) | ya (5 nilai) |
+| Beberapa baris dgn akun + idsubsls + 8b + 12a SAMA tapi 13f beda (satu warung, beberapa produk = usaha pecahan) | nama dokumen & 8b jadi `<8b> <13f> (<12a>)`, mis. `WARUNG SEMBAKO (I KETUT CONTOH)`; > 50 karakter → `<13f> (<12a>)`. 13f juga sama → tetap `SKIP_DATA_BARIS_GANDA` (`TAHAP2_PEMBEDA_13F_UTK_GANDA`) | ya |
 | Kolom total beda dengan jumlah rincian | rincian yang dikirim (form menghitung total sendiri) | `TAHAP2_TOTAL_BEDA` |
 | Mulai beroperasi 2026 | 30–33 diisi dari kolom 26–29, 31e hanya **AGUSTUS**; minimal total 10.000 | `TAHAP2_ISI_VARIAN_BULANAN`, `TAHAP2_BULAN_OPERASI` |
 | KBLI industri (13b1 Ya) tanpa kolom 13d/13e | 13d & 13e diisi judul KBLI | `TAHAP2_13DE_DARI_KBLI` |

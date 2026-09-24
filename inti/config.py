@@ -66,6 +66,20 @@ NAMA_PEMBERI_INFORMASI = "Lainnya"
 # ---------------------------------------------------------------------------
 DEFAULT_10C_ALASAN_TANPA_NIB = "3. Tidak memerlukan NIB"
 DEFAULT_13C_TEMPAT_USAHA = "4. Toko, ruko, dan sejenisnya"
+# Kalau ringkasan pra-kirim menandai GALAT pada 13c (lokasi usaha), jawabannya
+# LANGSUNG diganti ini lalu ringkasan dibaca ulang — ketetapan user 2026-09-23
+# ("13c kalau ada kode error, langsung ubah ke kode 5 saja"). "" = matikan.
+GALAT_13C_JADI = "5. Kedai, stan, tenda"
+
+# Indikator ekonomi (26a-26e, 27a-27b, 28a-28b) yang selnya KOSONG di kuesioner
+# kertas = tidak ada nilainya = NOL — ketetapan user 2026-09-23 ("untuk indikator
+# ekonomi yang ga ada datanya harusnya kau peka kalau itu diisikan dengan nol").
+# Sebelum ini baris spt itu ter-skip SKIP_DATA_WAJIB_KOSONG sebelum dokumen dibuat.
+TAHAP2_UANG_KOSONG_JADI_NOL = True
+# Form menolak 24a2 (pekerja DIBAYAR) > 0 sementara 26a = 0 ("gaji": 26a/24a2 harus
+# > Rp50.000). Ketetapan user 2026-09-23: "kalau error karena ada tenaga kerja yang
+# dibayar, isikan 26a 100.000". 0 = matikan aturan ini.
+TAHAP2_GAJI_JIKA_DIBAYAR = 100_000
 DEFAULT_19A = "3. Tidak/Belum"
 DEFAULT_19C = "1"
 DEFAULT_20C_VARIAN_BELUM_BPOM = "1"
@@ -336,6 +350,14 @@ MINIMAL_TOTAL_RUPIAH_BULANAN = 10_000   # 30f & 31c (file-validation "minimal 10
 # = rincian dikirim apa adanya (form menghitung total sendiri), selisihnya hanya
 # ditandai; "skip" = baris di-skip TOTAL_TIDAK_COCOK (perilaku lama).
 TAHAP2_TOTAL_BEDA = "rincian"
+# Kolom "16b1-b6" berisi 5 nilai (4 PPL selalu begitu, 92 baris): dianggap b1..b5
+# berurutan, b6 "Lainnya" diisi nilai ini (ketetapan user 2026-09-23). "" = skip
+# 16B_TIDAK_JELAS (perilaku lama). Kelimanya "2" padahal 16a Ya tetap ditolak 16B_TANPA_YA.
+TAHAP2_16B_LIMA_NILAI_B6 = "2. Tidak"
+# Usaha pecahan: beberapa baris dgn akun+idsubsls+8b+12a SAMA tapi 13f beda (satu
+# warung, produk berbeda) -> nama dokumen & 8b diberi 13f: "<8b> <13f> (<12a>)"
+# (ketetapan user 2026-09-23). 13f juga sama -> tetap BARIS_GANDA. False = perilaku lama.
+TAHAP2_PEMBEDA_13F_UTK_GANDA = True
 # 13d/13e (input & proses produksi, muncul kalau 13b1 Ya & 13b2 Tidak) tidak ada
 # di kuesioner kertas -> diisi dari JUDUL KBLI (kolom sheet 13d/13e tetap menang).
 TAHAP2_13DE_DARI_KBLI = True

@@ -71,7 +71,7 @@ import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from inti.config import (
     ASSIGNMENT_ID_GABUNGAN, FIXED_PASSWORD, GABUNGAN_AKUN_TUNGGAL, GABUNGAN_BARIS_PER_SESI,
-    GABUNGAN_MODE_MURNI, GABUNGAN_SUBSLS_TUNGGAL, KODE_KAB, WILAYAH_BY_IDSUBSLS,
+    GABUNGAN_MODE_MURNI, GABUNGAN_SUBSLS_TUNGGAL, GALAT_13C_JADI, KODE_KAB, WILAYAH_BY_IDSUBSLS,
 )
 from inti.fasih_web import DokumenNamaLamaAda, FasihWebSession, FieldNotFound
 from inti.fill_blok2 import fill_catatan, fill_keterangan_pemberi_jawaban
@@ -308,8 +308,38 @@ def tanda_tanpa_url_terakhir(kunci: str, baris: list[dict] | None = None) -> dic
 def status_terakhir_dari(baris: list[dict]) -> dict:
     """{kunci: status}, baris TERAKHIR yang menang. Pakai kunci, BUKAN nomor baris
     — nomor baris bergeser kalau sheet diurutkan/disisipi. Menerima daftar baris
-    (bukan langsung file) supaya gabung_audit/ memakai aturan yang SAMA PERSIS."""
-    return {b["kunci"]: (b.get("status") or "").strip() for b in baris if b.get("kunci")}
+    (bukan langsung file) supaya gabung_audit/ memakai aturan yang SAMA PERSIS.
+
+    Pengecualian: DOKUMEN_DIBUAT utk dokumen yang SAMA (URL sama, atau tanpa URL)
+    TIDAK menimpa status yang sudah ada. Temuan 2026-09-24 (audit gabungan semua
+    PC): sinkron_list di PC lain menulis DOKUMEN_DIBUAT ("dibuat di luar audit
+    ini") utk 147 dokumen yang di PC pembuatnya sudah DRAFT_TANPA_KOORDINAT;
+    setelah digabung baris sinkron itu jatuh paling belakang -> status turun jadi
+    DOKUMEN_DIBUAT -> tiap run mengisi ulang dokumen yang sama. DOKUMEN_DIBUAT
+    dgn URL BARU (dokumen lain) tetap menang."""
+    out: dict = {}
+    url_kunci: dict = {}
+    for b in baris:
+        kunci = b.get("kunci")
+        if not kunci:
+            continue
+        status = (b.get("status") or "").strip()
+        url = _id_dokumen(b.get("dokumen_url") or "")
+        if (status == STATUS_DIBUAT and out.get(kunci) not in (None, "", STATUS_DIBUAT, STATUS_DIHAPUS)
+                and (not url or url == url_kunci.get(kunci))):
+            continue
+        out[kunci] = status
+        if url:
+            url_kunci[kunci] = url
+    return out
+
+
+def _id_dokumen(url: str) -> str:
+    """Segmen id dokumen dari URL entry (…/<id>/entry); URL lain apa adanya."""
+    bagian = [p for p in url.strip().split("/") if p]
+    if len(bagian) >= 2 and bagian[-1] == "entry":
+        return bagian[-2]
+    return url.strip()
 
 
 def dokumen_per_kunci() -> dict:
@@ -337,15 +367,16 @@ def dokumen_dari(baris: list[dict]) -> dict:
     return out
 
 
-def kunci_lain_bernama_sama(nama_dokumen: str, kunci: str, akun: str = "") -> str:
+def kunci_lain_bernama_sama(nama_dokumen: str, kunci: str, akun: str = "", audit: list | None = None) -> str:
     """Kunci baris LAIN yang dokumennya (akun `akun` kalau diisi) tercatat dgn nama dokumen
     yang sama persis, "" kalau tidak ada. Run 2026-09-15: Agenda2 baris 267 &
     Agenda baris 108 = dua usaha BERBEDA bernama "PANGKALAN GAS (NYOMAN SHUARJANA)".
     create_document mencari nama di list -> akan membuka dokumen baris 108 (terkirim)
     & baris 267 salah dianggap tuntas (DOKUMEN_TERKUNCI)."""
     n = " ".join((nama_dokumen or "").split()).upper()
-    milik = dokumen_per_kunci()
-    for b in _baca_audit():
+    baris = _baca_audit() if audit is None else audit
+    milik = dokumen_dari(baris)
+    for b in baris:
         k = b.get("kunci")
         if (k and k != kunci and k in milik and (not akun or milik[k][0] == akun.lower())
                 and " ".join((b.get("nama_usaha") or "").split()).upper() == n):
@@ -354,28 +385,54 @@ def kunci_lain_bernama_sama(nama_dokumen: str, kunci: str, akun: str = "") -> st
 
 
 def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set, nama_dokumen: str = "",
-                               punya_koordinat: bool = True) -> str:
+                               punya_koordinat: bool = True, audit: list | None = None) -> str:
     """Audit dibaca ULANG tepat sebelum baris dikerjakan (daftar awal dihitung saat
     start). Batch lain (akun lain) bisa sudah membuat/mengirim dokumen baris ini
-    selama batch ini berjalan -> membuatnya lagi di sini = duplikat. "" = kerjakan."""
-    tercatat = dokumen_per_kunci().get(kunci)
+    selama batch ini berjalan -> membuatnya lagi di sini = duplikat. "" = kerjakan.
+
+    `audit` = daftar baris audit yang sudah dibaca (alat laporan offline
+    memakainya supaya tidak membaca ulang berkas utk SETIAP baris); saat batch
+    jalan ia SELALU None supaya tulisan proses lain ikut terbaca."""
+    baris_audit_ = _baca_audit() if audit is None else audit
+    tercatat = dokumen_dari(baris_audit_).get(kunci)
     if tercatat and tercatat[:2] != target:
         return f"dokumennya sudah dibuat proses lain ({tercatat[0]} / {tercatat[1]})"
-    if status_terakhir_per_kunci().get(kunci, "") in STATUS_TANPA_URL_SEMUA:
+    if status_terakhir_dari(baris_audit_).get(kunci, "") in STATUS_TANPA_URL_SEMUA:
         # Dokumennya kemungkinan ada di server tanpa URL tercatat. Mengerjakannya
         # lagi = dokumen kedua; dibuka lewat URL juga tidak bisa. Buktikan dulu
         # lewat sinkron_list (nama ketemu di list -> DOKUMEN_DIBUAT + URL ditulis,
         # tidak ketemu -> hapus baris tanda ini dari audit), baru dikerjakan lagi.
         return (f"{TANDA_LEWATI_TANPA_URL}: dokumen tanpa URL tercatat — "
                 f"jalankan sinkron_list.py --tulis dulu (lihat {LAPORAN_TANPA_URL_PATH})")
-    if tuntas and tuntas_menurut_audit(status_terakhir_per_kunci().get(kunci, ""), tuntas, punya_koordinat):
+    if tuntas and tuntas_menurut_audit(status_terakhir_dari(baris_audit_).get(kunci, ""),
+                                       tuntas, punya_koordinat):
         return "sudah selesai di audit (dikerjakan proses lain)"
     if nama_dokumen and not tercatat:
-        lain = kunci_lain_bernama_sama(nama_dokumen, kunci, target[0])
+        lain = kunci_lain_bernama_sama(nama_dokumen, kunci, target[0], baris_audit_)
         if lain:
             return (f"SKIP_NAMA_DIPAKAI_BARIS_LAIN: '{nama_dokumen}' sudah jadi nama dokumen baris lain "
                     f"(kunci {lain}) di list akun ini — bedakan nama di sheet (atau KOREKSI_NAMA)")
     return ""
+
+
+def kenapa_tidak_dikerjakan(rows, hasil: dict, tuntas: set, target_fn, audit: list,
+                           satu_subsls: bool = True) -> list[tuple]:
+    """[(nomor baris, alasan)] utk SETIAP baris; alasan "" = akan dikerjakan.
+
+    SATU sumber kebenaran: dipakai pesan "Tidak ada baris yang perlu diproses"
+    di main() DAN laporan gabung_audit/rangkum_audit.py, supaya keduanya tidak
+    pernah berbeda jawaban. Urutan pemeriksaannya sama dgn saat batch jalan:
+    pemeriksaan data offline dulu, baru pemeriksaan giliran."""
+    keluar = []
+    for r in rows:
+        cek = hasil.get(r.baris)
+        if cek is not None and not cek.bisa_diproses:
+            keluar.append((r.baris, f"{cek.status}: {cek.pesan[:150]}"))
+            continue
+        keluar.append((r.baris, alasan_lewati_saat_giliran(
+            r.kunci, target_fn(r), tuntas, r.nama_dokumen if satu_subsls else "",
+            r.punya_koordinat, audit=audit)))
+    return keluar
 
 
 def berkas_stop(akun: str) -> str:
@@ -386,6 +443,45 @@ def berkas_stop(akun: str) -> str:
         if nama and Path(nama).exists():
             return nama
     return ""
+
+
+def coba_13c_alternatif(sess, galat_lama: int, tanda: list):
+    """GALAT yang belum teratasi -> COBA ganti 13c jadi `GALAT_13C_JADI`
+    (permintaan user 2026-09-23: "pokoknya ganti saja jadi kode 5 sebagai
+    alternatif"). Sengaja TIDAK bergantung pada teks detail galat — teksnya
+    belum pernah terekam, dan menebak polanya berarti perbaikan ini bisa
+    diam-diam tidak pernah jalan.
+
+    Kalau galatnya TIDAK berkurang, 13c DIKEMBALIKAN ke jawaban semula: baris
+    yang galatnya bukan soal 13c tidak boleh ikut berubah isiannya.
+
+    Return ringkasan BARU (dialognya terbuka lagi), atau None kalau memang tidak
+    ada yang dicoba — None berarti dialog ringkasan masih seperti semula."""
+    if not GALAT_13C_JADI:
+        return None
+    sess.close_ringkasan_dialog()
+    sebelum = sess.isi_13c(GALAT_13C_JADI)
+    if sebelum is None:                       # 13c tidak dirender -> tidak ada alternatif
+        tanda.append("13c tidak dirender — alternatif kode 5 tidak bisa dipakai")
+        return sess.check_ringkasan()
+    if sebelum == GALAT_13C_JADI:             # sudah kode 5, tidak ada yang berubah
+        return sess.check_ringkasan()
+    sess.save()
+    ring = sess.check_ringkasan()
+    if ring.galat < galat_lama:
+        tanda.append(f"13c '{sebelum or '(kosong)'}' -> '{GALAT_13C_JADI}': GALAT "
+                     f"{galat_lama} -> {ring.galat} (alternatif, ketetapan user)")
+        return ring
+    if not sebelum:
+        # Tadinya belum terjawab: biarkan terisi — radio tidak bisa dikosongkan lagi.
+        tanda.append(f"13c diisi '{GALAT_13C_JADI}' (tadinya kosong), GALAT tidak berkurang")
+        return ring
+    sess.close_ringkasan_dialog()
+    sess.isi_13c(sebelum)
+    sess.save()
+    tanda.append(f"13c dicoba '{GALAT_13C_JADI}' tapi GALAT tetap {ring.galat} — "
+                 f"dikembalikan ke '{sebelum}'")
+    return sess.check_ringkasan()
 
 
 def id_dari_url(url: str) -> str:
@@ -702,11 +798,19 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
             # TIDAK PERNAH dikirim, apa pun --submit-nya. GALAT tetap dilaporkan
             # supaya draft yang masih bermasalah ketahuan sebelum koordinatnya
             # dilengkapi (Nomor Urut Bangunan diperbaiki di run pelengkap).
+            if ring.galat > 0:
+                # 13c ikut dibereskan di sini juga: draft tanpa koordinat memang
+                # tidak dikirim, tapi galatnya terhitung di kartu "Jumlah Error"
+                # server & harus sudah bersih saat koordinatnya dilengkapi nanti.
+                detail = sess.read_galat_detail()
+                ring_alt = coba_13c_alternatif(sess, ring.galat, tanda)
+                if ring_alt is not None:
+                    ring = ring_alt
+                    detail = sess.read_galat_detail() if ring.galat > 0 else ""
             result["status"] = STATUS_DRAFT_TANPA_KOORDINAT
             result["galat"], result["peringatan"] = ring.galat, ring.peringatan
             result["catatan_count"], result["kosong"] = ring.catatan, ring.kosong
             if ring.galat > 0:
-                detail = sess.read_galat_detail()
                 result["error_message"] = f"Draft tanpa koordinat, GALAT {ring.galat}: {detail}"[:1500]
                 tanda.append(f"DRAFT MASIH ADA GALAT ({ring.galat}) — tinjau sebelum koordinat dilengkapi")
             sess.close_ringkasan_dialog()
@@ -719,13 +823,21 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
             return result
         if ring.galat > 0:
             detail = sess.read_galat_detail()
-            if "Nomor Urut Bangunan" in detail and detail.count("\n") <= 3:
+            # Cabang lama: satu-satunya galat = Nomor Urut Bangunan (aturan keselamatan #3).
+            nomor_urut = "Nomor Urut Bangunan" in detail and detail.count("\n") <= 3
+            if nomor_urut:
                 sess._log(f"Nomor Urut Bangunan di sheet = '{row['no_bang']}' (pembanding saja, tidak dipakai).")
                 sess.close_ringkasan_dialog()
                 sess.fix_nomor_urut_bangunan_if_needed()
                 sess.save()
                 ring = sess.check_ringkasan()
             else:
+                # Alternatif yang diminta user: coba 13c = kode 5 dulu sebelum menyerah.
+                ring_alt = coba_13c_alternatif(sess, ring.galat, tanda)
+                if ring_alt is not None:
+                    ring = ring_alt
+                    detail = sess.read_galat_detail() if ring.galat > 0 else detail
+            if ring.galat > 0 and not nomor_urut:
                 result["status"] = "SKIP_GALAT_PERLU_REVIEW"
                 result["galat"], result["peringatan"], result["kosong"] = ring.galat, ring.peringatan, ring.kosong
                 result["error_message"] = f"GALAT selain Nomor Urut Bangunan: {detail}"
@@ -1072,6 +1184,7 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                                                          args.baris_per_sesi)),
                            perintah)
 
+    rows_rentang = list(rows)   # sebelum penyaringan, utk menjelaskan kalau hasilnya 0 baris
     ditolak = [r for r in rows if not hasil[r.baris].bisa_diproses]
     if ditolak:
         print(f"{len(ditolak)} baris dilewati karena gagal pemeriksaan data (detail: --cek).")
@@ -1185,7 +1298,20 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
     if args.limit:
         rows = rows[: args.limit]
     if not rows:
+        # Dulu cuma satu baris ini — user tidak punya cara tahu BEDA antara
+        # "semuanya memang sudah selesai" dan "ada yang tertahan". Sekarang
+        # alasannya dihitung dgn aturan yang sama & dirinci di sini.
         print("Tidak ada baris yang perlu diproses.")
+        rekap = Counter(a.split(":")[0] for _b, a in kenapa_tidak_dikerjakan(
+            rows_rentang, hasil, tuntas_audit, target, _baca_audit(), satu_subsls) if a)
+        if rekap:
+            print(f"Alasannya, dari {len(rows_rentang)} baris dalam rentang ini:")
+            for nama, n in sorted(rekap.items(), key=lambda t: -t[1]):
+                print(f"  {n:6d}  {nama}")
+            print("Rincian per baris: python gabung_audit/rangkum_audit.py --sumber "
+                  f"{args.sumber}" + (f" --format {args.format}" if args.format != "standar" else "")
+                  + (f" --dari {args.dari}" if args.dari else "")
+                  + (f" --sampai {args.sampai}" if args.sampai else ""))
         return 0
 
     dry_run = not args.submit

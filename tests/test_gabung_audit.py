@@ -201,5 +201,57 @@ check("DRAFT_GALAT_DI_SERVER masuk kelompok DRAFT", kelompok_status("DRAFT_GALAT
 check("draft bergalat -> ULANGI lewat URL",
       klasifikasi(rec("DRAFT_GALAT_DI_SERVER", dokumen_url=URL1), False)[0], "ULANGI")
 
+# --- rangkum_audit: progres per BARIS sheet & alasan run tidak mengerjakan apa-apa ---
+from gabung_audit.rangkum_audit import kelompok_baris, rangkum  # noqa: E402
+from inti.gabungan_loader import GabunganRow, Pemeriksaan  # noqa: E402
+
+AKUN_R, SUBSLS_R = "a@mail.com", "5108060006000224"
+TUNTAS_R = set(mg.STATUS_TERKIRIM)
+
+
+def row_r(baris, nama):
+    return GabunganRow(baris, {"akun_ppl": "p@gmail.com", "idsubsls": "5108060006000224", "nama": nama,
+                               "pengusaha": "MADE", "kbli": "47111", "latitude": "-8.1",
+                               "longitude": "115.1"})
+
+
+check("terkirim -> kelompok TERKIRIM",
+      kelompok_baris("TERKIRIM_TERVERIFIKASI", "SIAP", TUNTAS_R, True), "TERKIRIM")
+check("draft tanpa koordinat punya kelompok sendiri",
+      kelompok_baris(mg.STATUS_DRAFT_TANPA_KOORDINAT, "SIAP", TUNTAS_R, False), "DRAFT_TANPA_KOORDINAT")
+check("bertanda galat server -> kelompoknya sendiri",
+      kelompok_baris(mg.STATUS_DRAFT_GALAT, "SIAP", TUNTAS_R, True), "DRAFT_GALAT_DI_SERVER")
+check("belum ada catatan & data bersih -> BELUM DISENTUH",
+      kelompok_baris("", "SIAP", TUNTAS_R, True), "BELUM DISENTUH")
+check("belum ada catatan tapi data ditolak -> DITOLAK PEMERIKSAAN DATA",
+      kelompok_baris("", "SKIP_DATA_WAJIB_KOSONG", TUNTAS_R, True), "DITOLAK PEMERIKSAAN DATA")
+check("status audit menang atas hasil pemeriksaan",
+      kelompok_baris("TERKIRIM_TERVERIFIKASI", "SKIP_DATA_WAJIB_KOSONG", TUNTAS_R, True), "TERKIRIM")
+
+r_siap, r_kirim, r_tolak, r_lain = (row_r(2, "TOKO A"), row_r(3, "TOKO B"),
+                                    row_r(4, "TOKO C"), row_r(5, "TOKO D"))
+rows_r = [r_siap, r_kirim, r_tolak, r_lain]
+hasil_r = {2: Pemeriksaan(), 3: Pemeriksaan(), 5: Pemeriksaan(),
+           4: Pemeriksaan(masalah=[("WAJIB_KOSONG", "kolom kosong: pendapatan_lain")])}
+audit_r = [
+    {"kunci": r_kirim.kunci, "status": "TERKIRIM_TERVERIFIKASI", "akun_login": AKUN_R,
+     "idsubsls_input": SUBSLS_R, "dokumen_url": "https://x/s/p/dB/entry"},
+    {"kunci": r_lain.kunci, "status": mg.STATUS_DIBUAT, "akun_login": "lain@mail.com",
+     "idsubsls_input": "5108060006000116", "dokumen_url": "https://x/s/p/dD/entry"},
+]
+keluar_r, kel_r, alasan_r = rangkum(rows_r, hasil_r, audit_r, (AKUN_R, SUBSLS_R), TUNTAS_R)
+per_baris = {r["baris"]: r for r in keluar_r}
+check("baris bersih & belum tersentuh -> dikerjakan", per_baris[2]["dikerjakan"], "ya")
+check("baris terkirim -> tidak dikerjakan", per_baris[3]["dikerjakan"], "tidak")
+check("alasan baris terkirim", "sudah selesai" in per_baris[3]["alasan"], True)
+check("baris yang datanya ditolak -> alasannya kode SKIP_DATA_*",
+      per_baris[4]["alasan"].startswith("SKIP_DATA_WAJIB_KOSONG"), True)
+check("detail pemeriksaan ikut tercatat", "pendapatan_lain" in per_baris[4]["detail"], True)
+check("dokumen milik akun lain -> tidak dikerjakan",
+      (per_baris[5]["dikerjakan"], "proses lain" in per_baris[5]["alasan"]), ("tidak", True))
+check("rekap kelompok", dict(kel_r), {"BELUM DISENTUH": 1, "TERKIRIM": 1,
+                                      "DITOLAK PEMERIKSAAN DATA": 1, "SUDAH DISENTUH (belum tuntas)": 1})
+check("baris yang dikerjakan tidak punya alasan", alasan_r[""], 1)
+
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

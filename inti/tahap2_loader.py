@@ -46,12 +46,14 @@ from pathlib import Path
 
 from inti.config import (
     KODEPOS_BY_DESA, KODEPOS_BY_IDSUBSLS, TAHAP2_13B_DARI_KBLI, TAHAP2_13DE_DARI_KBLI, TAHAP2_26C_KE_26B,
-    TAHAP2_DEFAULT, TAHAP2_HP_TIDAK_VALID_JADI, TAHAP2_ISI_VARIAN_BULANAN, TAHAP2_NIK_TIDAK_VALID_JADI,
-    TAHAP2_PEKERJA_IKUT_JK_PEMILIK, TAHAP2_TOTAL_BEDA,
+    TAHAP2_DEFAULT, TAHAP2_GAJI_JIKA_DIBAYAR, TAHAP2_HP_TIDAK_VALID_JADI, TAHAP2_ISI_VARIAN_BULANAN,
+    TAHAP2_NIK_TIDAK_VALID_JADI, TAHAP2_PEKERJA_IKUT_JK_PEMILIK, TAHAP2_TOTAL_BEDA,
+    TAHAP2_UANG_KOSONG_JADI_NOL, TAHAP2_16B_LIMA_NILAI_B6, TAHAP2_PEMBEDA_13F_UTK_GANDA,
 )
 from inti.gabungan_loader import (
-    KEY_16B, KEY_26, KEY_27, KEY_29, KEY_PEKERJA, OPSI_FORM, YA_TIDAK, GabunganRow, Pemeriksaan,
-    _norm_judul, _sel, hp_valid, judul_dari_opsi_kbli, kbli_tanpa_26c, nik_valid, periksa_semua,
+    KEY_16B, KEY_26, KEY_27, KEY_28, KEY_29, KEY_PEKERJA, MAKS_8B, OPSI_FORM, YA_TIDAK, GabunganRow, Pemeriksaan,
+    _norm_judul, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, kbli_tanpa_26c, nama_muat, nama_tampil,
+    nik_valid, periksa_semua,
 )
 
 # Nama tab yang diterima. File contoh dari user bertab "Sheet1"; tab yang
@@ -219,8 +221,9 @@ def desimal_ke_titik(teks) -> str:
 def persen_ke_bulat(teks) -> str:
     """27d "0,00" -> "0" (form meminta bilangan bulat). Pembulatan half-up
     sama dgn aturan finansial repo ini; kalau nilainya berubah, pemanggil
-    mencatatnya sbg koreksi."""
-    t = desimal_ke_titik(teks)
+    mencatatnya sbg koreksi. Tanda persen dibuang: "10%" -> "10" (data asli
+    2026-09-24, 252 baris sempat dianggap kosong)."""
+    t = desimal_ke_titik(str(teks or "").strip().rstrip("%").strip())
     if not t:
         return ""
     try:
@@ -265,6 +268,18 @@ ALIAS_OPSI = {
     "Y": "YA", "T": "TIDAK", "TDK": "TIDAK", "TAK": "TIDAK",
 }
 
+# Alias yang hanya berlaku utk SATU rincian, krn label opsinya tidak berbunyi
+# "Ya"/"Tidak" polos. 21 "peran_mbg" (: "5. Tidak terlibat MBG") -> jawaban kertas
+# "TIDAK"/"Tidak"/"tidak" dulu ditolak OPSI_TIDAK_ADA_DI_FORM (249 baris data asli
+# 2026-09-23). "YA" sengaja TIDAK dipetakan: ada 4 varian Ya, tidak boleh ditebak.
+ALIAS_OPSI_PER_KEY = {
+    "peran_mbg": {"TIDAK": "5. Tidak terlibat MBG", "TIDAKTERLIBAT": "5. Tidak terlibat MBG",
+                  "TIDAKADA": "5. Tidak terlibat MBG"},
+    # 17b di form cuma Ya/Tidak; 140 baris data asli (2026-09-24) berisi "3" = opsi
+    # ke-3 kuesioner kertas ("Tidak sama sekali"/"Tidak tahu") -> sama-sama bukan Ya.
+    "perlindungan_lingkungan": {"3": "2. Tidak"},
+}
+
 
 def _norm_opsi(teks: str) -> str:
     """Huruf besar, hanya huruf & angka: "Laki - laki" -> "LAKILAKI"."""
@@ -284,6 +299,9 @@ def opsi_dari_kode(key: str, nilai) -> str:
     opsi = OPSI_FORM.get(key, ())
     if not t or not opsi or t in opsi:
         return t
+    khusus = ALIAS_OPSI_PER_KEY.get(key, {}).get(_norm_opsi(t))
+    if khusus:
+        return khusus
     m = re.fullmatch(r"(\d+)\.?", t)
     if m:
         cocok = [o for o in opsi if re.match(rf"^{m.group(1)}\.(?!\d)", o)]
@@ -306,11 +324,31 @@ KATA_16B = {
 }
 
 
+def _16b_bentuk_lain(t: str) -> set[int] | None:
+    """Bentuk tulisan 16b yang dipakai PPL di data asli 2026-09-24 (t sudah huruf
+    besar) -> {indeks rincian yang Ya}; None = bukan salah satu bentuk ini.
+      "B1.YA, B2. TIDAK, B3.YA, B4. YA, B5YA,B6.TIDAK" -> pasangan rincian+jawaban
+      "1,4,6 YA" / "4,6 YA" / "B4 YA" / "6 YA"        -> rincian yang disebut Ya
+      "B1-B3. 1"                                       -> rentang rincian Ya
+    Rincian yang tidak disebut = Tidak. Nomor di luar 1-6 ("B7") -> None."""
+    pasangan = re.findall(r"B\s*([1-6])\s*[.:=]?\s*(YA|TIDAK)\b", t)
+    if pasangan and not re.sub(r"B\s*[1-6]\s*[.:=]?\s*(YA|TIDAK)\b|[,;\s]", "", t):
+        return {int(n) - 1 for n, j in pasangan if j == "YA"}
+    m = re.fullmatch(r"((?:B?\s*[1-6]\s*[,;&\s]\s*)*B?\s*[1-6])\s*[.:=]?\s*(YA|1)", t)
+    if m and (m.group(2) == "YA" or "B" in m.group(1)):
+        return {int(n) - 1 for n in re.findall(r"[1-6]", m.group(1))}
+    m = re.fullmatch(r"B?\s*([1-6])\s*-\s*B?\s*([1-6])\s*[.:=]?\s*(YA|1)", t)
+    if m and int(m.group(1)) <= int(m.group(2)):
+        return set(range(int(m.group(1)) - 1, int(m.group(2))))
+    return None
+
+
 def rencana_16b(teks) -> tuple[dict | None, str]:
     """Kolom "16b1-b6" -> ({key 16b: "1. Ya"/"2. Tidak"} , catatan).
     Bentuk yang dikenali (data asli 2026-09-22):
       "1" / "YA" / "2" / "TIDAK"   -> berlaku utk KEENAM rincian
-      "1,2,1,1,1,1"                -> per rincian, WAJIB tepat 6 nilai
+      "1,2,1,1,1,1"                -> per rincian, 6 nilai
+      "2,1,2,2,2"                  -> 5 nilai = b1..b5, b6 dari TAHAP2_16B_LIMA_NILAI_B6
       "B1,B3"                      -> rincian itu Ya, sisanya Tidak
       "PROMOSI" / "PROMOSI/KOMUNIKASI" -> lewat KATA_16B, sisanya Tidak
     Kosong/"-" -> ({}, ""). Tidak dikenali / jumlah nilai bukan 6 -> (None,
@@ -321,8 +359,19 @@ def rencana_16b(teks) -> tuple[dict | None, str]:
     tunggal = opsi_dari_kode("internet_pesanan", t)
     if tunggal in YA_TIDAK:
         return {k: tunggal for k in KEY_16B}, f"16b1-b6 diisi '{tunggal}' dari satu kolom '16b1-b6'"
-    bagian = [b for b in re.split(r"[,;/\s]+", t) if b]
+    ya = _16b_bentuk_lain(t)
+    if ya is not None:
+        return ({k: "1. Ya" if i in ya else "2. Tidak" for i, k in enumerate(KEY_16B)},
+                f"16b1-b6 '{t}' -> Ya utk " + (",".join(f"b{i + 1}" for i in sorted(ya)) or "tidak ada"))
+    bagian = [b for b in re.split(r"[,;/_\s]+", t) if b]
     if all(b in ("1", "2") for b in bagian):
+        if len(bagian) == len(KEY_16B) - 1 and TAHAP2_16B_LIMA_NILAI_B6:
+            # Ketetapan user 2026-09-23: 5 nilai = b1..b5 berurutan, b6 "Lainnya"
+            # = TAHAP2_16B_LIMA_NILAI_B6. Empat PPL SELALU menulis 5 nilai (92 baris).
+            hasil = {k: "1. Ya" if b == "1" else "2. Tidak" for k, b in zip(KEY_16B, bagian)}
+            hasil[KEY_16B[-1]] = TAHAP2_16B_LIMA_NILAI_B6
+            return hasil, (f"16b1-b6 '{t}' berisi 5 nilai -> dianggap b1-b5, "
+                           f"b6 Lainnya = '{TAHAP2_16B_LIMA_NILAI_B6}'")
         if len(bagian) != len(KEY_16B):
             return None, (f"16b1-b6 '{t}' berisi {len(bagian)} nilai utk 6 rincian — tidak jelas rincian "
                           "mana yang dimaksud; tulis 6 nilai (mis. 2,1,2,2,2,2)")
@@ -399,6 +448,29 @@ class Tahap2Row(GabunganRow):
     """GabunganRow + kolom khas tahap 2 yang TIDAK dikirim ke form."""
     cek: dict = field(default_factory=dict)   # {key cek: angka} utk periksa_total
     info: dict = field(default_factory=dict)  # kolom informasi (uraian, nama PPL, dst.)
+    # 13f pembeda usaha pecahan bernama sama (lihat beri_pembeda_ganda). Kosong = tidak ada.
+    pembeda: str = ""
+
+    def _nama_dgn_pembeda(self, nama: str) -> str:
+        """"<8b> (<12a>)"; usaha pecahan bernama sama: "<8b> <13f> (<12a>)". Yang
+        terakhir > MAKS_8B -> "<13f> (<12a>)" (8b generik "warung bu" dilepas, 13f
+        yang membedakan). Masih kepanjangan -> 8B_TERLALU_PANJANG, BUKAN cadangan
+        nama_muat tanpa (<12a>): tanpa pemilik, 13f generik ("air galon") bentrok
+        dgn usaha pecahan pemilik lain."""
+        if not self.pembeda:
+            return nama_muat(nama_tampil(nama, self.akhiran_badan), self["pengusaha"])
+        hasil = format_nama_usaha(nama_tampil(f"{nama} {self.pembeda}", self.akhiran_badan), self["pengusaha"])
+        if len(hasil) > MAKS_8B:
+            hasil = format_nama_usaha(self.pembeda, self["pengusaha"])
+        return hasil
+
+    @property
+    def nama_dokumen(self) -> str:
+        return self._nama_dgn_pembeda(self.nama)
+
+    @property
+    def nama_komersial(self) -> str:
+        return self._nama_dgn_pembeda(self["nama_komersial"])
 
     @property
     def nama_lama_dicari(self) -> str:
@@ -430,9 +502,43 @@ class Tahap2Row(GabunganRow):
         memakai nama usaha generik ("USAHA JUAL BERAS") yang gampang berulang
         antar responden; tanpa 12a, dua responden berbeda akan dianggap
         BARIS_GANDA. Tetap dari kolom MENTAH (bukan nama_dokumen) supaya
-        aturan penamaan boleh berubah tanpa memutus --lewati-selesai."""
+        aturan penamaan boleh berubah tanpa memutus --lewati-selesai.
+        Pembeda 13f ikut dihitung HANYA kalau ada (baris yang dulu BARIS_GANDA,
+        jadi belum pernah punya dokumen -> tidak ada audit lama yang terputus)."""
+        return self._kunci_dasar(self.pembeda)
+
+    def _kunci_dasar(self, pembeda: str = "") -> str:
         teks = f"{self.akun_ppl}|{self.idsubsls}|{self.nama.upper()}|{self['pengusaha'].upper()}"
+        if pembeda:
+            teks += f"|{pembeda.upper()}"
         return hashlib.sha1(teks.encode("utf-8")).hexdigest()[:10]
+
+
+def beri_pembeda_ganda(rows: list[Tahap2Row]) -> None:
+    """Usaha pecahan (ketetapan user 2026-09-23, TAHAP2_PEMBEDA_13F_UTK_GANDA):
+    baris dgn kunci dasar sama (akun+idsubsls+8b+12a) tapi 13f BERBEDA =
+    satu warung dgn beberapa produk ("warung (gede wirawan)" x7: sembako,
+    dupa, galon, ...), bukan duplikat. Baris seperti itu diberi pembeda 13f
+    -> nama dokumen, 8b & kunci jadi unik. Baris yang 13f-nya juga sama (atau
+    kosong) dibiarkan -> tetap BARIS_GANDA (duplikat asli, tidak ditebak)."""
+    if not TAHAP2_PEMBEDA_13F_UTK_GANDA:
+        return
+    grup: dict[str, list[Tahap2Row]] = defaultdict(list)
+    for r in rows:
+        grup[r._kunci_dasar()].append(r)
+    for anggota in grup.values():
+        if len(anggota) < 2:
+            continue
+        produk = [" ".join(r["produk"].split()) for r in anggota]
+        jumlah = defaultdict(int)
+        for p in produk:
+            jumlah[p.upper()] += 1
+        daftar = [r.baris for r in anggota]
+        for r, p in zip(anggota, produk):
+            if p and jumlah[p.upper()] == 1:
+                r.pembeda = p
+                r.koreksi.append(f"usaha pecahan bernama sama (baris {daftar}) -> nama dibedakan 13f "
+                                 f"'{p}': {r.nama_dokumen}")
 
 
 def _indeks_tahap2(judul: list[str]) -> dict[str, int]:
@@ -574,6 +680,25 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
             catatan.append(f"24 laki/perempuan {l}/{p} -> {v['tk_laki']}/{v['tk_pr']} (ikut jenis kelamin "
                            f"pemilik; total = dibayar {d} + tidak dibayar {td})")
 
+    # 5e. Indikator ekonomi yang selnya kosong = tidak ada nilainya = NOL.
+    #     Kuesioner kertas mengosongkan sel yang nilainya nol; tanpa ini baris itu
+    #     ter-skip WAJIB_KOSONG sebelum dokumen dibuat (2026-09-23: 111 dari 499
+    #     baris rentang 2-500, 78 di antaranya cuma kolom 27b).
+    if TAHAP2_UANG_KOSONG_JADI_NOL:
+        nol = [k for k in (*KEY_26, *KEY_27, *KEY_28) if not v.get(k)]
+        for key in nol:
+            v[key] = "0"
+        if nol:
+            catatan.append(f"indikator ekonomi kosong dianggap 0: {', '.join(nol)}")
+
+    # 5f. Form menolak pekerja DIBAYAR > 0 sementara 26a = 0 (validasi "gaji":
+    #     26a/24a2 harus > Rp50.000). Ketetapan user: isi 26a TAHAP2_GAJI_JIKA_DIBAYAR.
+    if (TAHAP2_GAJI_JIKA_DIBAYAR and (v.get("tk_dibayar") or "0").isdigit()
+            and int(v.get("tk_dibayar") or 0) > 0 and int(v.get("gaji") or 0) == 0):
+        v["gaji"] = str(TAHAP2_GAJI_JIKA_DIBAYAR)
+        catatan.append(f"26a diisi {TAHAP2_GAJI_JIKA_DIBAYAR:,} krn ada {v['tk_dibayar']} pekerja dibayar "
+                       f"(form menolak 26a = 0)")
+
     # 6. Default utk rincian yang tidak ditanyakan di kuesioner kertas.
     for key, bawaan in TAHAP2_DEFAULT.items():
         if not v.get(key):
@@ -622,6 +747,7 @@ def load_tahap2(path: str | Path, kodepos: str = "") -> list[Tahap2Row]:
         # Nama kec/desa diambil dari kolom informasi "3"/"4" ("GEROKGAK 510801").
         row.wilayah = _wilayah_dari_info(info)
         out.append(row)
+    beri_pembeda_ganda(out)
     return out
 
 

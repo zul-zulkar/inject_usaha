@@ -50,16 +50,16 @@ python gabung_audit/gabung_audit.py --sumber audit_pc
 
 Keluarannya:
 
-| Bagian | Isi |
-| --- | --- |
-| SUMBER | jumlah baris, jumlah dokumen & rentang waktu tiap PC |
-| PER AKUN | dokumen per akun petugas, dipecah per status |
-| PER WILAYAH TEMPAT DOKUMEN DIBUAT | rekap per `idsubsls_input` |
-| PER WILAYAH ASLI BARIS | rekap per `idsubsls` — bahan pindah wilayah nanti |
-| PER BERKAS ASAL | sumbangan tiap PC |
-| STATUS AKHIR PER DOKUMEN | jumlah tiap status audit |
-| STATUS DI SERVER | status assignment sebenarnya, kalau ada `list_api_*.json` |
-| PEMERIKSAAN BENTROK | lihat bagian di bawah |
+| Bagian                            | Isi                                                        |
+| --------------------------------- | ---------------------------------------------------------- |
+| SUMBER                            | jumlah baris, jumlah dokumen & rentang waktu tiap PC       |
+| PER AKUN                          | dokumen per akun petugas, dipecah per status               |
+| PER WILAYAH TEMPAT DOKUMEN DIBUAT | rekap per`idsubsls_input`                                |
+| PER WILAYAH ASLI BARIS            | rekap per`idsubsls` — bahan pindah wilayah nanti        |
+| PER BERKAS ASAL                   | sumbangan tiap PC                                          |
+| STATUS AKHIR PER DOKUMEN          | jumlah tiap status audit                                   |
+| STATUS DI SERVER                  | status assignment sebenarnya, kalau ada`list_api_*.json` |
+| PEMERIKSAAN BENTROK               | lihat bagian di bawah                                      |
 
 Dua berkas juga ditulis (keduanya turunan, aman ditimpa):
 
@@ -103,15 +103,39 @@ Perintah itu juga menghasilkan `list_api_<akun>.json`, yang membuat kolom
 
 ## Membaca "PEMERIKSAAN BENTROK"
 
-| Peringatan | Artinya | Tindakan |
-| --- | --- | --- |
-| dokumen dikerjakan >1 PC | dua PC punya catatan BERBEDA untuk baris yang sama | pastikan dokumennya satu, bukan dua |
-| **DOKUMEN GANDA** | satu baris punya dua URL dokumen berbeda | duplikat di server — laporkan ke admin, PPL tidak bisa menghapus |
-| dokumen tercatat di >1 akun | baris dibuat dengan akun berbeda | skrip akan melewati baris ini; periksa manual |
-| satu dokumen dipakai >1 baris | dua baris sheet menunjuk dokumen sama | cek nama dokumen di server |
+| Peringatan                    | Artinya                                            | Tindakan                                                          |
+| ----------------------------- | -------------------------------------------------- | ----------------------------------------------------------------- |
+| dokumen dikerjakan >1 PC      | dua PC punya catatan BERBEDA untuk baris yang sama | pastikan dokumennya satu, bukan dua                               |
+| **DOKUMEN GANDA**       | satu baris punya dua URL dokumen berbeda           | duplikat di server — laporkan ke admin, PPL tidak bisa menghapus |
+| dokumen tercatat di >1 akun   | baris dibuat dengan akun berbeda                   | skrip akan melewati baris ini; periksa manual                     |
+| satu dokumen dipakai >1 baris | dua baris sheet menunjuk dokumen sama              | cek nama dokumen di server                                        |
 
 Berkas yang isinya hanya salinan audit PC lain tidak dihitung sebagai PC kedua,
 jadi menyebarkan hasil gabungan ke semua PC tidak memunculkan peringatan palsu.
+
+## Memantau progres & "kenapa run langsung berhenti" (`rangkum_audit.py`)
+
+```bash
+python gabung_audit/rangkum_audit.py --sumber bahan/input_tahap2.xlsx --format tahap2 --akun-tunggal EMAIL --subsls-tunggal SUBSLS --dari 2 --sampai 500
+```
+
+Offline & read-only. Yang dicetak:
+
+| Bagian                        | Isi                                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| PROGRES                       | jumlah baris per kelompok: TERKIRIM, DRAFT_TANPA_KOORDINAT, DRAFT_GALAT_DI_SERVER, SUDAH DISENTUH, BELUM DISENTUH, DITOLAK PEMERIKSAAN DATA |
+| RUN BERIKUTNYA                | berapa baris yang**akan** dikerjakan + nomor barisnya; 0 berarti run memang langsung berhenti                                         |
+| ALASAN BARIS TIDAK DIKERJAKAN | dikelompokkan: sudah selesai / dokumennya milik akun lain / ditolak pemeriksaan data / menunggu sinkron                                     |
+| YANG DITOLAK PEMERIKSAAN DATA | pesan aslinya, mis.`WAJIB_KOSONG: kolom kosong: pendapatan_lain` — ini yang dibetulkan di Excel                                          |
+| BELUM TERINPUT                | nomor barisnya, diringkas jadi rentang                                                                                                      |
+
+Alasan tiap baris dihitung dengan **fungsi yang sama persis** dengan yang dipakai
+`main_gabungan` saat batch jalan (pemeriksaan offline → `--lewati-selesai` →
+pemeriksaan giliran), jadi angkanya bukan perkiraan. Rinciannya per baris ke
+`rangkum_audit.csv`.
+
+Pakai `--tanpa-submit` kalau ingin melihatnya seperti run dry-run, dan
+`--daftar 0` untuk mematikan cetakan contoh barisnya.
 
 ## Membereskan sisa yang error (`bersihkan_error.py`)
 
@@ -129,15 +153,15 @@ server, tidak mengubah audit. Yang benar-benar membereskan tetap
 `main_gabungan.py` / `main_tahap2.py`, karena di situlah semua pengaman kirim
 berada. Yang dihasilkan di sini adalah daftar + perintah siap jalan.
 
-| Tindakan | Artinya | Yang harus dilakukan |
-| --- | --- | --- |
-| `ULANGI` | galat sesi, DRAFT belum tuntas, gagal kirim | jalankan perintah yang dicetak — dokumen lama dibuka lewat URL audit, **tidak** dibuat baru |
-| `LENGKAPI_KOORDINAT` | DRAFT tanpa geotag, koordinatnya sudah ada di sheet | sama; dokumen digeotag lalu dikirim |
-| `PERBAIKI_DATA` | isian sheet ditolak form | betulkan sheet dulu — menjalankan ulang tidak menolong |
-| `SINKRON_DULU` | audit dan server tidak sepakat: audit bilang terkirim padahal server DRAFT, **atau** dokumennya sudah ada di server tapi tidak tercatat di audit | `sinkron_list.py --tulis` dulu. Kalau langsung dijalankan ulang, skrip membuat dokumen **kedua** |
-| `TUNGGU_KOORDINAT` | bukan galat | isi koordinat di sheet kalau sudah ada |
-| `SINKRON_DULU` (tanpa URL) | audit menandai `DOKUMEN_TANPA_URL_PERLU_CEK`: dokumen mungkin terbuat tapi URL-nya tidak tertangkap | `sinkron_list.py --tulis` dulu. Ketemu → URL dicatat & baris jalan lagi; yang ada cuma DRAFT kosong tanpa nama → minta admin menghapus |
-| `MANUAL` | dokumen ganda / DRAFT yatim / terkunci | PPL tidak bisa menghapus dokumen — laporkan ke admin |
+| Tindakan                     | Artinya                                                                                                                                               | Yang harus dilakukan                                                                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ULANGI`                   | galat sesi, DRAFT belum tuntas, gagal kirim                                                                                                           | jalankan perintah yang dicetak — dokumen lama dibuka lewat URL audit,**tidak** dibuat baru                                          |
+| `LENGKAPI_KOORDINAT`       | DRAFT tanpa geotag, koordinatnya sudah ada di sheet                                                                                                   | sama; dokumen digeotag lalu dikirim                                                                                                        |
+| `PERBAIKI_DATA`            | isian sheet ditolak form                                                                                                                              | betulkan sheet dulu — menjalankan ulang tidak menolong                                                                                    |
+| `SINKRON_DULU`             | audit dan server tidak sepakat: audit bilang terkirim padahal server DRAFT,**atau** dokumennya sudah ada di server tapi tidak tercatat di audit | `sinkron_list.py --tulis` dulu. Kalau langsung dijalankan ulang, skrip membuat dokumen **kedua**                                   |
+| `TUNGGU_KOORDINAT`         | bukan galat                                                                                                                                           | isi koordinat di sheet kalau sudah ada                                                                                                     |
+| `SINKRON_DULU` (tanpa URL) | audit menandai`DOKUMEN_TANPA_URL_PERLU_CEK`: dokumen mungkin terbuat tapi URL-nya tidak tertangkap                                                  | `sinkron_list.py --tulis` dulu. Ketemu → URL dicatat & baris jalan lagi; yang ada cuma DRAFT kosong tanpa nama → minta admin menghapus |
+| `MANUAL`                   | dokumen ganda / DRAFT yatim / terkunci                                                                                                                | PPL tidak bisa menghapus dokumen — laporkan ke admin                                                                                      |
 
 **Kapan dokumen lama dipakai, kapan dokumen baru dibuat.** Skrip memutuskannya
 dari audit, bukan dari server:

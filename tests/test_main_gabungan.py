@@ -306,6 +306,71 @@ check("tanpa batas waktu: semua DRAFT tak tercatat ikut",
       sorted(d["id"] for d in mg.dokumen_asing(_list, set())), ["aaa", "bbb", "ddd"])
 check("dokumen yang ID-nya sudah tercatat di audit tidak dilaporkan",
       sorted(d["id"] for d in mg.dokumen_asing(_list, {"ddd", "bbb"})), ["aaa"])
+# --- 13c: alternatif kode 5 utk galat yang belum teratasi (ketetapan user 2026-09-23) ---
+class Ring:
+    def __init__(self, galat):
+        self.galat, self.peringatan, self.catatan, self.kosong = galat, 0, 0, 20
+
+
+class Sess13c:
+    """Sesi tiruan: `urut_galat` = hasil check_ringkasan berturut-turut."""
+
+    def __init__(self, urut_galat, sebelum="4. Toko, ruko, dan sejenisnya"):
+        self.urut, self.sebelum, self.aksi = list(urut_galat), sebelum, []
+
+    def close_ringkasan_dialog(self):
+        self.aksi.append("tutup")
+
+    def isi_13c(self, pilihan):
+        self.aksi.append(("isi", pilihan))
+        if self.sebelum is None:
+            return None
+        lama, self.sebelum = self.sebelum, pilihan
+        return lama
+
+    def save(self):
+        self.aksi.append("save")
+
+    def check_ringkasan(self):
+        return Ring(self.urut.pop(0))
+
+
+KODE5 = "5. Kedai, stan, tenda"
+_t = []
+_s = Sess13c([0])                                   # 13c memang penyebabnya
+check("13c jadi kode 5 & galat hilang -> dipertahankan",
+      (mg.coba_13c_alternatif(_s, 1, _t).galat, _s.aksi),
+      (0, ["tutup", ("isi", KODE5), "save"]))
+check("perubahannya dicatat", "-> '5. Kedai, stan, tenda'" in _t[0], True)
+
+_t = []
+_s = Sess13c([2, 2])                                # galatnya bukan soal 13c
+check("galat tidak berkurang -> 13c dikembalikan",
+      (mg.coba_13c_alternatif(_s, 2, _t).galat, _s.aksi),
+      (2, ["tutup", ("isi", KODE5), "save", "tutup", ("isi", "4. Toko, ruko, dan sejenisnya"), "save"]))
+check("pengembaliannya dicatat", "dikembalikan ke '4. Toko, ruko, dan sejenisnya'" in _t[0], True)
+
+_t = []
+_s = Sess13c([3], sebelum="")                       # 13c belum terjawab
+check("13c kosong -> tetap diisi walau galat tidak berkurang",
+      (mg.coba_13c_alternatif(_s, 3, _t).galat, _s.aksi),
+      (3, ["tutup", ("isi", KODE5), "save"]))
+check("catatannya menyebut tadinya kosong", "tadinya kosong" in _t[0], True)
+
+_t = []
+_s = Sess13c([1], sebelum=None)                     # 13c tidak dirender (13b3 bukan Ya)
+check("13c tidak dirender -> tidak ada yang diubah",
+      (mg.coba_13c_alternatif(_s, 1, _t).galat, _s.aksi), (1, ["tutup", ("isi", KODE5)]))
+check("alasannya dicatat", "tidak dirender" in _t[0], True)
+
+_t = []
+_s = Sess13c([1], sebelum=KODE5)                    # sudah kode 5
+check("sudah kode 5 -> tidak disimpan ulang",
+      (mg.coba_13c_alternatif(_s, 1, _t).galat, _s.aksi, _t), (1, ["tutup", ("isi", KODE5)], []))
+
+check("nilai alternatifnya memang opsi form 13c",
+      mg.GALAT_13C_JADI in __import__("inti.gabungan_loader", fromlist=["x"]).OPSI_FORM["lokasi_usaha"], True)
+
 check("ID dokumen dibaca dari URL entry", mg.id_dari_url("https://x/s/p/dTU/entry"), "dTU")
 check("URL bukan /entry -> tidak dianggap ID", mg.id_dari_url("https://x/y"), "")
 check("dateCreated tidak terbaca -> jam kosong", mg.jam_dokumen("bukan tanggal"), "")

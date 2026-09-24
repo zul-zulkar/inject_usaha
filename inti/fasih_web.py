@@ -1914,6 +1914,29 @@ class FasihWebSession:
         self.dump("se2026p_selesai")
         self._log("SE2026-P selesai (Nomor Urut Bangunan sengaja tidak disentuh).")
 
+    def isi_13c(self, pilihan: str):
+        """Buka BLOK II lalu isi 13c (lokasi usaha) dgn `pilihan`.
+
+        Return teks opsi 13c SEBELUM diisi ("" = belum terjawab) supaya
+        pemanggil bisa MENGEMBALIKANNYA kalau ternyata tidak menolong; None =
+        tidak bisa diisi (13c cuma dirender kalau 13b3 = "1. Ya").
+        select_radio_by_datakey tidak mengklik kalau opsinya sudah tercentang,
+        jadi aman dipanggil ulang."""
+        if not pilihan:
+            return None
+        if not self.goto_section("SE2026 - L BLOK II"):
+            self._log("⚠️ Section 'SE2026 - L BLOK II' tidak ter-enable — 13c tidak diisi.")
+            return None
+        self.buka_nested(0)
+        if not self.komponen_ada("lokasi_usaha"):
+            self._log("⚠️ 13c tidak dirender (13b3 bukan 'Ya') — tidak diisi, tidak ditebak.")
+            return None
+        comp = self._komponen_wajib(DK.get("lokasi_usaha", "lokasi_usaha"))
+        sebelum = self._tunggu_radio(comp, 2_000) or ""
+        self._log(f"13c: '{sebelum or '(belum terjawab)'}' -> '{pilihan}'")
+        self.select_radio_by_datakey("lokasi_usaha", pilihan)
+        return sebelum
+
     def fix_nomor_urut_bangunan_if_needed(self):
         """HANYA dipanggil kalau check_ringkasan() melaporkan GALAT pada
         field 'Nomor Urut Bangunan'. Cek field readonly 'NOMOR URUT

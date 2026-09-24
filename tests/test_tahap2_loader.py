@@ -296,7 +296,13 @@ cek("17b 'TIDAK'", opsi_dari_kode("perlindungan_lingkungan", "TIDAK"), "2. Tidak
 cek("'P' bukan opsi Ya/Tidak -> diteruskan (ditolak periksa)", opsi_dari_kode("internet", "P"), "P")
 r16, _ = rencana_16b("1,2,1,1,1,1")
 cek("16b daftar 6 nilai", [r16[k][0] for k in KEY_16B], ["1", "2", "1", "1", "1", "1"])
-cek("16b daftar 5 nilai -> tidak jelas", rencana_16b("2,1,2,2,2")[0], None)
+r16, _ = rencana_16b("2,1,2,2,2")
+cek("16b daftar 5 nilai -> b1-b5 + b6 Tidak (ketetapan 2026-09-23)",
+    [r16[k][0] for k in KEY_16B], ["2", "1", "2", "2", "2", "2"])
+cek("16b daftar 4 nilai -> tetap tidak jelas", rencana_16b("2,1,2,2")[0], None)
+t2.TAHAP2_16B_LIMA_NILAI_B6 = ""
+cek("saklar mati: 5 nilai -> tidak jelas", rencana_16b("2,1,2,2,2")[0], None)
+t2.TAHAP2_16B_LIMA_NILAI_B6 = "2. Tidak"
 r16, _ = rencana_16b("B1,B3")
 cek("16b B1,B3", [r16[k][0] for k in KEY_16B], ["1", "2", "1", "2", "2", "2"])
 r16, _ = rencana_16b("PROMOSI/KOMUNIKASI")
@@ -305,7 +311,11 @@ cek("16b YA -> keenamnya", set(rencana_16b("YA")[0].values()), {"1. Ya"})
 cek("16b '-' -> kosong", rencana_16b("-"), ({}, ""))
 cek("16b teks asing -> tidak dikenali", rencana_16b("WA BISNIS")[0], None)
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1", "16b1-b6": "2,1,2,2,2"})]))
-cek("16a Ya + 16b 5 nilai -> 16B_TIDAK_JELAS", hasil[2].status, "SKIP_DATA_16B_TIDAK_JELAS")
+cek("16a Ya + 16b 5 nilai (ada Ya) -> SIAP", hasil[2].status, "SIAP")
+hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1", "16b1-b6": "2,2,2,2,2"})]))
+cek("16a Ya + 16b 5 nilai semua Tidak -> 16B_TANPA_YA", hasil[2].status, "SKIP_DATA_16B_TANPA_YA")
+hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1", "16b1-b6": "2,1,2,2"})]))
+cek("16a Ya + 16b 4 nilai -> 16B_TIDAK_JELAS", hasil[2].status, "SKIP_DATA_16B_TIDAK_JELAS")
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "2", "16b1-b6": "2,2,2,2,2"})]))
 cek("16a Tidak + 16b 5 nilai -> tidak dipakai, SIAP", hasil[2].status, "SIAP")
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1"})]))
@@ -408,6 +418,31 @@ cek("baris identik -> BARIS_GANDA",
     all("BARIS_GANDA" in [k for k, _ in h.masalah] for h in periksa_semua_tahap2(sama).values()), True)
 cek("kunci stabil antar-pemuatan", tulis([baris()])[0].kunci, dua[0].kunci)
 
+print("\n== usaha pecahan bernama sama -> dibedakan 13f (ketetapan 2026-09-23) ==")
+pecah = tulis([baris(**{"8b.": "WARUNG ULLUMA RAHMA", "13f": "BERAS ECERAN"}),
+               baris(**{"8b.": "WARUNG ULLUMA RAHMA", "13f": "GAS LPG"}),
+               baris(**{"8b.": "WARUNG ULLUMA RAHMA", "13f": "AIR GALON"}),
+               baris(**{"8b.": "WARUNG ULLUMA RAHMA", "13f": "AIR GALON"})])
+cek("nama dokumen diberi 13f", [r.nama_dokumen for r in pecah[:2]],
+    ["WARUNG BERAS ECERAN (ULLUMA RAHMA)", "WARUNG GAS LPG (ULLUMA RAHMA)"])
+cek("8b ikut", pecah[1].nama_komersial, "WARUNG GAS LPG (ULLUMA RAHMA)")
+st = [h.status for h in periksa_semua_tahap2(pecah).values()]
+cek("13f beda -> SIAP; 13f kembar -> tetap BARIS_GANDA", st,
+    ["SIAP", "SIAP", "SKIP_DATA_BARIS_GANDA", "SKIP_DATA_BARIS_GANDA"])
+cek("kunci baris tunggal TIDAK berubah (audit lama aman)",
+    tulis([baris(**{"8b.": "WARUNG ULLUMA RAHMA"})])[0].kunci, pecah[2].kunci)
+cek("baris bernama unik tanpa pembeda", tulis([baris()])[0].pembeda, "")
+panjang = tulis([baris(**{"8b.": "WARUNG BU", "12a": "NI LUH PUTU SETIAWATI KARTIKA",
+                          "13f": "AIR MINUM KEMASAN AIR GALON ISI ULANG"}),
+                 baris(**{"8b.": "WARUNG BU", "12a": "NI LUH PUTU SETIAWATI KARTIKA", "13f": "GAS LPG"})])
+cek_benar("> 50 karakter tetap memuat (12a), tidak jatuh ke nama tanpa pemilik",
+          "(NI LUH PUTU SETIAWATI KARTIKA)" in panjang[0].nama_dokumen)
+cek("... dan di-skip 8B_TERLALU_PANJANG", periksa_semua_tahap2(panjang)[2].status, "SKIP_DATA_8B_TERLALU_PANJANG")
+t2.TAHAP2_PEMBEDA_13F_UTK_GANDA = False
+cek("saklar mati -> semua BARIS_GANDA", {h.status for h in periksa_semua_tahap2(tulis(
+    [baris(**{"13f": "A B C D"}), baris(**{"13f": "E F G H"})])).values()}, {"SKIP_DATA_BARIS_GANDA"})
+t2.TAHAP2_PEMBEDA_13F_UTK_GANDA = True
+
 print("\n== judul kolom hilang -> berhenti, tidak menebak ==")
 f = Path(tempfile.mkdtemp()) / "kurang.csv"
 with f.open("w", newline="", encoding="utf-8") as fh:
@@ -419,6 +454,16 @@ try:
     cek("kolom 8b. hilang -> ValueError", "tidak error", "ValueError")
 except ValueError as e:
     cek("kolom 8b. hilang -> ValueError", "8b." in str(e), True)
+
+# --- indikator ekonomi kosong = 0, & 26a kalau ada pekerja dibayar (user 2026-09-23) ---
+from inti.tahap2_loader import ALIAS_OPSI_PER_KEY, opsi_dari_kode as _opsi  # noqa: E402
+
+cek("peran_mbg 'TIDAK' -> opsi 5 (labelnya bukan 'Tidak' polos)",
+      _opsi("peran_mbg", "TIDAK"), "5. Tidak terlibat MBG")
+cek("huruf kecil ikut cocok", _opsi("peran_mbg", "tidak"), "5. Tidak terlibat MBG")
+cek("'YA' peran_mbg TIDAK ditebak (ada 4 varian Ya)", _opsi("peran_mbg", "YA"), "YA")
+cek("alias khusus tidak bocor ke rincian lain", _opsi("mitra_kdkmp", "TIDAK"), "2. Tidak")
+cek("kode angka tetap menang", _opsi("peran_mbg", "2"), "2. Ya, sebagai supplier")
 
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)
