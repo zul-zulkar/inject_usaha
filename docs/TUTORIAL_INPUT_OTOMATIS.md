@@ -175,6 +175,17 @@ python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --baris 2,3,4 -
 klik Kirim. **Kirim tidak bisa dibatalkan** — kirim hanya baris yang sudah kamu tinjau
 di D1/D2 dan yakin benar.
 
+### Sesudah terkirim
+
+1. **Approve oleh PML** — `docs/PANDUAN_APPROVE_PML.md`:
+
+   ```bash
+   python approve_pml/approve_pml.py --akun-pml <akun PML> --akun-ppl <akun PPL> --cek
+   ```
+
+2. **Pindah wilayah** ke subsls aslinya (kalau semua dokumen dibuat di satu subsls) —
+   `docs/PANDUAN_PINDAH_WILAYAH.md`.
+
 ---
 
 ## Aturan emas keselamatan

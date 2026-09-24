@@ -394,7 +394,8 @@ wadah lain), begitu juga dokumen di luar kabupaten sendiri.
 
 ## 10. Mengembalikan dokumen ke subsls masing-masing
 
-Semua dokumen dibuat di satu subsls (`--subsls-tunggal`). Setelah terkirim & di-approve PML,
+Semua dokumen dibuat di satu subsls (`--subsls-tunggal`). Setelah terkirim & di-approve PML
+(`docs/PANDUAN_APPROVE_PML.md`),
 pindahkan ke subsls aslinya (kolom `5`) lewat fasih-sm — langkah lengkap di
 `docs/PANDUAN_PINDAH_WILAYAH.md` bagian "Format tahap 2":
 

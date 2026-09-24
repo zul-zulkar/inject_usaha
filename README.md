@@ -208,6 +208,7 @@ mengubah kode, terutama selektor (`tests/test_selectors.py`).
 | [`docs/PANDUAN_UBAH_MODA.md`](docs/PANDUAN_UBAH_MODA.md) | Ganti mode CAPI → PAPI |
 | [`docs/PANDUAN_RESET_MITRA.md`](docs/PANDUAN_RESET_MITRA.md) | Reset password mitra |
 | [`docs/PANDUAN_BUKA_WILAYAH.md`](docs/PANDUAN_BUKA_WILAYAH.md), [`docs/PANDUAN_TANDAI_SELESAI.md`](docs/PANDUAN_TANDAI_SELESAI.md) | Buka / tandai selesai wilayah |
+| [`docs/PANDUAN_APPROVE_PML.md`](docs/PANDUAN_APPROVE_PML.md) | Approve dokumen oleh akun PML (sesudah input, sebelum pindah wilayah) |
 | [`docs/PANDUAN_PINDAH_WILAYAH.md`](docs/PANDUAN_PINDAH_WILAYAH.md) | Pindah wilayah dokumen |
 | [`docs/PANDUAN_GABUNG_AUDIT.md`](docs/PANDUAN_GABUNG_AUDIT.md) | Menggabungkan progres beberapa PC & laporannya |
 | [`docs/catatan usaha pecahan se2026.md`](docs/catatan%20usaha%20pecahan%20se2026.md) | Temuan awal perilaku form fasih-web |
