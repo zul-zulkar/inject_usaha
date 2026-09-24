@@ -55,7 +55,7 @@ pendataan lapangan, pakai format standar.
 
 | Folder | Fungsi | Sistem | Cara kerja |
 | --- | --- | --- | --- |
-| [`input_gabungan/`](input_gabungan/) | **Inject usaha dari format standar** (semua jenis usaha): cek offline, buat & isi dokumen, kirim, sinkron list, rencana ubah wilayah | fasih-web | Playwright (browser terbuka) |
+| [`input_gabungan/`](input_gabungan/) | **Inject usaha dari format standar** (semua jenis usaha): cek offline, **kontrol kualitas sumber data**, buat & isi dokumen, kirim, sinkron list, rencana ubah wilayah | fasih-web | Playwright (browser terbuka) |
 | [`input_fasihweb/`](input_fasihweb/) | Inject usaha **salin dari dokumen sumber** (`salin_dokumen_sumber.csv` + file export fasih-sm) | fasih-web | Playwright |
 | [`approve_pml/`](approve_pml/) | Approve dokumen oleh akun PML (Pengawas) | fasih-web | Playwright |
 | [`ganti_moda/`](ganti_moda/) | Ganti mode assignment CAPI → PAPI supaya "+ Dokumen Baru" muncul | fasih-sm | Console Chrome |
@@ -204,6 +204,7 @@ mengubah kode, terutama selektor (`tests/test_selectors.py`).
 | [`docs/TUTORIAL_INPUT_OTOMATIS.md`](docs/TUTORIAL_INPUT_OTOMATIS.md) | Tutorial end-to-end inject usaha dari format standar |
 | [`docs/PANDUAN_GABUNGAN.md`](docs/PANDUAN_GABUNGAN.md) | Referensi `main_gabungan.py`: mode satu subsls, status audit, setelan |
 | [`docs/PANDUAN_INPUT_TAHAP2.md`](docs/PANDUAN_INPUT_TAHAP2.md) | Input hasil pendataan KERTAS tahap 2 (`main_tahap2.py`) |
+| [`docs/PANDUAN_KONTROL_KUALITAS.md`](docs/PANDUAN_KONTROL_KUALITAS.md) | Kontrol kualitas sumber data (`kontrol_kualitas.py`): sel yang ditolak/diganti/dikoreksi skrip + saran perbaikan, rekap per PPL |
 | [`docs/PANDUAN_INPUT_OTOMATIS.md`](docs/PANDUAN_INPUT_OTOMATIS.md), [`docs/PANDUAN_EKSPOR_MANUAL.md`](docs/PANDUAN_EKSPOR_MANUAL.md) | Alur salin dari dokumen sumber (`salin_dokumen_sumber.csv` + export fasih-sm) |
 | [`docs/PANDUAN_UBAH_MODA.md`](docs/PANDUAN_UBAH_MODA.md) | Ganti mode CAPI → PAPI |
 | [`docs/PANDUAN_RESET_MITRA.md`](docs/PANDUAN_RESET_MITRA.md) | Reset password mitra |

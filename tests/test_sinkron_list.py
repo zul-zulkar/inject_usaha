@@ -114,6 +114,19 @@ _, tulis_h3, _ = rencana_sinkron([("S", r_belum, "SIAP")], items, AKUN, SUBSLS, 
                                  audit_h + tulis_h, lengkap=True)
 check("sinkron diulang sesudah DOKUMEN_DIHAPUS -> idempoten", tulis_h3, [])
 
+# Dokumen GANDA dihapus admin (hapus_ganda, 2026-09-24): yang ditunjuk audit terhapus, dokumen
+# bernama sama yang tersisa (sudah pernah tercatat) harus ditunjuk ulang — bukan dibuat baru.
+audit_g = [{"kunci": r_draft.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN, "dokumen_url": url_entry("id-draft", ASG)},
+           {"kunci": r_draft.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN, "dokumen_url": url_entry("id-ganda", ASG)},
+           {"kunci": r_draft.kunci, "status": mg.STATUS_DRAFT_TANPA_KOORDINAT, "akun_login": AKUN,
+            "dokumen_url": url_entry("id-ganda", ASG)}]
+_, tulis_g, _ = rencana_sinkron([("S", r_draft, "SIAP")], items, AKUN, SUBSLS, ASG, audit_g, lengkap=True)
+check("ganda dihapus -> DOKUMEN_DIHAPUS lalu dokumen yang tersisa dicatat ulang",
+      [(t["status"], id_dari_url(t["dokumen_url"])) for t in tulis_g],
+      [(mg.STATUS_DIHAPUS, "id-ganda"), (mg.STATUS_DIBUAT, "id-draft")])
+check("... audit kini menunjuk dokumen yang tersisa (tidak dibuat baru)",
+      id_dari_url(mg.dokumen_dari(audit_g + tulis_g)[r_draft.kunci][2]), "id-draft")
+
 # Kasus nyata 2026-09-15: Agenda2 baris 267 bernama sama dgn dokumen Agenda baris 108 (usaha berbeda).
 r_267 = GabunganRow(267, {"akun_ppl": "lain@gmail.com", "idsubsls": "5108060021000113", "nama": "APOTEK A",
                           "pengusaha": "I MADE", "kbli": "47772"})

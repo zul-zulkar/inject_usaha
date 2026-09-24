@@ -9,13 +9,16 @@ inti/config_lokal.py). Yang TIDAK ikut:
   sesi browser      .profil_*/ (cookie login, puluhan MB), .sesi_*.json, .proses_*.lock
                     -> login ulang di PC tujuan, sesi PC ini tidak berlaku di sana
   log               log_screenshots/, log_fasih_sm/, log_approve/
-  AUDIT GABUNGAN    audit_log_gabungan.csv (+ .bak-*) & audit_pc/ — SENGAJA: kalau
-                    ikut, meng-extract zip di PC yang sudah bekerja akan MENIMPA
-                    audit PC itu (ingatan anti-duplikatnya hilang). Audit dipindah
-                    lewat gabung_audit.py, bukan lewat zip.
+  cadangan audit    audit_log_gabungan.csv.bak-* & audit_pc/ (audit per-PC sebelum digabung)
   hasil turunan     laporan yang dibuat ulang oleh perintahnya sendiri (cek_gabungan.csv,
                     rangkum_audit.csv, bersihkan_error.csv, laporan_gabung*.csv,
-                    sinkron_list.csv, *.siap.js, list_api_*.json, ...)
+                    daftar_ganda.csv, sinkron_list.csv, *.siap.js, list_api_*.json, ...)
+
+audit_log_gabungan.csv sendiri IKUT (sejak 2026-09-24) supaya hasil gabung_audit
+tersebar ke semua PC sekaligus — begitu juga ganda_dihapus*.csv (catatan dokumen ganda
+yang sudah dihapus admin; tidak bisa dibuat ulang). ⚠️ Meng-extract zip di PC yang masih
+punya pekerjaan belum digabung akan MENIMPA audit PC itu (ingatan anti-duplikatnya
+hilang) — sebar zip hanya sesudah semua PC berhenti & auditnya digabung.
 
 ⚠️ Zip ini berisi DATA RESPONDEN & PASSWORD (config_lokal.py). Pindahkan lewat
 flashdisk/drive kantor — jangan diunggah ke tempat publik.
@@ -51,6 +54,7 @@ FOLDER_DIBUANG: list[tuple[str, str]] = [
     ("sesi browser", ".profil_*"),
     ("log", "log_screenshots"), ("log", "log_fasih_sm"), ("log", "log_approve"),
     ("audit gabungan", "audit_pc"),
+    ("hasil turunan", "kontrol_kualitas_per_ppl"),
 ]
 BERKAS_DIBUANG: list[tuple[str, str]] = [
     ("cache", "*.pyc"), ("cache", "*.zip"), ("cache", "nul"),
@@ -65,6 +69,8 @@ BERKAS_DIBUANG: list[tuple[str, str]] = [
     ("hasil turunan", "sinkron_list.csv"), ("hasil turunan", "dokumen_tanpa_url.csv"),
     ("hasil turunan", "rencana_ubah_wilayah.csv"), ("hasil turunan", "*.siap.js"),
     ("hasil turunan", "list_api_*.json"),
+    ("hasil turunan", "daftar_ganda.csv"),
+    ("hasil turunan", "kontrol_kualitas*.xlsx"), ("hasil turunan", "kontrol_kualitas*.csv"),
 ]
 
 

@@ -253,5 +253,158 @@ check("rekap kelompok", dict(kel_r), {"BELUM DISENTUH": 1, "TERKIRIM": 1,
                                       "DITOLAK PEMERIKSAAN DATA": 1, "SUDAH DISENTUH (belum tuntas)": 1})
 check("baris yang dikerjakan tidak punya alasan", alasan_r[""], 1)
 
+# --- rangkum_audit: rekap BELUM TUNTAS & ERROR ---
+from gabung_audit.rangkum_audit import daftar_baris, rekap_baris  # noqa: E402
+
+check("terkirim & server setuju -> tuntas", rekap_baris("TERKIRIM_TERVERIFIKASI", True, "SUBMITTED BY Pencacah"), "")
+check("audit terkirim tapi server DRAFT", rekap_baris("TERKIRIM_TERVERIFIKASI", True, "DRAFT"), "SERVER_DRAFT")
+check("toast terkirim, server tidak diketahui -> belum terbukti",
+      rekap_baris("TERKIRIM_BELUM_TERVERIFIKASI", True, ""), "TERKIRIM_BELUM_TERBUKTI")
+check("toast terkirim, server APPROVED -> tuntas",
+      rekap_baris("TERKIRIM_BELUM_TERVERIFIKASI", True, "APPROVED BY Pengawas"), "")
+check("terkunci + server DRAFT -> perlu admin", rekap_baris(mg.STATUS_TERKUNCI, True, "DRAFT"), "TERKUNCI")
+check("terkunci tanpa bukti server -> dianggap tuntas (dikirim manual)", rekap_baris(mg.STATUS_TERKUNCI, True), "")
+check("draft tanpa koordinat, sheet sudah berkoordinat",
+      rekap_baris(mg.STATUS_DRAFT_TANPA_KOORDINAT, True), "KOORDINAT_SUDAH_ADA")
+check("draft tanpa koordinat, masih menunggu", rekap_baris(mg.STATUS_DRAFT_TANPA_KOORDINAT, False), "TUNGGU_KOORDINAT")
+check("draft tanpa koordinat TAPI server menandai galat -> draft ber-galat",
+      rekap_baris(mg.STATUS_DRAFT_TANPA_KOORDINAT, False, "DRAFT", 3), "DRAFT_GALAT")
+check("DRAFT_GALAT_DI_SERVER", rekap_baris(mg.STATUS_DRAFT_GALAT, True), "DRAFT_GALAT")
+check("dokumen dibuat, belum selesai diisi", rekap_baris(mg.STATUS_DIBUAT, True), "BELUM_SELESAI_DIISI")
+check("dokumen tanpa URL", rekap_baris(mg.STATUS_TANPA_URL, True), "TANPA_URL")
+check("gagal di run terakhir", rekap_baris("ERROR_FIELD_NOT_FOUND", True), "GAGAL")
+check("SUBMIT_GAGAL ikut gagal", rekap_baris("SUBMIT_GAGAL", True), "GAGAL")
+check("belum disentuh -> bukan bagian rekap ini", rekap_baris("", True), "")
+
+audit_g = [{"kunci": r_siap.kunci, "status": "ERROR_FIELD_NOT_FOUND", "akun_login": AKUN_R,
+            "idsubsls_input": SUBSLS_R, "dokumen_url": "https://x/s/p/dA/entry", "error_message": "radio 8d macet"},
+           {"kunci": r_siap.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN_R,
+            "idsubsls_input": SUBSLS_R, "dokumen_url": "https://x/s/p/dA/entry",
+            "error_message": "dibuat di luar audit ini"},
+           {"kunci": r_kirim.kunci, "status": "TERKIRIM_TERVERIFIKASI", "akun_login": AKUN_R,
+            "idsubsls_input": SUBSLS_R, "dokumen_url": "https://x/s/p/dB/entry"}]
+keluar_g, _, _ = rangkum(rows_r, hasil_r, audit_g, (AKUN_R, SUBSLS_R), TUNTAS_R,
+                         status_server={"dA": "DRAFT", "dB": "DRAFT"}, galat_server={"dA": 2})
+per_g = {r["baris"]: r for r in keluar_g}
+check("server menandai 2 galat -> DRAFT_GALAT + jumlahnya",
+      (per_g[2]["rekap"], per_g[2]["galat_server"]), ("DRAFT_GALAT", 2))
+check("pesan terakhir = penyebab gagal, bukan catatan DOKUMEN_DIBUAT",
+      per_g[2]["pesan_terakhir"], "radio 8d macet")
+check("terkirim di audit, DRAFT di server -> SERVER_DRAFT", per_g[3]["rekap"], "SERVER_DRAFT")
+check("daftar baris pendek utuh", daftar_baris([2, 3, 4, 9]), "2-4,9")
+check("daftar baris panjang dipotong di koma + sisanya",
+      daftar_baris(list(range(2, 100)) + [150, 152] + list(range(200, 400, 2)), 60).split(" … ")[1],
+      "(+89 baris lagi — kolom 'rekap' di CSV)")
+
+# --- daftar ganda & usulan (kasus kembar dgn putuskanGrup di tests/test_hapus_ganda_console.js) ---
+from gabung_audit.gabung_audit import daftar_ganda, peringkat_status, usulan_grup  # noqa: E402
+
+check("peringkat status", [peringkat_status(x) for x in ("APPROVED BY Pengawas", "SUBMITTED BY Pencacah",
+                                                          "REJECTED BY Pengawas", "DRAFT", "OPEN", "")],
+      [4, 3, 2, 1, 1, 0])
+
+
+def dk(status, **o):
+    return {"status": status, "dicatat": False, "luar": False, "bersama": False, "mode": "", "galat": 0,
+            "bersih": 80, **o}
+
+
+def usul(dok, **o):
+    return [u for u, _ in usulan_grup(dok, **o)]
+
+
+# Ketetapan user 2026-09-24 (kembar dgn putuskanGrup di tests/test_hapus_ganda_console.js)
+check("SUBMITTED + DRAFT -> DRAFT dihapus", usul([dk("DRAFT"), dk("SUBMITTED BY Pencacah")]), ["HAPUS", "PERTAHANKAN"])
+check("SUBMITTED + SUBMITTED -> salah satu dihapus",
+      usul([dk("SUBMITTED BY Pencacah", dicatat=True), dk("SUBMITTED BY Pencacah")]), ["PERTAHANKAN", "HAPUS"])
+check("SUBMITTED dimatikan dgn izinkan_hapus_terkirim=False",
+      usul([dk("SUBMITTED BY Pencacah", dicatat=True), dk("SUBMITTED BY Pencacah")], izinkan_hapus_terkirim=False),
+      ["PERTAHANKAN", "PERIKSA"])
+check("DRAFT + DRAFT: yang ber-galat dihapus walau ditunjuk audit",
+      usul([dk("DRAFT", galat=3, dicatat=True), dk("DRAFT", galat=0)]), ["HAPUS", "PERTAHANKAN"])
+check("DRAFT + DRAFT keduanya bersih -> yang ditunjuk audit dipertahankan",
+      usul([dk("DRAFT"), dk("DRAFT", dicatat=True)]), ["HAPUS", "PERTAHANKAN"])
+check("DRAFT + DRAFT tanpa penunjuk -> jawaban lebih lengkap dipertahankan",
+      usul([dk("DRAFT", bersih=20), dk("DRAFT", bersih=91)]), ["HAPUS", "PERTAHANKAN"])
+check("DRAFT + DRAFT keduanya ber-galat -> galat lebih banyak dihapus",
+      usul([dk("DRAFT", galat=1), dk("DRAFT", galat=5, dicatat=True)]), ["PERTAHANKAN", "HAPUS"])
+check("DRAFT + DRAFT galat tidak diketahui -> PERIKSA",
+      usul([dk("DRAFT", galat=None, dicatat=True), dk("DRAFT", galat=2)]), ["PERTAHANKAN", "PERIKSA"])
+check("APPROVED tidak pernah dihapus", usul([dk("APPROVED BY Pengawas"), dk("APPROVED BY Pengawas")]),
+      ["PERTAHANKAN", "PERIKSA"])
+check("APPROVED + SUBMITTED -> SUBMITTED dihapus",
+      usul([dk("SUBMITTED BY Pencacah", dicatat=True), dk("APPROVED BY Pengawas")]), ["HAPUS", "PERTAHANKAN"])
+check("status tertinggi menang atas penunjuk audit",
+      usul([dk("DRAFT", dicatat=True), dk("SUBMITTED BY Pencacah", galat=2)]), ["HAPUS", "PERTAHANKAN"])
+check("di luar audit -> PERIKSA", usul([dk("SUBMITTED BY Pencacah"), dk("DRAFT", luar=True)]), ["PERTAHANKAN", "PERIKSA"])
+check("URL diklaim baris lain -> PERIKSA", usul([dk("SUBMITTED BY Pencacah"), dk("DRAFT", bersama=True)]),
+      ["PERTAHANKAN", "PERIKSA"])
+check("tiga dokumen", usul([dk("DRAFT"), dk("SUBMITTED BY Pencacah"), dk("DRAFT")]), ["HAPUS", "PERTAHANKAN", "HAPUS"])
+check("status belum diketahui -> PERIKSA semua", usul([dk(""), dk("DRAFT")]), ["PERIKSA", "PERIKSA"])
+check("hanya_papi: CAPI tidak disentuh & tidak jadi pembanding",
+      usul([dk("DRAFT", mode="PAPI"), dk("SUBMITTED BY Pencacah", mode="CAPI")], hanya_papi=True),
+      ["PERTAHANKAN", "BUKAN_PAPI"])
+check("hanya_papi: mode tak diketahui tetap diputuskan (Console membaca ulang)",
+      usul([dk("DRAFT"), dk("SUBMITTED BY Pencacah", mode="PAPI")], hanya_papi=True), ["HAPUS", "PERTAHANKAN"])
+
+U = "https://fasih-web.bps.go.id/survey/s/p/{}/entry"
+I1, I2, I3 = ("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+              "33333333-3333-4333-8333-333333333333")
+audit_d = [
+    {"kunci": "k1", "status": mg.STATUS_DIBUAT, "akun_login": "a@mail.com", "dokumen_url": U.format(I1), "baris": "5",
+     "nama_usaha": "WARUNG (MADE)"},
+    {"kunci": "k1", "status": "DRAFT_TANPA_KOORDINAT", "akun_login": "a@mail.com", "dokumen_url": U.format(I1)},
+    {"kunci": "k1", "status": mg.STATUS_DIBUAT, "akun_login": "b@mail.com", "dokumen_url": U.format(I2)},
+    {"kunci": "k1", "status": "TERKIRIM_TERVERIFIKASI", "akun_login": "b@mail.com", "dokumen_url": U.format(I2)},
+    {"kunci": "k2", "status": mg.STATUS_DIBUAT, "akun_login": "a@mail.com", "dokumen_url": U.format(I3)},
+]
+g = daftar_ganda(audit_d, {I1: "DRAFT", I2: "SUBMITTED BY Pencacah"},
+                 info_server={I1: {"mode": "PAPI", "bersih": 80}, I2: {"mode": "PAPI", "bersih": 80}}, hanya_papi=True)
+check("satu baris dgn 2 dokumen -> satu grup BARIS_SAMA", sorted((r["id_dokumen"], r["usulan"]) for r in g),
+      sorted([(I1, "HAPUS"), (I2, "PERTAHANKAN")]))
+check("dokumen yang ditunjuk audit ditandai", [r["dicatat_audit"] for r in g if r["id_dokumen"] == I2], ["ya"])
+check("baris tunggal tidak masuk daftar", any(r["kunci"] == "k2" for r in g), False)
+check("yang sudah dihapus admin tidak dihitung lagi", daftar_ganda(audit_d, sudah_dihapus={I1}), [])
+check("DOKUMEN_DIHAPUS mengosongkan catatan dokumen lama",
+      daftar_ganda(audit_d[:2] + [{"kunci": "k1", "status": mg.STATUS_DIHAPUS}] + audit_d[2:4]), [])
+luar = daftar_ganda(audit_d, {I2: "SUBMITTED BY Pencacah", I3: "DRAFT", "44444444-4444-4444-8444-444444444444": "DRAFT"},
+                    nama_server={"WARUNG (MADE)": [I2, "44444444-4444-4444-8444-444444444444"]})
+check("dokumen server bernama sama di luar audit masuk grup barisnya",
+      [r["di_luar_audit"] for r in luar if r["id_dokumen"].startswith("4444")], ["ya"])
+
+from hapus_ganda.hapus_ganda import target_dari_ganda, tulis_console  # noqa: E402
+t = target_dari_ganda(g)
+check("TARGET Console", [(x["g"], [d["id"] for d in x["d"]], [d["c"] for d in x["d"]]) for x in t],
+      [("k1", [I1, I2], [False, True])])
+g_capi = daftar_ganda(audit_d, {I1: "DRAFT", I2: "SUBMITTED BY Pencacah"},
+                     info_server={I1: {"mode": "PAPI"}, I2: {"mode": "CAPI"}})
+check("hanya PAPI: grup yang tinggal 1 dokumen PAPI tidak ikut", target_dari_ganda(g_capi), [])
+check("--semua-mode: ikut", len(target_dari_ganda(g_capi, hanya_papi=False)), 1)
+import tempfile  # noqa: E402
+_siap = Path(tempfile.mkdtemp()) / "hg.siap.js"
+tulis_console(t, _siap)
+_teks = _siap.read_text(encoding="utf-8")
+check("siap.js: penanda terisi", ("/*__TARGET__*/[]" in _teks, "__SURVEI__*/\"\"" in _teks, I1 in _teks),
+      (False, False, True))
+
+# --- hapus_ganda --catat: arahkan audit ke dokumen yang dipertahankan ---
+from hapus_ganda.hapus_ganda import rencana_catat  # noqa: E402
+hapus_r = [{"id": I2, "status": "DIHAPUS_TERVERIFIKASI", "grup": "k1", "baris": "5", "alias": "SUBMITTED BY Pencacah",
+            "dipertahankan": I1, "alias_dipertahankan": "SUBMITTED BY Pencacah", "akun_dipertahankan": "a@mail.com",
+            "subsls_dipertahankan": "5108060006000224"}]
+cat = rencana_catat(audit_d, hapus_r, "p")
+check("catat: audit menunjuk dokumen terhapus -> diarahkan ke yang dipertahankan",
+      [(t["status"], id_dokumen(t["dokumen_url"]), t["akun_login"]) for t in cat],
+      [(mg.STATUS_DIBUAT, I1, "a@mail.com"), ("TERKIRIM_TERVERIFIKASI", I1, "a@mail.com")])
+check("catat: sesudahnya audit menunjuk & berstatus benar",
+      (id_dokumen(mg.dokumen_dari(audit_d + cat)["k1"][2]), mg.status_terakhir_dari(audit_d + cat)["k1"]),
+      (I1, "TERKIRIM_TERVERIFIKASI"))
+check("catat: idempoten", rencana_catat(audit_d + cat, hapus_r, "p"), [])
+check("catat: yang terhapus bukan yang ditunjuk audit -> tidak menulis apa pun",
+      rencana_catat(audit_d, [{**hapus_r[0], "id": I1, "dipertahankan": I2}], "p"), [])
+draft_r = [{**hapus_r[0], "alias_dipertahankan": "DRAFT"}]
+check("catat: yang dipertahankan DRAFT -> cukup DOKUMEN_DIBUAT (dibuka & diisi run berikutnya)",
+      [t["status"] for t in rencana_catat(audit_d, draft_r, "p")], [mg.STATUS_DIBUAT])
+
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")
 sys.exit(0 if ok_all else 1)

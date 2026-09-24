@@ -84,12 +84,13 @@ password, skrip berhenti sendiri — tidak pernah menebak.)
 
 | Keadaan PC tujuan                             | Yang dilakukan                                                                                                                                  |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| sudah punya`audit_log_gabungan.csv` sendiri | biarkan. Disatukan nanti lewat bagian 5                                                                                                         |
-| PC baru, belum pernah input                   | salin**satu berkas** `audit_log_gabungan.csv` terbaru dari PC utama ke folder proyek — terpisah dari zip. Ini ingatan anti-duplikatnya |
+| PC baru, belum pernah input                   | tidak perlu apa-apa — audit gabungan sudah ikut di zip                                                                                          |
+| sudah bekerja & auditnya SUDAH masuk gabungan | extract saja; audit lamanya memang diganti audit gabungan                                                                                        |
+| sudah bekerja & auditnya BELUM digabung       | salin `audit_log_gabungan.csv` PC itu ke PC utama dulu (bagian 5), gabungkan, buat zip baru — baru extract                                       |
 
-Kalau audit terbaru tidak bisa disalin, `--sinkron-dulu` di perintah bagian 3
-tetap membaca daftar dokumen server untuk akun yang dipakai sebelum mulai, jadi
-dokumen akun itu yang sudah ada dikenali, bukan dibuat ulang.
+Sebagai jaring pengaman, `--sinkron-dulu` di perintah bagian 3 tetap membaca daftar
+dokumen server untuk akun yang dipakai sebelum mulai, jadi dokumen akun itu yang
+sudah ada dikenali, bukan dibuat ulang.
 
 Terakhir: **VPN kantor harus aktif**, dan jangan jalankan headless (ditolak).
 
@@ -184,6 +185,27 @@ dokumen di akun mana pun**, dan baris yang sudah punya dokumen muncul di `ALASAN
 sebagai "dokumennya sudah dibuat proses lain (akun / subsls)" — itu sekaligus
 rincian jumlah baris per akun.
 
+Bagian **`BELUM TUNTAS & ERROR`** mendaftar nomor baris per keadaan, formatnya
+sama dengan laporan sinkron:
+
+| Keadaan | Artinya |
+| --- | --- |
+| Audit bilang terkirim, server masih DRAFT | dikirim ulang lewat URL oleh run berikutnya |
+| Draft ber-GALAT di server | dikerjakan paling dulu oleh run berikutnya (jumlah galatnya ikut dicetak) |
+| Draft tanpa koordinat, koordinat SUDAH ada di sheet | tinggal geotag & kirim |
+| Draft tanpa koordinat — menunggu | isi Latitude/Longitude di Excel dulu |
+| Dokumen sudah dibuat, pengisian belum selesai | dibuka lewat URL oleh run berikutnya |
+| Toast "terkirim" tanpa bukti server | pastikan dengan `sinkron_list.py` |
+| Dokumen tanpa URL tercatat | jalankan `sinkron_list.py --tulis` dulu |
+| Dokumen read-only padahal server DRAFT | perlu admin/PML |
+| Gagal di run terakhir | dirinci per status + pesan error terbarunya |
+
+Status server dibaca dari `list_api_*.json` hasil `sinkron_list.py` (bagian 6c)
+kalau berkasnya ada; jam berkas terbaru ikut dicetak, karena berkas lama bisa
+ketinggalan. Tanpa berkas itu (atau dengan `--tanpa-server`), rekapnya murni dari
+audit. Daftar lengkap per baris ada di kolom `rekap`, `status_server`,
+`galat_server` dan `pesan_terakhir` di `rangkum_audit.csv`.
+
 ### 6b. Satukan audit beberapa PC
 
 Salin `audit_log_gabungan.csv` tiap PC ke folder `audit_pc/` (nama berbeda,
@@ -198,6 +220,14 @@ dicadangkan `.bak-<waktu>`):
 
 ```bash
 python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
+```
+
+Keduanya juga menulis **`daftar_ganda.csv`**: dokumen ganda (satu baris sheet, ≥ 2
+dokumen di server) beserta usulan mana yang dipertahankan/dihapus. Menghapusnya butuh
+akun **admin** fasih-sm — lihat `docs/PANDUAN_HAPUS_GANDA.md`:
+
+```bash
+python hapus_ganda/hapus_ganda.py
 ```
 
 ### 6c. Cocokkan dengan server — butuh VPN, hanya membaca

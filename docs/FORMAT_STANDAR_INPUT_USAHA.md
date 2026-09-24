@@ -92,8 +92,11 @@ python input_gabungan/main_gabungan.py --sumber input_usaha.xlsx --cek
 ```
 
 Tanpa browser/VPN, dalam hitungan detik. Hasil per baris ditulis ke `cek_gabungan.csv`
-(status `SIAP` atau `SKIP_DATA_<kode>`). Aturan yang dicek, semuanya berasal dari validasi
-form atau batasan skrip:
+(status `SIAP` atau `SKIP_DATA_<kode>`). Laporan per **sel** — mana yang ditolak, diganti nilai
+pengganti, atau dikoreksi skrip, plus saran perbaikan & rekap per PPL — dibuat
+`input_gabungan/kontrol_kualitas.py` dengan aturan yang sama (lihat
+[`PANDUAN_KONTROL_KUALITAS.md`](PANDUAN_KONTROL_KUALITAS.md)). Aturan yang dicek, semuanya berasal
+dari validasi form atau batasan skrip:
 
 - kolom wajib terisi; opsi radio persis salah satu opsi form;
 - format: idsubsls 16 digit, kodepos 5 digit, KBLI 5 digit, tahun 4 digit, angka bulat,

@@ -231,7 +231,11 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
         # menunjuk dokumen terkirim (dokumen_per_kunci: URL terakhir menang).
         dicatat = False
         for d in draft + terkirim:
-            if d["id"] not in url_audit:
+            # `hilang`: dokumen yang ditunjuk audit sudah tidak ada (mis. dokumen GANDA yang
+            # dihapus admin lewat hapus_ganda) -> dokumen bernama sama yang TERSISA dicatat
+            # ulang walau id-nya pernah tercatat. Tanpa ini DOKUMEN_DIHAPUS di atas membuat
+            # baris ini tak berdokumen & run berikutnya MEMBUAT dokumen baru = ganda lagi.
+            if d["id"] not in url_audit or hilang:
                 dicatat = True
                 tulis.append(baris_audit(mg.STATUS_DIBUAT, d, f"sinkron list API ({sumber}): dokumen dibuat di "
                                                               f"luar audit ini, status {d.get('assignmentStatusAlias')}"))

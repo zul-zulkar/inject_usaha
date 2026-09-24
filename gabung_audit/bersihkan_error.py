@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import input_gabungan.main_gabungan as mg  # noqa: E402
 from inti.config import FASIH_WEB_BASE, SURVEY_ID  # noqa: E402
 from gabung_audit.gabung_audit import (  # noqa: E402
-    _ASAL_DOKUMEN, baca_audit, baca_status_server, gabung, periksa_bentrok, ringkas_per_kunci,
+    _ASAL_DOKUMEN, baca_audit, baca_ganda_dihapus, baca_status_server, gabung, periksa_bentrok, ringkas_per_kunci,
 )
 
 for _stream in (sys.stdout, sys.stderr):
@@ -235,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
                                  + (f", {g} galat" if g else "") + ") — buka & periksa manual",
                        "dokumen_url": f"{FASIH_WEB_BASE}/survey/{SURVEY_ID}/{mg.ASSIGNMENT_ID_GABUNGAN}/{i}/entry",
                        "error_message": ""})
-    bentrok = periksa_bentrok(gabungan, lap["asal_per_kunci"])
+    bentrok = periksa_bentrok(gabungan, lap["asal_per_kunci"], baca_ganda_dihapus())
     for kunci, urls in bentrok["dokumen_ganda"].items():   # noqa: E501
         rec = next((r for r in laporan if r["kunci"] == kunci), {})
         keluar.append({"tindakan": "MANUAL", "alasan": f"dokumen GANDA di server ({len(urls)} URL) — "

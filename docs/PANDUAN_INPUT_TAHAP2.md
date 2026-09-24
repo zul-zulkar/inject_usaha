@@ -275,6 +275,14 @@ python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --cek
 Rincian per baris ditulis ke `cek_gabungan.csv` — buka di Excel, filter kolom
 `status`, perbaiki sheet, ulangi sampai semua `SIAP`.
 
+Untuk tahu **sel** mana yang ditolak, diisi nilai pengganti (umur/tahun kosong, HP/NIK tidak valid,
+16b diasumsikan, dst.), atau dikoreksi skrip — lengkap dengan saran & rekap per PPL — jalankan
+kontrol kualitas ([`PANDUAN_KONTROL_KUALITAS.md`](PANDUAN_KONTROL_KUALITAS.md)):
+
+```bash
+python input_gabungan/kontrol_kualitas.py --sumber bahan/input_tahap2.xlsx --format tahap2 --per-ppl
+```
+
 ### b. Dry-run SATU baris (tidak mengirim apa pun)
 
 ```bash

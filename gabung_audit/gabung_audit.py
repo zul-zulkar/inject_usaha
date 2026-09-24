@@ -46,7 +46,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import input_gabungan.main_gabungan as mg  # noqa: E402
-from inti.config import WILAYAH_BY_IDSUBSLS  # noqa: E402
+from inti.config import FASIH_WEB_BASE, SURVEY_ID, WILAYAH_BY_IDSUBSLS  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -58,6 +58,14 @@ for _stream in (sys.stdout, sys.stderr):
 AUDIT_FIELDS = mg.AUDIT_FIELDS
 LAPORAN_PATH = Path("./laporan_gabung.csv")
 AGREGAT_PATH = Path("./laporan_gabung_agregat.csv")
+DAFTAR_GANDA_PATH = Path("./daftar_ganda.csv")
+# Unduhan hapusGanda.unduh() (Console fasih-sm): id dokumen yang SUDAH dihapus admin.
+POLA_GANDA_DIHAPUS = "ganda_dihapus*.csv"
+KOLOM_GANDA = [
+    "grup", "jenis", "usulan", "alasan_usulan", "kunci", "baris", "nama_usaha", "akun_login",
+    "idsubsls_input", "id_dokumen", "status_audit", "status_server", "mode_server", "galat_server",
+    "bersih_server", "dicatat_audit", "di_luar_audit", "dokumen_url",
+]
 
 KOLOM_LAPORAN = [
     "kunci", "baris", "nama_usaha", "kbli", "akun_ppl", "akun_login",
@@ -169,8 +177,9 @@ def gabung(berkas: list[tuple[str, list[dict]]]) -> tuple[list[dict], dict]:
     return gabungan, laporan
 
 
-def periksa_bentrok(gabungan: list[dict], asal_per_kunci: dict) -> dict:
-    """Kejanggalan yang HARUS dilihat manusia sebelum hasil gabungan dipakai."""
+def periksa_bentrok(gabungan: list[dict], asal_per_kunci: dict, abaikan: set | None = None) -> dict:
+    """Kejanggalan yang HARUS dilihat manusia sebelum hasil gabungan dipakai.
+    `abaikan` = id dokumen yang sudah dihapus admin (ganda_dihapus*.csv) — tidak dihitung ganda."""
     dokumen: dict = defaultdict(list)     # kunci -> [url] (direset kalau DOKUMEN_DIHAPUS)
     akun: dict = defaultdict(set)         # kunci -> {akun_login yang pernah bikin dokumen}
     for b in gabungan:
@@ -180,7 +189,7 @@ def periksa_bentrok(gabungan: list[dict], asal_per_kunci: dict) -> dict:
         if b.get("status") == mg.STATUS_DIHAPUS:
             dokumen[kunci].clear()
             continue
-        if url and url not in dokumen[kunci]:
+        if url and url not in dokumen[kunci] and id_dokumen(url) not in (abaikan or ()):
             dokumen[kunci].append(url)
         if url or b.get("status") == mg.STATUS_DIBUAT:
             if b.get("akun_login"):
@@ -197,6 +206,213 @@ def periksa_bentrok(gabungan: list[dict], asal_per_kunci: dict) -> dict:
         "akun_ganda": {k: sorted(v) for k, v in akun.items() if len(v) > 1},
         "url_banyak_kunci": {u: sorted(v) for u, v in pemilik_url.items() if len(v) > 1},
     }
+
+
+def peringkat_status(alias: str) -> int:
+    """Status server -> peringkat utk memilih dokumen yang DIPERTAHANKAN
+    (APPROVED 4 > SUBMITTED 3 > REJECTED 2 > DRAFT/lainnya 1 > tidak diketahui 0).
+    Kembar JS: peringkatStatus() di hapus_ganda/hapus_ganda_console.js."""
+    t = (alias or "").strip().upper()
+    if not t:
+        return 0
+    for awalan, nilai in (("APPROVED", 4), ("SUBMITTED", 3), ("REJECTED", 2)):
+        if t.startswith(awalan):
+            return nilai
+    return 1
+
+
+def usulan_grup(dok: list[dict], izinkan_hapus_terkirim: bool = True,
+                izinkan_luar_audit: bool = False, hanya_papi: bool = False) -> list[tuple[str, str]]:
+    """[(usulan, alasan)] sejajar `dok` utk SATU grup dokumen ganda.
+    dok: {status (alias server, "" = tidak diketahui), dicatat (dokumen yang
+    ditunjuk audit sekarang), luar (tidak tercatat di audit), bersama (URL-nya
+    juga diklaim baris lain), mode ("PAPI"/"CAPI"/"" tidak diketahui), galat &
+    bersih (sumError / sumClean list API; None = tidak diketahui)}.
+    Usulan: PERTAHANKAN / HAPUS / PERIKSA / BUKAN_PAPI (hanya_papi & mode DIKETAHUI
+    bukan PAPI — tidak ikut menentukan yang dipertahankan).
+
+    Ketetapan user 2026-09-24 — SATU dokumen per grup dipertahankan:
+      SUBMITTED + DRAFT     -> DRAFT dihapus
+      SUBMITTED + SUBMITTED -> salah satu dihapus (izinkan_hapus_terkirim=False mematikannya)
+      DRAFT + DRAFT         -> yang ber-GALAT dihapus; keduanya bersih -> salah satu
+    Yang dipertahankan: peringkat status tertinggi; seri -> galat lebih sedikit, lalu
+    yang ditunjuk audit, lalu jawaban bersih lebih banyak, lalu yang tercatat di audit,
+    lalu yang lebih dulu. DRAFT seri yang galatnya tidak diketahui -> PERIKSA. APPROVED
+    tidak pernah dihapus. Kembar JS: putuskanGrup() — Console memutuskan ulang dgn status SEGAR."""
+    if not dok:
+        return []
+    bukan = {i for i, d in enumerate(dok) if hanya_papi and d.get("mode") and d["mode"] != "PAPI"}
+    kenal = [i for i, d in enumerate(dok) if peringkat_status(d.get("status", "")) > 0 and i not in bukan]
+    if len(kenal) < 2:
+        # Sisanya semua bukan PAPI -> yang satu itu dipertahankan (sama dgn putuskanGrup JS);
+        # ada yang statusnya belum diketahui -> biar Console yang memutuskan.
+        tunggal = len(kenal) == 1 and len(kenal) + len(bukan) == len(dok)
+        return [("BUKAN_PAPI", f"mode {d['mode']}") if i in bukan else
+                ("PERTAHANKAN", "tinggal satu dokumen PAPI di grup ini") if tunggal else
+                ("PERIKSA", "status server belum diketahui — diputuskan Console dgn detail segar")
+                for i, d in enumerate(dok)]
+    simpan = max(kenal, key=lambda i: (peringkat_status(dok[i]["status"]), -(dok[i].get("galat") or 0),
+                                      bool(dok[i].get("dicatat")), dok[i].get("bersih") or 0,
+                                      not dok[i].get("luar"), -i))
+    s_ = dok[simpan]
+    p_simpan = peringkat_status(s_["status"])
+    hasil = []
+    for i, d in enumerate(dok):
+        p = peringkat_status(d.get("status", ""))
+        if i == simpan:
+            hasil.append(("PERTAHANKAN", f"status tertinggi ({d['status']})"))
+        elif i in bukan:
+            hasil.append(("BUKAN_PAPI", f"mode {d['mode']}"))
+        elif p == 0:
+            hasil.append(("PERIKSA", "status server belum diketahui"))
+        elif d.get("bersama"):
+            hasil.append(("PERIKSA", "URL ini juga tercatat utk baris lain"))
+        elif d.get("luar") and not izinkan_luar_audit:
+            hasil.append(("PERIKSA", "tidak tercatat di audit (dibuat program/PC lain) — cek manual"))
+        elif p >= 4:
+            hasil.append(("PERIKSA", "APPROVED — tidak pernah dihapus otomatis"))
+        elif p == 3 and not izinkan_hapus_terkirim:
+            hasil.append(("PERIKSA", "SUBMITTED — dimatikan (izinkan_hapus_terkirim=False)"))
+        elif p > p_simpan:
+            hasil.append(("PERIKSA", "status lebih tinggi dari yang dipertahankan"))
+        elif p == 1 and p_simpan == 1 and (d.get("galat") is None or s_.get("galat") is None):
+            hasil.append(("PERIKSA", "DRAFT ganda tapi jumlah galat tidak diketahui"))
+        else:
+            hasil.append(("HAPUS", f"{d['status']} ganda (galat {d.get('galat')}) — dipertahankan "
+                                   f"{s_['status']} (galat {s_.get('galat')})"))
+    return hasil
+
+
+def baca_info_server(pola: list[str]) -> dict:
+    """{id: {"mode": "PAPI"/"CAPI"/..., "bersih": sumClean}} dari list_api_*.json (mode mis.
+    ["PAPI"]). Bisa basi: mode pernah diubah balik per subsls (ganti_moda --ke CAPI) —
+    Console hapus_ganda membaca ulang dari server."""
+    info: dict = {}
+    for p in pola:
+        for f in (sorted(Path().glob(p)) if any(c in p for c in "*?") else [Path(p)]):
+            if not f.exists():
+                continue
+            try:
+                for it in json.loads(f.read_text(encoding="utf-8")):
+                    if not it.get("id"):
+                        continue
+                    m = it.get("mode")
+                    nilai = sorted({str(x).upper() for x in (m if isinstance(m, list) else [m]) if x})
+                    bersih = it.get("sumClean")
+                    info[it["id"]] = {"mode": "+".join(nilai),
+                                      "bersih": int(bersih) if str(bersih).isdigit() else None}
+            except (ValueError, OSError):
+                pass
+    return info
+
+
+def baca_ganda_dihapus(pola: str = POLA_GANDA_DIHAPUS) -> set:
+    """Id dokumen yang sudah dihapus admin (kolom id pada unduhan hapusGanda.unduh()),
+    hanya yang berstatus DIHAPUS_*TERVERIFIKASI."""
+    hapus: set = set()
+    for f in sorted(Path().glob(pola)):
+        with f.open(newline="", encoding="utf-8-sig") as fh:
+            for b in csv.DictReader(fh):
+                if (b.get("id") or "").strip() and "TERVERIFIKASI" in (b.get("status") or ""):
+                    hapus.add(b["id"].strip())
+    return hapus
+
+
+def daftar_ganda(gabungan: list[dict], status_server: dict | None = None, galat_server: dict | None = None,
+                 nama_server: dict | None = None, asal_dokumen: dict | None = None,
+                 sudah_dihapus: set | None = None, izinkan_hapus_terkirim: bool = True,
+                 info_server: dict | None = None, hanya_papi: bool = False) -> list[dict]:
+    """Daftar dokumen GANDA, satu baris CSV per dokumen (KOLOM_GANDA). Jenis grup:
+
+    BARIS_SAMA           satu baris sheet (kunci) tercatat punya >=2 dokumen berbeda di audit —
+                         pasti duplikat. Dokumen server bernama sama yang TIDAK tercatat di
+                         audit mana pun ikut masuk grupnya (di_luar_audit).
+    NAMA_SAMA_BEDA_BARIS dokumen server bernama sama milik baris sheet BERBEDA — bisa jadi
+                         usaha berbeda bernama sama; hanya dilaporkan (PERIKSA).
+    NAMA_SAMA_LUAR_AUDIT dokumen server bernama sama, TIDAK ada yang tercatat di audit.
+
+    Yang sudah dihapus (`sudah_dihapus`, dari ganda_dihapus*.csv) tidak dihitung lagi."""
+    status_server, galat_server, info_server = status_server or {}, galat_server or {}, info_server or {}
+    nama_server, asal_dokumen, sudah_dihapus = nama_server or {}, asal_dokumen or {}, sudah_dihapus or set()
+    dokumen_kini = {k: id_dokumen(v[2]) for k, v in mg.dokumen_dari(gabungan).items()}
+
+    per_kunci: dict = defaultdict(dict)        # kunci -> {id: info}
+    kunci_per_id: dict = defaultdict(set)
+    for b in gabungan:
+        kunci = b.get("kunci")
+        if not kunci:
+            continue
+        if b.get("status") == mg.STATUS_DIHAPUS:
+            per_kunci[kunci].clear()           # dokumen lama sudah tidak ada di server
+            continue
+        did = id_dokumen(b.get("dokumen_url") or "")
+        if not did or did in sudah_dihapus:
+            continue
+        info = per_kunci[kunci].setdefault(did, {"akun": (b.get("akun_login") or "").lower(),
+                                                 "subsls": b.get("idsubsls_input") or "",
+                                                 "url": b.get("dokumen_url") or ""})
+        info.update(status_audit=b.get("status") or "", nama=b.get("nama_usaha") or "",
+                    baris=b.get("baris") or "")
+        kunci_per_id[did].add(kunci)
+    for kunci, dok in per_kunci.items():
+        for did in dok:
+            kunci_per_id[did].add(kunci)
+
+    grup: list[tuple[str, str, list[tuple[str, dict]]]] = []    # (jenis, kunci, [(id, info)])
+    dalam_grup: set = set()
+    for kunci, dok in per_kunci.items():
+        if len(dok) >= 2:
+            grup.append(("BARIS_SAMA", kunci, list(dok.items())))
+            dalam_grup.update(dok)
+
+    semua_audit = set(kunci_per_id)
+    for nama, ids in sorted(nama_server.items()):
+        ids = [i for i in ids if i not in sudah_dihapus]
+        if len(ids) < 2:
+            continue
+        kunci_ids = {k for i in ids for k in kunci_per_id.get(i, ())}
+        luar = [i for i in ids if i not in semua_audit]
+        def info_luar(i):
+            akun, subsls, _st = asal_dokumen.get(i, ("", "", ""))
+            return {"akun": akun, "subsls": subsls, "url": "", "status_audit": "", "nama": nama,
+                    "baris": "", "luar": True}
+        if len(kunci_ids) == 1 and luar:
+            kunci = next(iter(kunci_ids))
+            ada = next((g for g in grup if g[1] == kunci), None)
+            tambahan = [(i, info_luar(i)) for i in luar]
+            if ada:
+                ada[2].extend(tambahan)
+            else:
+                grup.append(("BARIS_SAMA", kunci, list(per_kunci[kunci].items()) + tambahan))
+        elif len(kunci_ids) > 1 and not all(i in dalam_grup for i in ids):
+            grup.append(("NAMA_SAMA_BEDA_BARIS", "", [(i, dict(per_kunci[next(iter(kunci_per_id[i]))][i])
+                                                          if i in semua_audit else info_luar(i)) for i in ids]))
+        elif not kunci_ids:
+            grup.append(("NAMA_SAMA_LUAR_AUDIT", "", [(i, info_luar(i)) for i in ids]))
+
+    keluar: list[dict] = []
+    for no, (jenis, kunci, anggota) in enumerate(grup, start=1):
+        dok = [{"status": status_server.get(i, ""), "dicatat": dokumen_kini.get(kunci) == i,
+                "luar": bool(info.get("luar")), "bersama": len(kunci_per_id.get(i, ())) > 1,
+                "mode": info_server.get(i, {}).get("mode", ""),
+                "galat": (int(galat_server[i]) if str(galat_server.get(i, "")).isdigit() else None),
+                "bersih": info_server.get(i, {}).get("bersih")}
+               for i, info in anggota]
+        usul = (usulan_grup(dok, izinkan_hapus_terkirim, hanya_papi=hanya_papi) if jenis == "BARIS_SAMA"
+                else [("PERIKSA", "nama sama tapi bukan baris sheet yang sama — bisa usaha berbeda")] * len(dok))
+        for (i, info), d, (u, alasan) in zip(anggota, dok, usul):
+            keluar.append({
+                "grup": no, "jenis": jenis, "usulan": u, "alasan_usulan": alasan, "kunci": kunci,
+                "baris": info.get("baris", ""), "nama_usaha": info.get("nama", ""),
+                "akun_login": info.get("akun", ""), "idsubsls_input": info.get("subsls", ""),
+                "id_dokumen": i, "status_audit": info.get("status_audit", ""),
+                "status_server": d["status"], "mode_server": d["mode"], "galat_server": galat_server.get(i, ""),
+                "bersih_server": "" if d["bersih"] is None else d["bersih"],
+                "dicatat_audit": "ya" if d["dicatat"] else "", "di_luar_audit": "ya" if d["luar"] else "",
+                "dokumen_url": info.get("url") or (f"{FASIH_WEB_BASE}/survey/{SURVEY_ID}/"
+                                                   f"{mg.ASSIGNMENT_ID_GABUNGAN}/{i}/entry"),
+            })
+    return keluar
 
 
 def ringkas_per_kunci(gabungan: list[dict], asal_per_kunci: dict,
@@ -351,6 +567,34 @@ def tabel(judul: str, baris: list[dict], lebar_nilai: int = 34):
               + " ".join(f"{b.get(k, 0):>9}" for k in kelompok))
 
 
+def cetak_daftar_ganda(ganda: list[dict], sudah_dihapus: set, ada_status_server: bool) -> None:
+    grup = defaultdict(list)
+    for r in ganda:
+        grup[(r["grup"], r["jenis"])].append(r)
+    per_jenis = Counter(j for _g, j in grup)
+    print(f"\n=== DAFTAR GANDA: {len(grup)} grup, {len(ganda)} dokumen ===")
+    if sudah_dihapus:
+        print(f"  ({len(sudah_dihapus)} dokumen sudah dihapus admin menurut {POLA_GANDA_DIHAPUS} — tidak dihitung)")
+    if not ada_status_server:
+        print("  ⚠️ tanpa list_api_*.json semua usulan = PERIKSA; Console hapus_ganda tetap memutuskan dgn "
+              "status segar dari server")
+    for jenis, n in per_jenis.most_common():
+        print(f"  {n:>5} grup  {jenis}")
+    mode = Counter(r["mode_server"] or "?" for r in ganda)
+    print("  mode dokumen (list_api_*.json; '?' = tidak ada di sana): "
+          + ", ".join(f"{m} {n}" for m, n in mode.most_common()))
+    usulan = Counter(r["usulan"] for r in ganda)
+    print("  usulan (dari status list_api_*.json, bisa sudah basi): "
+          + ", ".join(f"{u} {n}" for u, n in usulan.most_common()))
+    pola = Counter(" + ".join(sorted((r["status_server"] or "?").split(" BY ")[0] for r in isi))
+                   for (_g, j), isi in grup.items() if j == "BARIS_SAMA")
+    if pola:
+        print("  pola status server grup BARIS_SAMA ('?' = tidak ada di list_api_*.json):")
+        for p, n in pola.most_common(8):
+            print(f"      {n:>5}  {p}")
+    print("  Hapus lewat Console admin fasih-sm: python hapus_ganda/hapus_ganda.py (lihat docs/PANDUAN_HAPUS_GANDA.md)")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sumber", action="append", required=True,
@@ -367,6 +611,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--agregat", default=str(AGREGAT_PATH), help=f"CSV rekap (default {AGREGAT_PATH})")
     ap.add_argument("--sheet", default="", help="sheet sumber, utk menghitung baris yang BELUM dikerjakan")
     ap.add_argument("--format", choices=["standar", "tahap2"], default="standar", help="format --sheet")
+    ap.add_argument("--daftar-ganda", default=str(DAFTAR_GANDA_PATH),
+                    help=f"CSV dokumen ganda, satu baris per dokumen (default {DAFTAR_GANDA_PATH})")
     ap.add_argument("--list-json", action="append", default=[],
                     help="list_api_<akun>.json dari sinkron_list.py (default: semua di folder ini)")
     args = ap.parse_args(argv)
@@ -396,7 +642,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  -> gabungan: {len(gabungan)} baris, {len(lap['asal_per_kunci'])} dokumen"
           + (f" ({lap['ganda_persis']} baris kembar dibuang)" if lap["ganda_persis"] else ""))
 
-    status_server, galat_server, _nama_server = baca_status_server(args.list_json or ["list_api_*.json"])
+    status_server, galat_server, nama_server = baca_status_server(args.list_json or ["list_api_*.json"])
     wilayah: dict = {}
     rows = []
     if args.sheet:
@@ -446,7 +692,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {len(rows)} baris sheet | {len(selesai)} terkirim | "
               f"{len(dibuat) - len(selesai)} dokumen belum tuntas | {len(belum)} belum disentuh")
 
-    bentrok = periksa_bentrok(gabungan, lap["asal_per_kunci"])
+    bentrok = periksa_bentrok(gabungan, lap["asal_per_kunci"], baca_ganda_dihapus())
     masalah = sum(len(v) for v in bentrok.values())
     print(f"\n=== PEMERIKSAAN BENTROK: {masalah} ===")
     for judul, isi, catatan in (
@@ -461,6 +707,16 @@ def main(argv: list[str] | None = None) -> int:
             for k, v in list(isi.items())[:10]:
                 print(f"      {k[:60]} -> {v}")
 
+    sudah_dihapus = baca_ganda_dihapus()
+    info_server = baca_info_server(args.list_json or ["list_api_*.json"])
+    ganda = daftar_ganda(gabungan, status_server, galat_server, nama_server, _ASAL_DOKUMEN, sudah_dihapus,
+                         info_server=info_server, hanya_papi=True)
+    cetak_daftar_ganda(ganda, sudah_dihapus, bool(status_server))
+    with Path(args.daftar_ganda).open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=KOLOM_GANDA)
+        w.writeheader()
+        w.writerows(ganda)
+
     with Path(args.laporan).open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=KOLOM_LAPORAN)
         w.writeheader()
@@ -469,7 +725,7 @@ def main(argv: list[str] | None = None) -> int:
         w = csv.DictWriter(f, fieldnames=["jenis", "nilai", "keterangan", "total"] + URUT_KELOMPOK)
         w.writeheader()
         w.writerows(rekap)
-    print(f"\nLaporan per dokumen: {args.laporan}\nRekap: {args.agregat}")
+    print(f"\nLaporan per dokumen: {args.laporan}\nRekap: {args.agregat}\nDaftar ganda: {args.daftar_ganda}")
 
     if not args.tulis:
         print(f"\n(laporan saja — tambahkan --tulis utk membuat {args.keluaran})")

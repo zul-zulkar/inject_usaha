@@ -106,7 +106,7 @@ Perintah itu juga menghasilkan `list_api_<akun>.json`, yang membuat kolom
 | Peringatan                    | Artinya                                            | Tindakan                                                          |
 | ----------------------------- | -------------------------------------------------- | ----------------------------------------------------------------- |
 | dokumen dikerjakan >1 PC      | dua PC punya catatan BERBEDA untuk baris yang sama | pastikan dokumennya satu, bukan dua                               |
-| **DOKUMEN GANDA**       | satu baris punya dua URL dokumen berbeda           | duplikat di server — laporkan ke admin, PPL tidak bisa menghapus |
+| **DOKUMEN GANDA**       | satu baris punya dua URL dokumen berbeda           | duplikat di server — rinciannya di `daftar_ganda.csv`; admin menghapusnya lewat `docs/PANDUAN_HAPUS_GANDA.md` (PPL tidak bisa menghapus) |
 | dokumen tercatat di >1 akun   | baris dibuat dengan akun berbeda                   | skrip akan melewati baris ini; periksa manual                     |
 | satu dokumen dipakai >1 baris | dua baris sheet menunjuk dokumen sama              | cek nama dokumen di server                                        |
 
