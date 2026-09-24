@@ -94,6 +94,69 @@ python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
 Hasil gabungannya disebar lagi ke semua PC. Gabungkan **setelah** semua batch
 berhenti, bukan saat masih jalan.
 
+## 6. Rekap progres
+
+Ada empat tingkat. Urutan lengkapnya sesudah semua PC berhenti: gabung → sinkron
+→ rangkum & bersihkan. Kalau cuma ingin angka progres, **6a saja sudah cukup**.
+
+### 6a. Progres per baris sheet — offline, beberapa detik
+
+Jumlah terkirim / draft / ditolak, plus alasan tiap baris yang TIDAK akan
+dikerjakan run berikutnya. Rinciannya ke `rangkum_audit.csv`. Jalankan sekali per
+akun (ganti `EMAIL` & `SUBSLS`):
+
+```bash
+python gabung_audit/rangkum_audit.py --sumber bahan/input_tahap2.xlsx --format tahap2 --akun-tunggal EMAIL --subsls-tunggal SUBSLS
+```
+
+Rekap **semua akun sekaligus**: hilangkan `--akun-tunggal` & `--subsls-tunggal`.
+
+```bash
+python gabung_audit/rangkum_audit.py --sumber bahan/input_tahap2.xlsx --format tahap2
+```
+
+Bagian `PROGRES` angkanya sama persis (dihitung dari audit, tidak bergantung
+akun). Bedanya di `RUN BERIKUTNYA`: yang dihitung hanya baris yang **belum punya
+dokumen di akun mana pun**, dan baris yang sudah punya dokumen muncul di `ALASAN`
+sebagai "dokumennya sudah dibuat proses lain (akun / subsls)" — itu sekaligus
+rincian jumlah baris per akun.
+
+### 6b. Satukan audit beberapa PC
+
+Salin `audit_log_gabungan.csv` tiap PC ke folder `audit_pc/` (nama berbeda,
+mis. `pc1.csv`, `pc2.csv`). Lihat laporannya dulu — tidak menulis apa pun:
+
+```bash
+python gabung_audit/gabung_audit.py --sumber audit_pc
+```
+
+Tidak ada peringatan bentrok → tulis hasil gabungannya (audit lama otomatis
+dicadangkan `.bak-<waktu>`):
+
+```bash
+python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
+```
+
+### 6c. Cocokkan dengan server — butuh VPN, hanya membaca
+
+Audit bisa mencatat "terkirim" padahal server masih DRAFT (toast sukses ≠
+terkirim). Tanpa `--tulis` cuma laporan (`sinkron_list.csv`); tambahkan `--tulis`
+untuk mencatat hasilnya ke audit:
+
+```bash
+python input_gabungan/sinkron_list.py --sumber bahan/input_tahap2.xlsx --format tahap2 --akun-tunggal EMAIL --subsls-tunggal SUBSLS
+```
+
+### 6d. Sisa error + perintah untuk membereskannya — offline
+
+Dikelompokkan jadi `ULANGI` / `LENGKAPI_KOORDINAT` / `PERBAIKI_DATA` /
+`SINKRON_DULU` / `TUNGGU_KOORDINAT` / `MANUAL`, lengkap dengan perintah siap
+jalan. Hasilnya ke `bersihkan_error.csv`:
+
+```bash
+python gabung_audit/bersihkan_error.py --sumber bahan/input_tahap2.xlsx --format tahap2
+```
+
 ## Kalau berhenti di tengah
 
 | Pesan | Artinya | Tindakan |

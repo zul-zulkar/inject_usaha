@@ -47,3 +47,4 @@ audit_*.csv
 !templates/
 !templates/**
 templates/**/__pycache__/
+.claude.zip
