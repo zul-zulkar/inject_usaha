@@ -324,7 +324,13 @@ r16, _ = rencana_16b("B1,B3")
 cek("16b B1,B3", [r16[k][0] for k in KEY_16B], ["1", "2", "1", "2", "2", "2"])
 r16, _ = rencana_16b("PROMOSI/KOMUNIKASI")
 cek("16b PROMOSI/KOMUNIKASI -> b5,b6", [r16[k][0] for k in KEY_16B], ["2", "2", "2", "2", "1", "1"])
-cek("16b YA -> keenamnya", set(rencana_16b("YA")[0].values()), {"1. Ya"})
+# Ketetapan user 2026-09-24: satu kolom "YA"/"1" TIDAK berarti keenamnya Ya —
+# cuma b1 menerima pesanan, b4 membeli bahan baku & b5 promosi.
+cek("16b YA -> hanya b1,b4,b5", [rencana_16b("YA")[0][k][0] for k in KEY_16B],
+    ["1", "2", "2", "1", "1", "2"])
+cek("16b '1' sama dgn 'YA'", rencana_16b("1")[0], rencana_16b("YA")[0])
+cek("16b TIDAK -> keenamnya Tidak", set(rencana_16b("TIDAK")[0].values()), {"2. Tidak"})
+cek("16b satu kolom Ya -> alasannya dicatat", "b1,b4,b5" in rencana_16b("YA")[1], True)
 cek("16b '-' -> kosong", rencana_16b("-"), ({}, ""))
 cek("16b teks asing -> tidak dikenali", rencana_16b("WA BISNIS")[0], None)
 hasil = periksa_semua_tahap2(tulis([baris(**{"16a": "1", "16b1-b6": "2,1,2,2,2"})]))
@@ -481,6 +487,81 @@ cek("huruf kecil ikut cocok", _opsi("peran_mbg", "tidak"), "5. Tidak terlibat MB
 cek("'YA' peran_mbg TIDAK ditebak (ada 4 varian Ya)", _opsi("peran_mbg", "YA"), "YA")
 cek("alias khusus tidak bocor ke rincian lain", _opsi("mitra_kdkmp", "TIDAK"), "2. Tidak")
 cek("kode angka tetap menang", _opsi("peran_mbg", "2"), "2. Ya, sebagai supplier")
+
+print("\n== ketetapan user 2026-09-24 (temuan cek 24 Sep) ==")
+from inti.config import TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN  # noqa: E402
+
+# 27d: 16b1 Ya (pesanan lewat internet) tapi 27d kosong/0 -> 10% (baris 1556-1559).
+r27 = tulis([baris(**{"16a": "1", "16b1-b6": "1", "27d": "0,00"})])[0]
+cek("16b1 Ya + 27d 0 -> 27d 10%", r27["pendapatan_online"], str(TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN))
+cek("... alasannya dicatat", any("16b1" in c and "27d" in c for c in r27.koreksi), True)
+cek("27d sheet > 0 TIDAK diubah",
+    tulis([baris(**{"16a": "1", "16b1-b6": "1", "27d": "35"})])[0]["pendapatan_online"], "35")
+cek("16b1 Tidak -> 27d dibiarkan 0",
+    tulis([baris(**{"16a": "1", "16b1-b6": "2,2,2,2,1", "27d": "0,00"})])[0]["pendapatan_online"], "0")
+cek("16a Tidak -> 27d dibiarkan 0",
+    tulis([baris(**{"16a": "2", "16b1-b6": "1", "27d": "0,00"})])[0]["pendapatan_online"], "0")
+
+# 12a "-" -> nama dalam kurung, kalau tidak ada "PEMILIK <nama usaha>" (baris 1595-1597).
+from inti.tahap2_loader import pengusaha_cadangan  # noqa: E402
+
+cek("12a '-' + nama usaha berkurung -> isi kurung",
+    tulis([baris(**{"12a": "-", "8b.": "KIOS MADE (NI KETUT SRI)"})])[0]["pengusaha"], "NI KETUT SRI")
+cek("12a '-' tanpa kurung -> PEMILIK <usaha>",
+    tulis([baris(**{"12a": "-", "8b.": "WARUNG SEMBAKO"})])[0]["pengusaha"], "PEMILIK WARUNG SEMBAKO")
+cek("12a kosong diperlakukan sama",
+    tulis([baris(**{"12a": "", "8b.": "WARUNG SEMBAKO"})])[0]["pengusaha"], "PEMILIK WARUNG SEMBAKO")
+cek("kurung berisi angka/keterangan TIDAK dipakai sbg nama",
+    pengusaha_cadangan("TOKO ABC (2)")[0], "PEMILIK TOKO ABC")
+cek("12a terisi tidak diutak-atik", tulis([baris()])[0]["pengusaha"], "ULLUMA RAHMA")
+
+# Nama kembar persis -> desa, lalu kecamatan, lalu penomoran.
+kembar_desa = tulis([baris(**{"26a": "Rp0", "4": "PATAS 0010"}),
+                     baris(**{"26a": "Rp100.000", "24.Dibayar": "1", "24.Tidak dibayar": "2",
+                              "4": "PENYABANGAN 0011", "5": "5108010009000101"})],
+                    kodepos="81155")   # subsls kedua belum ada di KODEPOS_BY_IDSUBSLS
+cek("nama kembar + desa beda -> nama dibedakan desa",
+    [r.nama_dokumen for r in kembar_desa],
+    ["USAHA JUAL BERAS PATAS (ULLUMA RAHMA)", "USAHA JUAL BERAS PENYABANGAN (ULLUMA RAHMA)"])
+cek("... keduanya lolos BARIS_GANDA",
+    [h.status for h in periksa_semua_tahap2(kembar_desa).values()], ["SIAP", "SIAP"])
+
+kembar_nomor = tulis([baris(**{"26a": "Rp0"}), baris(**{"26a": "Rp100.000", "24.Dibayar": "1",
+                                                        "24.Tidak dibayar": "2"})])
+cek("nama & wilayah kembar, isi beda -> penomoran",
+    [r.nama_dokumen for r in kembar_nomor],
+    ["USAHA JUAL BERAS 1 (ULLUMA RAHMA)", "USAHA JUAL BERAS 2 (ULLUMA RAHMA)"])
+cek("... dan keduanya diproses",
+    [h.status for h in periksa_semua_tahap2(kembar_nomor).values()], ["SIAP", "SIAP"])
+
+# Pengaman: baris yang isinya SAMA PERSIS tetap BARIS_GANDA (duplikat entri,
+# bukan dua usaha) — menomorinya = dua dokumen sensus utk satu usaha.
+cek("baris identik tetap BARIS_GANDA, tidak dinomori",
+    [h.status for h in periksa_semua_tahap2(tulis([baris(), baris()])).values()],
+    ["SKIP_DATA_BARIS_GANDA", "SKIP_DATA_BARIS_GANDA"])
+cek("... namanya pun tidak diubah",
+    [r.nama_dokumen for r in tulis([baris(), baris()])],
+    ["USAHA JUAL BERAS (ULLUMA RAHMA)"] * 2)
+cek("baris tunggal tidak pernah dinomori",
+    tulis([baris()])[0].nama_dokumen, "USAHA JUAL BERAS (ULLUMA RAHMA)")
+
+# KBLI yang tidak nyambung dgn 13a/13f -> TANDA (baris 1730: sewa sound system
+# tapi KBLI 43213). Form MENERIMA KBLI itu, jadi tidak pernah muncul sbg GALAT.
+_sound = {"8b.": "SEWA SOUND SYSTEM BUDI", "13a": "SEWA SOUND SYSTEM UTK ACARA",
+          "13f": "SEWA SOUND SYSTEM", "Kode KBLI": "43213",
+          "Judul KBLI": "Instalasi Sistem Elektronika"}
+_h = periksa_semua_tahap2(tulis([baris(**_sound)]))[2]
+cek("KBLI tidak nyambung -> ditandai", any("generate KBLI" in t for t in _h.tanda), True)
+cek("... tapi TIDAK di-skip", _h.status, "SIAP")
+cek("KBLI nyambung -> tidak ditandai",
+    any("generate KBLI" in t for t in
+        periksa_semua_tahap2(tulis([baris(**{"Judul KBLI": "Perdagangan Eceran Beras"})]))[2].tanda), False)
+cek("Judul KBLI kosong -> tidak dinilai",
+    any("generate KBLI" in t for t in periksa_semua_tahap2(tulis([baris()]))[2].tanda), False)
+cek("judul yang cuma berisi kata umum -> tidak menuduh",
+    any("generate KBLI" in t for t in
+        periksa_semua_tahap2(tulis([baris(**{"Judul KBLI": "Jasa Lainnya"})]))[2].tanda), False)
+
 
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)

@@ -49,7 +49,10 @@ from inti.config import (
     TAHAP2_26C_KE_26B, TAHAP2_DEFAULT, TAHAP2_GAJI_JIKA_DIBAYAR, TAHAP2_HP_TIDAK_VALID_JADI,
     TAHAP2_ISI_VARIAN_BULANAN,
     TAHAP2_NIK_TIDAK_VALID_JADI, TAHAP2_PEKERJA_IKUT_JK_PEMILIK, TAHAP2_TOTAL_BEDA,
-    TAHAP2_UANG_KOSONG_JADI_NOL, TAHAP2_16B_LIMA_NILAI_B6, TAHAP2_PEMBEDA_13F_UTK_GANDA,
+    TAHAP2_UANG_KOSONG_JADI_NOL, TAHAP2_16B_LIMA_NILAI_B6, TAHAP2_16B_YA_TUNGGAL,
+    TAHAP2_PEMBEDA_13F_UTK_GANDA, TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR,
+    TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN, TAHAP2_PENGUSAHA_KOSONG_AWALAN,
+    TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG, KATA_UMUM_KBLI,
 )
 from inti.gabungan_loader import (
     KEY_16B, KEY_26, KEY_27, KEY_28, KEY_29, KEY_PEKERJA, MAKS_8B, OPSI_FORM, YA_TIDAK, GabunganRow, Pemeriksaan,
@@ -359,7 +362,13 @@ def rencana_16b(teks) -> tuple[dict | None, str]:
         return {}, ""
     tunggal = opsi_dari_kode("internet_pesanan", t)
     if tunggal in YA_TIDAK:
-        return {k: tunggal for k in KEY_16B}, f"16b1-b6 diisi '{tunggal}' dari satu kolom '16b1-b6'"
+        if tunggal.startswith("2") or not TAHAP2_16B_YA_TUNGGAL:
+            return {k: tunggal for k in KEY_16B}, f"16b1-b6 diisi '{tunggal}' dari satu kolom '16b1-b6'"
+        # "Ya" satu kolom TIDAK berarti keenam rincian Ya (ketetapan user 2026-09-24):
+        # cuma menerima pesanan, membeli bahan baku & promosi. Lihat TAHAP2_16B_YA_TUNGGAL.
+        hasil = {k: ("1. Ya" if k in TAHAP2_16B_YA_TUNGGAL else "2. Tidak") for k in KEY_16B}
+        ya = [f"b{KEY_16B.index(k) + 1}" for k in KEY_16B if k in TAHAP2_16B_YA_TUNGGAL]
+        return hasil, f"16b1-b6 '{t}' (satu kolom) -> Ya hanya utk {','.join(ya)}, sisanya Tidak"
     ya = _16b_bentuk_lain(t)
     if ya is not None:
         return ({k: "1. Ya" if i in ya else "2. Tidak" for i, k in enumerate(KEY_16B)},
@@ -540,6 +549,62 @@ def beri_pembeda_ganda(rows: list[Tahap2Row]) -> None:
                 r.pembeda = p
                 r.koreksi.append(f"usaha pecahan bernama sama (baris {daftar}) -> nama dibedakan 13f "
                                  f"'{p}': {r.nama_dokumen}")
+    bedakan_nama_kembar(rows)
+
+
+def _nama_wilayah(row: Tahap2Row, bagian: str) -> str:
+    """Nama desa/kecamatan baris ini dari kolom informasi ("4"/"3"), "" kalau kosong."""
+    return _wilayah_dari_info(row.info).get(bagian, "")
+
+
+def bedakan_nama_kembar(rows: list[Tahap2Row]) -> None:
+    """Nama dokumen yang MASIH kembar persis sesudah pembeda 13f -> dibedakan
+    bertahap: nama DESA, lalu KECAMATAN, lalu PENOMORAN (ketetapan user 2026-09-24,
+    TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR). Tanpa ini baris kembar cuma di-skip
+    (BARIS_GANDA kalau subsls-nya sama, NAMA_TUMPANG_TINDIH kalau beda) dan
+    usahanya tidak pernah masuk.
+
+    Wilayah dicoba lebih dulu karena lebih informatif drpd angka, tapi hanya
+    kalau nilainya MEMBEDAKAN SEMUA anggota — desa yang cuma memisah sebagian
+    menyisakan kembar, jadi kasus itu langsung jatuh ke penomoran.
+
+    HANYA baris yang benar-benar bentrok yang diubah; baris lain kuncinya tetap,
+    jadi dokumen yang sudah tercatat di audit tidak jadi dibuat ulang.
+
+    Syaratnya baris-baris itu memang USAHA BERBEDA ("kalau memang dua usaha
+    berbeda, bedakan namanya"): isian yang dikirim harus ada yang beda (baris
+    1214/1223 & 1362/1363 beda angka uangnya). Kalau ada dua baris yang isinya
+    SAMA PERSIS, itu duplikat entri, bukan dua usaha — seluruh kelompok dibiarkan
+    di-skip BARIS_GANDA spt semula, karena menomorinya berarti mengirim dua
+    dokumen sensus utk satu usaha yang sama & itu tidak bisa dibatalkan."""
+    if not TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR:
+        return
+    kembar: dict[str, list[Tahap2Row]] = defaultdict(list)
+    for r in rows:
+        kembar[r.nama_dokumen.upper()].append(r)
+    for anggota in kembar.values():
+        if len(anggota) < 2:
+            continue
+        sidik = [tuple(sorted(r.v.items())) for r in anggota]
+        if len(set(sidik)) != len(anggota):
+            continue    # ada baris yang isinya sama persis -> duplikat, tidak ditebak
+        anggota.sort(key=lambda r: r.baris)
+        daftar = [r.baris for r in anggota]
+        for bagian, sebut in (("desa", "desa"), ("kecamatan", "kecamatan")):
+            nilai = [_nama_wilayah(r, bagian) for r in anggota]
+            if all(nilai) and len(set(nilai)) == len(anggota):
+                for r, n in zip(anggota, nilai):
+                    r.pembeda = f"{r.pembeda} {n}".strip()
+                    r.koreksi.append(f"nama kembar persis (baris {daftar}) -> dibedakan {sebut} "
+                                     f"'{n}': {r.nama_dokumen}")
+                break
+        else:
+            # Wilayahnya sama juga (mis. satu subsls) -> nomor urut. Baris PERTAMA
+            # ikut diberi nomor supaya tidak ada yang bernama ambigu "tanpa nomor".
+            for ke, r in enumerate(anggota, start=1):
+                r.pembeda = f"{r.pembeda} {ke}".strip()
+                r.koreksi.append(f"nama kembar persis (baris {daftar}) & wilayahnya sama -> "
+                                 f"dibedakan penomoran '{ke}': {r.nama_dokumen}")
 
 
 def _indeks_tahap2(judul: list[str]) -> dict[str, int]:
@@ -638,6 +703,15 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
                 v[key] = nilai
     if ket_16b and rencana is not None and v.get("internet", "").startswith("1"):
         catatan.append(ket_16b)
+    # 27d: pesanan masuk lewat internet (16b1 Ya) tapi persentase pendapatan online
+    # kosong/0 -> tidak konsisten. Ketetapan user 2026-09-24 (baris 1556-1559): isi
+    # TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN. Nilai sheet yang > 0 TIDAK diubah.
+    if (TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN and v.get("internet", "").startswith("1")
+            and v.get("internet_pesanan", "").startswith("1")
+            and int(v.get("pendapatan_online") or 0) == 0):
+        v["pendapatan_online"] = str(TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN)
+        catatan.append(f"27d {'0' if sel.get('pendapatan_online') else 'kosong'} -> "
+                       f"{TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN}% krn 16b1 (menerima pesanan) = Ya")
 
     # 5. 13b1/b2/b3 dari golongan KBLI (kolom sheet menang kalau ada).
     dari_kbli = rencana_13b(v["kbli"])
@@ -653,6 +727,13 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
         catatan.append(f"12d NIK '{v['nik_pengusaha']}' tidak valid (bukan 16 digit) -> "
                        f"'{TAHAP2_NIK_TIDAK_VALID_JADI}'")
         v["nik_pengusaha"] = TAHAP2_NIK_TIDAK_VALID_JADI
+
+    # 5a2. 12a nama pengusaha kosong / "-" -> nama cadangan (lihat pengusaha_cadangan).
+    if " ".join(v.get("pengusaha", "").split()) in ("", "-", "\u2013"):
+        pengganti, alasan = pengusaha_cadangan(v.get("nama", ""))
+        if pengganti:
+            v["pengusaha"] = pengganti
+            catatan.append(alasan)
 
     # 5b. 13d/13e (industri: 13b1 Ya & 13b2 Tidak) dari judul KBLI.
     if (TAHAP2_13DE_DARI_KBLI and v["produk_sendiri"].startswith("1") and v["layanan_mamin"].startswith("2")
@@ -764,6 +845,24 @@ def load_tahap2(path: str | Path, kodepos: str = "") -> list[Tahap2Row]:
     return out
 
 
+def pengusaha_cadangan(nama_usaha: str) -> tuple[str, str]:
+    """12a kosong/"-" -> (nama pengganti, alasan); ("", "") kalau tidak bisa.
+    Ketetapan user 2026-09-24 (baris 1595-1597): pakai nama di dalam KURUNG pada
+    nama usaha kalau ada, kalau tidak "<TAHAP2_PENGUSAHA_KOSONG_AWALAN> <nama usaha>".
+    Isi kurung dipakai HANYA kalau berupa nama (bukan angka/keterangan spt "(2)",
+    "(cabang)") — kalau ragu, jalur awalan yang dipakai, bukan tebakan."""
+    nama = " ".join(str(nama_usaha or "").split())
+    if not TAHAP2_PENGUSAHA_KOSONG_AWALAN or not nama:
+        return "", ""
+    dalam_kurung = [" ".join(m.split()) for m in re.findall(r"\(([^)]*)\)", nama)]
+    for isi in dalam_kurung:
+        if len(isi) >= 3 and re.fullmatch(r"[A-Za-z.'\- ]+", isi):
+            return isi.upper(), f"12a kosong/'-' -> '{isi.upper()}' (nama dalam kurung di nama usaha)"
+    tanpa_kurung = " ".join(re.sub(r"\([^)]*\)", " ", nama).split()) or nama
+    pengganti = f"{TAHAP2_PENGUSAHA_KOSONG_AWALAN} {tanpa_kurung}".upper()
+    return pengganti, f"12a kosong/'-' -> '{pengganti}' (tidak ada nama dalam kurung di nama usaha)"
+
+
 def _wilayah_dari_info(info: dict) -> dict:
     """Kolom "3" = "GEROKGAK 510801", kolom "4" = "PATAS 0010" -> nama kec &
     desa (angka di belakang dibuang). Dipakai HANYA utk melengkapi Nama Jalan
@@ -828,6 +927,28 @@ def periksa_total(row: Tahap2Row, tanda: list[str] | None = None) -> list[tuple[
     return masalah
 
 
+def _kata_penting(teks: str) -> set:
+    """Kata >= 4 huruf dari `teks`, tanpa KATA_UMUM_KBLI & tanpa kode dalam kurung."""
+    bersih = re.sub(r"\([^)]*\)", " ", str(teks or "")).lower()
+    return {k for k in re.findall(r"[a-z]{4,}", bersih) if k not in KATA_UMUM_KBLI}
+
+
+def kbli_tidak_nyambung(row: Tahap2Row) -> str:
+    """Alasan kalau judul KBLI tidak berbagi satu kata pun dgn 13a/13f, "" kalau
+    nyambung / tidak bisa dinilai. Lihat TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG."""
+    if not TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG:
+        return ""
+    judul = row.judul_kbli
+    kata_judul = _kata_penting(judul)
+    kata_isi = _kata_penting(row["keg_utama"]) | _kata_penting(row["produk"])
+    # Salah satunya tidak punya kata yang bisa dinilai -> jangan menuduh.
+    if not judul or not kata_judul or not kata_isi or kata_judul & kata_isi:
+        return ""
+    return (f"KBLI {row['kbli']} '{judul}' tidak berbagi satu kata pun dgn 13a "
+            f"'{row['keg_utama']}'" + (f" / 13f '{row['produk']}'" if row["produk"] else "")
+            + " — periksa apakah KBLI-nya keliru (di form bisa pakai tombol generate KBLI lalu opsi 1)")
+
+
 def periksa_semua_tahap2(rows: list[Tahap2Row], tahun_berjalan: int | None = None,
                          mode_satu_subsls: bool = False, cek_total: bool = True,
                          izinkan_tanpa_koordinat: bool = False) -> dict[int, Pemeriksaan]:
@@ -853,6 +974,8 @@ def periksa_semua_tahap2(rows: list[Tahap2Row], tahun_berjalan: int | None = Non
                               f"KBLI {row['kbli']} (golongan {row['kbli'][:2]}) -> 13b1 = Ya, sehingga form "
                               "mewajibkan 13d & 13e. Tambahkan kolom '13d' & '13e' di sheet, atau isi "
                               "dokumen ini manual."))
+        if alasan_kbli := kbli_tidak_nyambung(row):
+            h.tanda.append(alasan_kbli)
         if not row["kodepos"]:
             h.masalah.append(("KODEPOS_TIDAK_DIKETAHUI",
                               f"kodepos desa {row.idsubsls[:10]} tidak ada di KODEPOS_BY_IDSUBSLS/"

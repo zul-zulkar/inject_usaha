@@ -52,6 +52,31 @@ membaca ulang ringkasannya. Galatnya berkurang → dipertahankan; tidak berkuran
 dikembalikan ke jawaban semula, jadi baris yang galatnya bukan soal 13c tidak ikut berubah.
 Keduanya dicatat di `review_disarankan`. Galat lain tetap tidak pernah ditebak.
 
+### Koreksi tambahan (ketetapan user 2026-09-24)
+
+Semuanya dicatat sebagai ASUMSI di `review_disarankan`, dan masing-masing punya
+saklar di `inti/config.py` kalau perlu dimatikan:
+
+| Temuan | Perlakuan | Saklar |
+|---|---|---|
+| Kolom `16b1-b6` hanya berisi `1`/`YA` | Ya **hanya** untuk 16b1 menerima pesanan, 16b4 membeli bahan baku, 16b5 promosi — sisanya Tidak (sebelumnya keenamnya Ya) | `TAHAP2_16B_YA_TUNGGAL` |
+| 16b1 = Ya tapi 27d kosong/0 | 27d diisi 10% | `TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN` |
+| 12a kosong atau `-` | Nama di dalam kurung pada nama usaha; kalau tidak ada, `PEMILIK <nama usaha>` | `TAHAP2_PENGUSAHA_KOSONG_AWALAN` |
+| Nama dokumen masih kembar persis sesudah pembeda 13f | Dibedakan nama **desa**, lalu **kecamatan**, lalu **penomoran** | `TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR` |
+| Judul KBLI tidak berbagi satu kata pun dengan 13a/13f | **Tanda review saja**, baris tetap diproses | `TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG` |
+
+Dua pengaman yang sengaja dipasang pada dua baris terakhir:
+
+- **Baris yang isinya SAMA PERSIS tidak pernah dinomori.** Penomoran hanya untuk
+  baris yang isian kirimnya berbeda (mis. angka uangnya) — itu artinya dua usaha
+  berbeda. Kalau dua baris identik seluruhnya, itu duplikat entri, dan menomorinya
+  berarti mengirim dua dokumen sensus untuk satu usaha yang sama. Baris seperti itu
+  tetap di-skip `BARIS_GANDA` seperti semula.
+- **KBLI yang tidak nyambung hanya ditandai, tidak di-skip.** Form MENERIMA KBLI
+  yang keliru secara makna, jadi ini tidak pernah muncul sebagai GALAT — ketahuannya
+  hanya dari isian sheet sendiri, dan pencocokan kata itu kasar. Keputusan mengganti
+  KBLI tetap di tangan pemeriksa; di form bisa lewat tombol generate KBLI lalu opsi 1.
+
 **Kalau satu baris perlu jawaban lain, tambahkan kolomnya di Excel** —
 nilai kolom sheet SELALU menang atas default. Judul kolom yang dikenali ada
 di `KOLOM_TAHAP2_TAMBAHAN` (`inti/tahap2_loader.py`): `8d.`, `10a`, `10b`,

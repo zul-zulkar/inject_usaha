@@ -358,6 +358,46 @@ TAHAP2_16B_LIMA_NILAI_B6 = "2. Tidak"
 # warung, produk berbeda) -> nama dokumen & 8b diberi 13f: "<8b> <13f> (<12a>)"
 # (ketetapan user 2026-09-23). 13f juga sama -> tetap BARIS_GANDA. False = perilaku lama.
 TAHAP2_PEMBEDA_13F_UTK_GANDA = True
+# Nama dokumen yang MASIH kembar persis sesudah pembeda 13f dipakai (13f-nya sama
+# juga, mis. baris 1214/1223 "toko ni luh sri ameni" gas LPG & 1362/1363 sabun/sampo
+# Yuda — cuma angka uangnya yang beda) dibedakan bertahap (ketetapan user 2026-09-24):
+# nama DESA dulu, lalu nama KECAMATAN, dan kalau keduanya sama persis juga (baris
+# dalam satu subsls) barulah PENOMORAN "2", "3", ... Dipakai HANYA pada baris yang
+# memang bentrok; baris lain kuncinya tidak berubah, jadi audit lama tetap cocok.
+# False = perilaku lama (baris kembar di-skip BARIS_GANDA / NAMA_TUMPANG_TINDIH).
+TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR = True
+# Kolom "16b1-b6" yang cuma berisi SATU nilai "1"/"YA": dulu keenam rincian diisi Ya.
+# Ketetapan user 2026-09-24: yang Ya hanya ketiga rincian di bawah — menerima pesanan
+# (16b1), membeli bahan baku (16b4) & promosi (16b5); b2/b3/b6 jadi "2. Tidak".
+# Kolom per rincian & bentuk lain ("1,2,1,...", "B1,B3") TIDAK terpengaruh.
+# () = perilaku lama (keenamnya Ya).
+TAHAP2_16B_YA_TUNGGAL = ("internet_pesanan", "internet_beli", "internet_promosi")
+# 16b1 (menerima pesanan lewat internet) = Ya tapi 27d (persentase pendapatan online)
+# kosong/0 -> 27d diisi angka ini (ketetapan user 2026-09-24, baris 1556-1559).
+# Pesanan masuk lewat internet berarti ada pendapatan online, jadi 0 tidak konsisten.
+# 0 = matikan (27d dibiarkan apa adanya).
+TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN = 10
+# 12a nama pengusaha kosong atau "-" (baris 1595-1597) -> ketetapan user 2026-09-24:
+# pakai nama di dalam KURUNG pada nama usaha kalau ada ("KIOS MADE (NI KETUT SRI)"
+# -> "NI KETUT SRI"); kalau tidak ada, awalan ini + nama usaha ("PEMILIK KIOS MADE").
+# "" = matikan (baris tetap di-skip WAJIB_KOSONG).
+TAHAP2_PENGUSAHA_KOSONG_AWALAN = "PEMILIK"
+# Judul KBLI yang tidak berbagi SATU KATA PUN dgn 13a/13f ditandai utk ditinjau
+# (ketetapan user 2026-09-24, baris 1730: "sewa sound system" tapi KBLI 43213
+# "pemasangan sistem elektronika"). Form MENERIMA KBLI itu — jadi ini tidak
+# pernah jadi GALAT & tidak bisa ditangkap dari pesan form; ketahuannya cuma dari
+# isian sheet sendiri. TANDA saja, BUKAN skip: kecocokan kata itu kasar (13a bisa
+# memakai kata sehari-hari yang tidak ada di judul resmi KBLI), jadi keputusan
+# mengganti KBLI tetap di tangan pemeriksa — di form bisa lewat tombol generate
+# KBLI lalu opsi 1. False = matikan penandaan.
+TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG = True
+# Kata yang diabaikan saat mencocokkan 13a/13f dgn judul KBLI (terlalu umum,
+# hampir semua judul KBLI memuatnya -> kalau dihitung, semua baris terlihat cocok).
+KATA_UMUM_KBLI = frozenset("""
+dan atau yang untuk dengan di ke dari pada serta lainnya lain jasa aktivitas usaha
+perdagangan eceran besar industri pengolahan barang produk bukan termasuk golongan
+kegiatan penyediaan pelayanan penjualan berbagai macam utama khusus umum ini itu
+""".split())
 # 13d/13e (input & proses produksi, muncul kalau 13b1 Ya & 13b2 Tidak) tidak ada
 # di kuesioner kertas -> diisi dari JUDUL KBLI (kolom sheet 13d/13e tetap menang).
 TAHAP2_13DE_DARI_KBLI = True
