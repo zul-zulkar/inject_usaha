@@ -510,6 +510,29 @@ check("kode_sls 4 digit -> 14 digit", idsubsls_dari_wilayah({**BLOK1, "kode_sls"
 check("kode_sls 3 digit -> kosong", idsubsls_dari_wilayah({**BLOK1, "kode_sls": "002"}), "")
 check("nama tanpa kode -> kosong", idsubsls_dari_wilayah({**BLOK1, "desa": "BANYUASRI"}), "")
 
+# --- subsls dokumen menurut SERVER (kode SLS BLOK I bisa beda dgn region assignment) ---
+# 2026-09-25: modal memilih [0001]->[10] (5108060006000110) dgn benar, list API mencatat
+# level6 itu, tapi BLOK I form menampilkan kode_sls '0002' -> STOP palsu.
+from inti.gabungan_loader import kode_wilayah_api  # noqa: E402
+
+
+def _region(kode):
+    lv = {"fullCode": kode, "code": kode[14:]}
+    for n, p in ((5, 14), (4, 10), (3, 7), (2, 4), (1, 2)):
+        lv = {"fullCode": kode[:p], f"level{n + 1}": lv}
+    return lv
+
+
+ITEM_LIST = {"id": "512428c0", "codeIdentity": "5108060006000110 - toko contoh",
+             "region": {"id": "x", "level1": _region("5108060006000110")}}
+check("item list -> level6", kode_wilayah_api(ITEM_LIST), "5108060006000110")
+check("respons {data: item}", kode_wilayah_api({"success": True, "data": ITEM_LIST}), "5108060006000110")
+check("snake_case detail",
+      kode_wilayah_api({"data": {"region": {"level_6": {"full_code": "5108060006000224"}}}}), "5108060006000224")
+check("tanpa region -> kosong", kode_wilayah_api({"data": {"id": "x"}}), "")
+check("dua kode beda -> kosong (tidak ditebak)",
+      kode_wilayah_api([{"fullCode": "5108060006000110"}, {"fullCode": "5108060006000224"}]), "")
+
 # --- 26c hanya dirender utk perdagangan (aturan sama dgn 30c) ---
 # Dulu aturannya "kategori B-F / golongan 56" saja, sehingga KBLI lain lolos
 # pemeriksaan offline lalu gagal di tengah pengisian (SKIP_26C_TIDAK_DIRENDER)

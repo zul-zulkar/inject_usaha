@@ -81,6 +81,10 @@ class FakeSess:
         self.buat, self.url_baru, self.gagal_dropdown = buat, url_baru, gagal_dropdown
         self.dokumen_url_terakhir, self.dokumen_dibuat = "", False
         self.terkunci = False
+        self.wilayah_server = ("", "uji: server tidak terbaca")
+
+    def wilayah_dokumen_server(self, doc_id, nama=""):
+        return self.wilayah_server
 
     def _log(self, *_):
         pass
@@ -151,6 +155,18 @@ with tempfile.TemporaryDirectory() as d:
 
     res = proses(FakeSess(wilayah={"desa": "014", "kode_sls": "000401"}))
     check("wilayah dokumen beda -> STOP", res["status"], "STOP_WILAYAH_DOKUMEN_BEDA")
+    # 2026-09-25: kode SLS BLOK I '0002' padahal region dokumen di server = subsls target.
+    s = FakeSess(wilayah={"prov": "51", "kab": "08", "kec": "060", "desa": "014", "kode_sls": "0002"})
+    s.wilayah_server = (SUBSLS, "uji")
+    res = proses(s)
+    check("BLOK I beda tapi server = target -> lanjut (COCOK + tanda)",
+          (res["status"], res["wilayah_dokumen"][:5], "server" in res["review_disarankan"]),
+          ("ERROR_FIELD_NOT_FOUND", "COCOK", True))
+    s = FakeSess(wilayah={"prov": "51", "kab": "08", "kec": "060", "desa": "014", "kode_sls": "0002"})
+    s.wilayah_server = ("5108060014000499", "uji")
+    res = proses(s)
+    check("dokumen BARU & server juga beda -> tetap STOP",
+          (res["status"], "5108060014000499" in res["error_message"]), ("STOP_WILAYAH_DOKUMEN_BEDA", True))
     res = proses(FakeSess(gagal_dropdown=True))
     check("subsls tidak bisa dipilih -> STOP", res["status"], "STOP_SUBSLS_TIDAK_BISA_DIPILIH")
     res = proses(FakeSess(buat=False))
@@ -191,6 +207,16 @@ with tempfile.TemporaryDirectory() as d:
     s = SessUlang([False, False], [7, 7, 7])
     res = proses(s, mode_satu_list=True)
     check("gagal 2x -> SKIP_DOKUMEN_BELUM_ADA (batch berhenti)", res["status"], "SKIP_DOKUMEN_BELUM_ADA")
+
+# Audit disunting tangan & berakhir TANPA newline -> baris berikut tidak boleh tertempel.
+with tempfile.TemporaryDirectory() as d:
+    mg.AUDIT_LOG_PATH = Path(d) / "audit.csv"
+    mg.append_audit({"baris": 1, "kunci": "aaaaaaaaaa", "status": "X"})
+    isi = mg.AUDIT_LOG_PATH.read_bytes()
+    mg.AUDIT_LOG_PATH.write_bytes(isi + b"," * (len(mg.AUDIT_FIELDS) - 1))
+    mg.append_audit({"baris": 2, "kunci": "bbbbbbbbbb", "status": "Y"})
+    check("append ke audit tanpa newline di akhir -> baris baru utuh",
+          [b["kunci"] for b in mg._baca_audit()][-1], "bbbbbbbbbb")
 
 from inti.fasih_web import nilai_sama
 for label, sekarang, target, want in (

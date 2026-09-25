@@ -64,5 +64,18 @@ for path in ("audit_log_gabungan.csv",   # sengaja IKUT sejak 2026-09-24 (lihat 
              "ganda_dihapus_202609241530.csv"):   # catatan hapus admin — tidak bisa dibuat ulang
     cek(path, alasan_dibuang(Path(path)), "")
 
+print("\n== --kecuali ==")
+for path, kecuali, harap in (("audit/audit_log_gabungan.csv", ["audit"], "--kecuali"),
+                             ("audit/sub/x.csv", ["audit"], "--kecuali"),
+                             ("audit_log_gabungan.csv", ["audit"], ""),          # nama persis, bukan awalan
+                             ("audit_log_gabungan.csv", ["audit_log_gabungan.csv"], "--kecuali"),
+                             ("audit/audit_log_gabungan.csv", ["audit_log_gabungan.csv"], "--kecuali"),
+                             ("bahan/lama/a.xlsx", ["bahan/lama"], "--kecuali"),
+                             ("bahan/input_tahap2.xlsx", ["bahan/lama"], ""),
+                             ("audit_malam/a.csv", ["audit*"], "--kecuali"),
+                             ("audit/a.csv", ["audit\\"], "--kecuali"),          # garis miring Windows
+                             ("audit/a.csv", [], "")):
+    cek(f"{path} --kecuali {kecuali}", alasan_dibuang(Path(path), kecuali), harap)
+
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)

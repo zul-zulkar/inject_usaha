@@ -1345,6 +1345,33 @@ def idsubsls_dari_wilayah(nilai: dict) -> str:
     return keluar
 
 
+def kode_wilayah_api(obj) -> str:
+    """Subsls 16 digit dari respons API dokumen, "" kalau tidak ada / tidak tunggal.
+
+    Item list PENDATAAN (terverifikasi): region.level1..level6 {fullCode} — level6 =
+    subsls. Respons detail (get-by-id-with-data) belum pernah terekam bagian
+    region-nya, jadi dicari generik: semua `fullCode`/`full_code` 16 digit, di bawah
+    kunci `region` kalau ada. Lebih dari satu kode berbeda -> "" (tidak ditebak)."""
+    def kumpul(o, keluar: set):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("fullCode", "full_code") and re.fullmatch(r"\d{16}", str(v or "")):
+                    keluar.add(str(v))
+                else:
+                    kumpul(v, keluar)
+        elif isinstance(o, list):
+            for v in o:
+                kumpul(v, keluar)
+        return keluar
+
+    if isinstance(obj, dict) and isinstance(obj.get("data"), dict):
+        obj = obj["data"]
+    if isinstance(obj, dict) and isinstance(obj.get("region"), dict):
+        obj = obj["region"]
+    kode = kumpul(obj, set())
+    return kode.pop() if len(kode) == 1 else ""
+
+
 def cocokkan_wilayah_dokumen(nilai: dict, idsubsls: str, nama_ref: dict | None = None) -> tuple[str, str]:
     """Bandingkan rincian 1-6 BLOK I dokumen yang terbuka (auto dari wilayah
     dokumen) dgn subsls tujuan input. -> ('COCOK'|'BEDA'|'TIDAK_TERBACA', ringkasan).

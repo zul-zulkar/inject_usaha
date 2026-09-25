@@ -25,6 +25,8 @@ flashdisk/drive kantor — jangan diunggah ke tempat publik.
 
     python bungkus_pc/bungkus_pc.py --daftar     # lihat isi & ukurannya saja, tanpa membuat zip
     python bungkus_pc/bungkus_pc.py              # buat split_usaha_pc_<waktu>.zip di folder proyek
+    python bungkus_pc/bungkus_pc.py --kecuali audit --kecuali audit_log_gabungan.csv
+                                                 # buang folder/berkas tertentu (nama atau path relatif, boleh *)
 
 Panduan lengkap (termasuk cara extract di PC tujuan): docs/MULAI_CEPAT.md.
 """
@@ -74,9 +76,32 @@ BERKAS_DIBUANG: list[tuple[str, str]] = [
 ]
 
 
-def alasan_dibuang(rel: Path) -> str:
+KELOMPOK_KECUALI = "--kecuali"
+
+
+def cocok_kecuali(rel: Path, kecuali: tuple[str, ...] | list[str]) -> bool:
+    """True kalau path relatif cocok salah satu pola --kecuali: pola tanpa '/' dicocokkan ke
+    SETIAP komponen path (jadi 'audit' membuang folder audit/ di mana pun, 'audit_log_gabungan.csv'
+    membuang berkas itu di mana pun); pola ber-'/' dicocokkan ke path relatif utuh & awalannya
+    ('audit_pc2/lama' membuang isi folder itu saja)."""
+    posix = rel.as_posix()
+    for pola in kecuali:
+        pola = pola.replace("\\", "/").strip("/")
+        if not pola:
+            continue
+        if "/" in pola:
+            if fnmatch.fnmatch(posix, pola) or fnmatch.fnmatch(posix, pola + "/*"):
+                return True
+        elif any(fnmatch.fnmatch(bagian, pola) for bagian in rel.parts):
+            return True
+    return False
+
+
+def alasan_dibuang(rel: Path, kecuali: tuple[str, ...] | list[str] = ()) -> str:
     """Kelompok pengecualian utk path relatif thd root, "" = ikut dibungkus.
     Fungsi murni (diuji tests/test_bungkus_pc.py)."""
+    if cocok_kecuali(rel, kecuali):
+        return KELOMPOK_KECUALI
     for bagian in rel.parts[:-1]:
         for kelompok, pola in FOLDER_DIBUANG:
             if fnmatch.fnmatch(bagian, pola):
@@ -91,7 +116,8 @@ def alasan_dibuang(rel: Path) -> str:
     return ""
 
 
-def pindai(root: Path) -> tuple[list[Path], dict[str, list[tuple[Path, int]]]]:
+def pindai(root: Path, kecuali: tuple[str, ...] | list[str] = ()
+           ) -> tuple[list[Path], dict[str, list[tuple[Path, int]]]]:
     """-> (berkas yang ikut, {kelompok: [(berkas, ukuran)]} yang dibuang).
     Folder yang dibuang tidak ditelusuri isinya (profil browser ribuan berkas)."""
     ikut: list[Path] = []
@@ -102,13 +128,14 @@ def pindai(root: Path) -> tuple[list[Path], dict[str, list[tuple[Path, int]]]]:
         for p in sorted(folder.iterdir()):
             rel = p.relative_to(root)
             if p.is_dir():
-                kel = next((k for k, pola in FOLDER_DIBUANG if fnmatch.fnmatch(p.name, pola)), "")
+                kel = KELOMPOK_KECUALI if cocok_kecuali(rel, kecuali) else next(
+                    (k for k, pola in FOLDER_DIBUANG if fnmatch.fnmatch(p.name, pola)), "")
                 if kel:
                     buang[kel].append((rel, ukuran_folder(p)))
                 else:
                     tumpukan.append(p)
                 continue
-            kel = alasan_dibuang(rel)
+            kel = alasan_dibuang(rel, kecuali)
             if kel:
                 buang[kel].append((rel, p.stat().st_size))
             else:
@@ -148,9 +175,12 @@ def main(argv=None) -> int:
     ap.add_argument("--daftar", action="store_true", help="tampilkan isi & ukuran saja, TANPA membuat zip")
     ap.add_argument("--rinci", action="store_true", help="cetak setiap berkas yang ikut (bukan cuma ringkasan)")
     ap.add_argument("--keluaran", help="nama berkas zip (bawaan split_usaha_pc_<waktu>.zip di folder proyek)")
+    ap.add_argument("--kecuali", action="append", default=[], metavar="POLA",
+                    help="buang folder/berkas ini juga (boleh diulang; nama mis. 'audit' = folder audit/ di "
+                         "mana pun, path relatif mis. 'bahan/lama', wildcard mis. '*.bak')")
     args = ap.parse_args(argv)
 
-    ikut, buang = pindai(ROOT)
+    ikut, buang = pindai(ROOT, args.kecuali)
     ukuran = {rel: (ROOT / rel).stat().st_size for rel in ikut}
     rusak = audit_rusak_excel(ROOT / "audit_log_gabungan.csv")
     if rusak and not args.daftar:

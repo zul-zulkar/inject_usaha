@@ -254,6 +254,20 @@ def append_audit(row: dict):
     with _KunciAudit():
         _pastikan_header_audit()
         is_new = not AUDIT_LOG_PATH.exists()
+        # Audit yang disunting tangan bisa berakhir TANPA newline (2026-09-25: baris
+        # DOKUMEN_DIBUAT tertempel di belakang baris ",,,,," -> kolomnya bergeser 17 &
+        # dokumennya tidak dikenali audit). Tutup dulu baris terakhir itu.
+        if not is_new:
+            with AUDIT_LOG_PATH.open("rb") as f:
+                f.seek(0, _os.SEEK_END)
+                if f.tell():
+                    f.seek(-1, _os.SEEK_END)
+                    tanpa_newline = f.read(1) not in (b"\n", b"\r")
+                else:
+                    tanpa_newline = False
+            if tanpa_newline:
+                with AUDIT_LOG_PATH.open("ab") as f:
+                    f.write(b"\r\n")
         with AUDIT_LOG_PATH.open("a", newline="", encoding="utf-8") as f:
             w = csv_module.DictWriter(f, fieldnames=AUDIT_FIELDS)
             if is_new:
@@ -854,13 +868,28 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
         status_w, pesan_w = cocokkan_wilayah_dokumen(
             wilayah_dok, subsls_input, WILAYAH_BY_IDSUBSLS.get(subsls_input))
         result["wilayah_dokumen"] = f"{status_w}: {pesan_w}"
+        server_w = ""
+        if status_w == "BEDA":
+            # Kode SLS BLOK I TIDAK selalu = wilayah assignment (2026-09-25, subsls
+            # 5108060006000110: modal [0001]->[10] benar & server level6 benar, form
+            # menampilkan kode_sls '0002'). Yang menentukan = region dokumen di SERVER.
+            server_w, sumber_w = sess.wilayah_dokumen_server(id_dari_url(sess.page.url), row.nama_dokumen)
+            sess._log(f"  Wilayah dokumen menurut server: {server_w or '-'} ({sumber_w})")
+            if server_w == subsls_input:
+                tanda.append(f"kode SLS BLOK I form '{wilayah_dok.get('kode_sls')}' beda dgn {subsls_input}, "
+                             f"tapi wilayah dokumen di server ({sumber_w}) = {subsls_input} — diteruskan")
+                status_w = "COCOK"
+                pesan_w = f"server ({sumber_w}) = {subsls_input}; BLOK I beda: {pesan_w}"
+                result["wilayah_dokumen"] = f"{status_w}: {pesan_w}"
+            else:
+                pesan_w += f" | server: {server_w or 'tidak terbaca'} ({sumber_w})"
         if status_w == "BEDA":
             # Beberapa subsls dipakai bergantian sbg WADAH dokumen (dikembalikan
             # ke wilayah aslinya belakangan lewat pindah_wilayah). Dokumen yang
             # SUDAH ADA & masih di kabupaten sendiri boleh diteruskan — yang tidak
             # pernah boleh: dokumen yang BARU dibuat (berarti subsls salah dipilih)
             # atau dokumen di kabupaten lain (bukan wilayah kerja akun ini).
-            nyata = idsubsls_dari_wilayah(wilayah_dok)
+            nyata = server_w or idsubsls_dari_wilayah(wilayah_dok)
             sudah_ada = bool(url_audit) or pernah_dibuat
             if not (izinkan_wilayah_beda and sudah_ada and nyata.startswith(KODE_KAB)):
                 result["status"] = "STOP_WILAYAH_DOKUMEN_BEDA"

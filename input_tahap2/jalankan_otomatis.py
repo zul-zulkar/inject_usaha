@@ -75,9 +75,13 @@ ROOT = Path(__file__).resolve().parent.parent  # root proyek (folder induk dari 
 # Pola pesan yang menandakan "kena limit permintaan" — server/API menolak
 # karena terlalu banyak request dalam waktu singkat. Silakan tambah pola lain
 # di sini kalau ternyata ada teks lain yang muncul di lapangan.
+# ⚠️ JANGAN pakai "429" polos: ID survei di SETIAP URL dokumen (a0429e96-…) memuatnya,
+# sehingga (2026-09-25) semua run terbaca "kena limit" & pindah ke akun cadangan / berhenti.
+# 429 hanya dihitung kalau didahului konteks HTTP/status/kode atau diikuti "Too Many".
 POLA_RATE_LIMIT = re.compile(
-    r"(too many request|429|terlalu banyak permintaan|terlalu banyak request|"
-    r"rate limit|rate\-limit|kuota\s*habis|request.*exceeded|melebihi\s*batas\s*permintaan)",
+    r"(too many requests?|terlalu banyak (?:permintaan|request)|rate[ _-]?limit|kuota\s*habis|"
+    r"(?:request|limit)s?[ _]exceeded|melebihi\s*batas\s*permintaan|"
+    r"\b(?:http|status|kode|code)\W{0,3}429\b|\b429\s+too many)",
     re.IGNORECASE,
 )
 
@@ -187,6 +191,8 @@ def main() -> int:
     ap.add_argument("--jeda-retry-maks", type=int, default=300,
                      help="Batas atas jeda retry (detik) — jeda naik bertahap tiap gagal berturut-turut.")
     args = ap.parse_args()
+    if bool(args.akun_cadangan) != bool(args.subsls_cadangan):
+        ap.error("--akun-cadangan & --subsls-cadangan harus diisi BERSAMA (atau keduanya dikosongkan).")
 
     status = baca_status(args.label_pc)
     akun_aktif = status.get("akun_aktif", args.akun)

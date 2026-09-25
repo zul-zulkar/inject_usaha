@@ -130,6 +130,8 @@ class FasihWebSession:
         self.jumlah_dokumen_awal: Optional[int] = None
         # False kalau daftar_dokumen_api() tidak berhasil membaca list yang konsisten.
         self.daftar_dokumen_lengkap = True
+        # Request datatable list PENDATAAN terakhir (lihat _pasang_penyadap_akun).
+        self.list_request: dict = {}
         self._pasang_penyadap_akun()
 
     # ------------------------------------------------------------------
@@ -145,6 +147,12 @@ class FasihWebSession:
         def _on_response(resp):
             try:
                 if "datatable-all-user-survey-periode" in resp.url:
+                    # Request-nya disimpan utk wilayah_dokumen_server() (body DataTables +
+                    # header x-xsrf-token) — dipanggil lagi dari halaman entry tanpa pindah.
+                    req = resp.request
+                    if req.method == "POST" and req.post_data:
+                        self.list_request = {"url": req.url, "body": req.post_data,
+                                             "headers": dict(req.headers)}
                     # List PENDATAAN selesai dimuat -> totalHit = jumlah dokumen.
                     self.total_list = int((resp.json() or {}).get("totalHit"))
                     self.total_list_waktu = time.time()
@@ -1246,6 +1254,70 @@ class FasihWebSession:
             self.page.wait_for_timeout(500)
         self._log(f"Wilayah dokumen (BLOK I): {hasil}")
         return hasil
+
+    def wilayah_dokumen_server(self, doc_id: str, nama: str = "") -> tuple[str, str]:
+        """Subsls (16 digit) dokumen MENURUT SERVER -> (kode, sumber) atau ("", alasan).
+        READ-ONLY & TIDAK meninggalkan halaman entry (fetch dari halaman, cookie sesi).
+
+        Kenapa perlu: kode SLS di BLOK I form BUKAN cermin wilayah assignment. Run
+        2026-09-25 (dian.id81, subsls 5108060006000110): modal memilih [0001] -> [10]
+        dgn benar & list API mencatat region level6 5108060006000110, tapi BLOK I
+        menampilkan kode_sls '0002' -> STOP_WILAYAH_DOKUMEN_BEDA palsu.
+
+        Urutan: (1) GET get-by-id-with-data (strukturnya utk region belum pernah
+        terekam — dicari generik), (2) request datatable list yang tersadap sesi ini
+        dgn kata cari = nama dokumen, item ber-id sama -> region.level1..level6.fullCode
+        (struktur TERVERIFIKASI dari list_api_*.json)."""
+        from inti.gabungan_loader import kode_wilayah_api
+        alasan = []
+        try:
+            r = self.page.evaluate("""async (url) => {
+              try {
+                const r = await fetch(url, {credentials: 'include', headers: {'content-type': 'application/json'}});
+                return {status: r.status, text: await r.text()};
+              } catch (e) { return {status: 0, text: String(e)}; }
+            }""", "/api/assignment-general/api/assignment/web-entry/get-by-id-with-data?id=" + doc_id)
+            if r.get("status") == 200:
+                kode = kode_wilayah_api(json.loads(r["text"]))
+                if kode:
+                    return kode, "API detail dokumen"
+                alasan.append("detail tanpa kode region")
+            else:
+                alasan.append(f"detail HTTP {r.get('status')}")
+        except Exception as e:
+            alasan.append(f"detail gagal: {str(e)[:80]}")
+        req = self.list_request
+        if req and nama:
+            try:
+                body = json.loads(req["body"])
+                body["search"] = {"value": nama, "regex": False}
+                body["start"], body["length"] = 0, 50
+                hdr = {k: v for k, v in req["headers"].items()
+                       if k.lower() in ("content-type", "accept") or k.lower().startswith("x-")}
+                r = self.page.evaluate("""async ([url, body, hdr]) => {
+                  try {
+                    const r = await fetch(url, {method: 'POST', credentials: 'include', headers: hdr,
+                                                body: JSON.stringify(body)});
+                    return {status: r.status, text: await r.text()};
+                  } catch (e) { return {status: 0, text: String(e)}; }
+                }""", [req["url"], body, hdr])
+                if r.get("status") == 200:
+                    items = json.loads(r["text"]).get("searchData") or []
+                    item = next((it for it in items if it.get("id") == doc_id), None)
+                    if item is None:
+                        alasan.append(f"list: id tidak ada di {len(items)} hasil cari '{nama}'")
+                    else:
+                        kode = kode_wilayah_api(item)
+                        if kode:
+                            return kode, "API list PENDATAAN"
+                        alasan.append("item list tanpa kode region")
+                else:
+                    alasan.append(f"list HTTP {r.get('status')}")
+            except Exception as e:
+                alasan.append(f"list gagal: {str(e)[:80]}")
+        elif not req:
+            alasan.append("request list belum tersadap")
+        return "", "; ".join(alasan)
 
     # ------------------------------------------------------------------
     # Navigasi antar-section kuesioner

@@ -27,13 +27,21 @@ python bungkus_pc/bungkus_pc.py
 Hasilnya `split_usaha_pc_<tanggal-jam>.zip` di folder proyek (±8 MB; folder
 aslinya ratusan MB karena cache & profil browser).
 
+Mau membuang folder/berkas lain juga (mis. folder audit custom `audit/` dari
+`--audit audit`)? Tambahkan `--kecuali` (boleh diulang; nama = cocok di mana pun,
+path relatif mis. `bahan/lama`, atau wildcard mis. `audit*`):
+
+```bash
+python bungkus_pc/bungkus_pc.py --kecuali audit
+```
+
 | Ikut                                                        | Tidak ikut                                                                                                           |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | semua kode,`docs/`, `templates/`, `tests/`            | cache:`__pycache__/`, `.git/`, `*.zip`, `.claude/`                                                           |
 | `bahan/`, `Agenda*.xlsx`, `export/` & data kerja lain | sesi & profil browser (`.profil_*`, `.sesi_*`) — login ulang di PC tujuan                                       |
 | `inti/config_lokal.py` (password, kodepos)                | log & screenshot                                                                                                     |
-| audit lain (`audit_approve_pml.csv`, `audit_log.csv`)   | cadangan audit (`*.bak-*`) & audit per-PC (`audit_pc/`)                                                        |
-| **`audit_log_gabungan.csv`** (sejak 2026-09-24)       |                                                                                                                        |
+| audit lain (`audit_approve_pml.csv`, `audit_log.csv`)   | cadangan audit (`*.bak-*`) & audit per-PC (`audit_pc/`)                                                          |
+| **`audit_log_gabungan.csv`** (sejak 2026-09-24)     |                                                                                                                      |
 |                                                             | laporan yang bisa dibuat ulang (`cek_gabungan.csv`, `rangkum_audit.csv`, `*.siap.js`, `list_api_*.json`, …) |
 
 ⚠️ Zip ini berisi **data responden dan password**. Pindahkan lewat flashdisk atau
@@ -82,11 +90,11 @@ password, skrip berhenti sendiri — tidak pernah menebak.)
 
 ### 1c. Audit di PC tujuan
 
-| Keadaan PC tujuan                             | Yang dilakukan                                                                                                                                  |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| PC baru, belum pernah input                   | tidak perlu apa-apa — audit gabungan sudah ikut di zip                                                                                          |
-| sudah bekerja & auditnya SUDAH masuk gabungan | extract saja; audit lamanya memang diganti audit gabungan                                                                                        |
-| sudah bekerja & auditnya BELUM digabung       | salin `audit_log_gabungan.csv` PC itu ke PC utama dulu (bagian 5), gabungkan, buat zip baru — baru extract                                       |
+| Keadaan PC tujuan                             | Yang dilakukan                                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| PC baru, belum pernah input                   | tidak perlu apa-apa — audit gabungan sudah ikut di zip                                                      |
+| sudah bekerja & auditnya SUDAH masuk gabungan | extract saja; audit lamanya memang diganti audit gabungan                                                    |
+| sudah bekerja & auditnya BELUM digabung       | salin`audit_log_gabungan.csv` PC itu ke PC utama dulu (bagian 5), gabungkan, buat zip baru — baru extract |
 
 Sebagai jaring pengaman, `--sinkron-dulu` di perintah bagian 3 tetap membaca daftar
 dokumen server untuk akun yang dipakai sebelum mulai, jadi dokumen akun itu yang
@@ -212,17 +220,17 @@ rincian jumlah baris per akun.
 Bagian **`BELUM TUNTAS & ERROR`** mendaftar nomor baris per keadaan, formatnya
 sama dengan laporan sinkron:
 
-| Keadaan | Artinya |
-| --- | --- |
-| Audit bilang terkirim, server masih DRAFT | dikirim ulang lewat URL oleh run berikutnya |
-| Draft ber-GALAT di server | dikerjakan paling dulu oleh run berikutnya (jumlah galatnya ikut dicetak) |
-| Draft tanpa koordinat, koordinat SUDAH ada di sheet | tinggal geotag & kirim |
-| Draft tanpa koordinat — menunggu | isi Latitude/Longitude di Excel dulu |
-| Dokumen sudah dibuat, pengisian belum selesai | dibuka lewat URL oleh run berikutnya |
-| Toast "terkirim" tanpa bukti server | pastikan dengan `sinkron_list.py` |
-| Dokumen tanpa URL tercatat | jalankan `sinkron_list.py --tulis` dulu |
-| Dokumen read-only padahal server DRAFT | perlu admin/PML |
-| Gagal di run terakhir | dirinci per status + pesan error terbarunya |
+| Keadaan                                             | Artinya                                                                   |
+| --------------------------------------------------- | ------------------------------------------------------------------------- |
+| Audit bilang terkirim, server masih DRAFT           | dikirim ulang lewat URL oleh run berikutnya                               |
+| Draft ber-GALAT di server                           | dikerjakan paling dulu oleh run berikutnya (jumlah galatnya ikut dicetak) |
+| Draft tanpa koordinat, koordinat SUDAH ada di sheet | tinggal geotag & kirim                                                    |
+| Draft tanpa koordinat — menunggu                   | isi Latitude/Longitude di Excel dulu                                      |
+| Dokumen sudah dibuat, pengisian belum selesai       | dibuka lewat URL oleh run berikutnya                                      |
+| Toast "terkirim" tanpa bukti server                 | pastikan dengan`sinkron_list.py`                                        |
+| Dokumen tanpa URL tercatat                          | jalankan`sinkron_list.py --tulis` dulu                                  |
+| Dokumen read-only padahal server DRAFT              | perlu admin/PML                                                           |
+| Gagal di run terakhir                               | dirinci per status + pesan error terbarunya                               |
 
 Status server dibaca dari `list_api_*.json` hasil `sinkron_list.py` (bagian 6c)
 kalau berkasnya ada; jam berkas terbaru ikut dicetak, karena berkas lama bisa
@@ -276,14 +284,14 @@ python gabung_audit/bersihkan_error.py --sumber bahan/input_tahap2.xlsx --format
 
 ## Kalau berhenti di tengah
 
-| Pesan                         | Artinya                                                           | Tindakan                                                                                                |
-| ----------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `STOP_WILAYAH_DOKUMEN_BEDA` | wilayah dokumen di luar kabupaten                                 | benar-benar salah wilayah — jangan dipaksa                                                             |
-| `SKIP_DOKUMEN_BELUM_ADA`    | subsls itu belum punya assignment                                 | buat satu dokumen manual dulu                                                                           |
-| `ERROR_AKUN_SALAH`          | sesi nyangkut di akun lain                                        | jalankan ulang; skrip membersihkan cookie sendiri                                                       |
-| `DRAFT_TANPA_KOORDINAT`     | bukan galat                                                       | isi Latitude/Longitude di Excel, lalu jalankan ulang perintah yang sama                                 |
-| `SKIP_NAMA_DIPAKAI_BARIS_LAIN` dgn kunci seperti `1.40E+09`, atau "RUSAK krn pernah disimpan Excel" | audit pernah dibuka & disimpan Excel | `python gabung_audit/pulihkan_excel.py --tulis` (lihat `docs/PANDUAN_GABUNG_AUDIT.md`). Audit jangan pernah di-Save dari Excel |
-| `DOKUMEN_TERKUNCI`          | dokumen read-only di UI (padahal daftar server bisa bilang DRAFT) | PPL tidak bisa apa-apa — minta admin/PML memeriksa. Sesudah dibuka, jalankan dengan`--coba-terkunci` |
+| Pesan                                                                                                   | Artinya                                                           | Tindakan                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `STOP_WILAYAH_DOKUMEN_BEDA`                                                                           | wilayah dokumen di luar kabupaten                                 | benar-benar salah wilayah — jangan dipaksa                                                                                        |
+| `SKIP_DOKUMEN_BELUM_ADA`                                                                              | subsls itu belum punya assignment                                 | buat satu dokumen manual dulu                                                                                                      |
+| `ERROR_AKUN_SALAH`                                                                                    | sesi nyangkut di akun lain                                        | jalankan ulang; skrip membersihkan cookie sendiri                                                                                  |
+| `DRAFT_TANPA_KOORDINAT`                                                                               | bukan galat                                                       | isi Latitude/Longitude di Excel, lalu jalankan ulang perintah yang sama                                                            |
+| `SKIP_NAMA_DIPAKAI_BARIS_LAIN` dgn kunci seperti `1.40E+09`, atau "RUSAK krn pernah disimpan Excel" | audit pernah dibuka & disimpan Excel                              | `python gabung_audit/pulihkan_excel.py --tulis` (lihat `docs/PANDUAN_GABUNG_AUDIT.md`). Audit jangan pernah di-Save dari Excel |
+| `DOKUMEN_TERKUNCI`                                                                                    | dokumen read-only di UI (padahal daftar server bisa bilang DRAFT) | PPL tidak bisa apa-apa — minta admin/PML memeriksa. Sesudah dibuka, jalankan dengan`--coba-terkunci`                            |
 
 Menjalankan ulang perintah yang sama **aman**: dokumen lama dibuka lewat URL di
 audit, tidak dibuat ulang.
