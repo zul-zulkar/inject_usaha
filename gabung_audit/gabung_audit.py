@@ -16,11 +16,16 @@ LANGKAH
 -------
 1. Hentikan/selesaikan batch di semua PC, lalu salin `audit_log_gabungan.csv`
    tiap PC ke SATU folder dgn nama berbeda, mis. `audit_pc/pc1.csv`, `pc2.csv`, ...
+   — atau satu SUBFOLDER per PC tanpa ganti nama (`audit_pc/pc2/audit_log_gabungan.csv`),
+   boleh bersama sheet bahan PC itu utk gabung_id_sumber.py (CSV bukan audit dilewati).
 2. Lihat laporannya dulu (tidak menulis apa pun):
        python gabung_audit/gabung_audit.py --sumber audit_pc
 3. Kalau tidak ada peringatan bentrok, tulis hasil gabungannya:
        python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
-4. Salin `audit_log_gabungan.csv` hasil gabungan itu KE SEMUA PC.
+   SEMUA keluaran (audit gabungan, laporan_gabung*.csv, daftar_ganda.csv) masuk
+   `<folder --sumber>/hasil/`; audit kerja PC ini tidak disentuh (kecuali
+   `--keluaran audit_log_gabungan.csv`).
+4. Salin `audit_pc/hasil/audit_log_gabungan.csv` KE SEMUA PC (termasuk PC ini).
 5. Cocokkan dgn server (per akun, READ-ONLY dulu, lihat PANDUAN_GABUNG_AUDIT.md):
        python input_gabungan/sinkron_list.py --format tahap2 --sumber <sheet> \
            --akun-tunggal <akun> --subsls-tunggal <subsls>
@@ -501,20 +506,75 @@ def agregat(laporan: list[dict], kolom: str, jenis: str, nama: dict | None = Non
 # --------------------------------------------------------------------------
 # I/O & CLI
 # --------------------------------------------------------------------------
+JUDUL_WAJIB_AUDIT = {"timestamp", "kunci", "status"}
+# Keluaran gabung_audit & gabung_id_sumber ditaruh di <folder --sumber>/hasil/
+# (permintaan user 2026-09-25) — bukan langsung di folder sumber, karena
+# `audit_pc/audit_log_gabungan.csv` bisa jadi salah satu audit SUMBER. Subfolder
+# ini tidak pernah dibaca sbg sumber.
+FOLDER_HASIL = "hasil"
+
+
+def folder_hasil(sumber: list[str]) -> Path:
+    """<folder --sumber pertama>/hasil (atau <folder berkas --sumber pertama>/hasil)."""
+    for s in sumber:
+        if Path(s).is_dir():
+            return Path(s) / FOLDER_HASIL
+    return Path(sumber[0]).parent / FOLDER_HASIL
+
+
+def di_folder_hasil(path: Path, akar: Path) -> bool:
+    try:
+        return Path(path).relative_to(akar).parts[0] == FOLDER_HASIL
+    except (ValueError, IndexError):
+        return False
+
+
+def judul_csv(path: Path) -> list[str]:
+    try:
+        with Path(path).open(newline="", encoding="utf-8-sig") as f:
+            return next(csv.reader(f), [])
+    except (OSError, UnicodeDecodeError):
+        return []
+
+
 def kumpulkan_sumber(sumber: list[str]) -> list[Path]:
-    """--sumber boleh berkas .csv atau FOLDER berisi audit tiap PC."""
+    """--sumber boleh berkas .csv atau FOLDER berisi audit tiap PC. Folder dibaca
+    beserta SUBFOLDER-nya (mis. `audit_pc/pc2/audit_log_gabungan.csv`), jadi satu
+    folder boleh sekaligus berisi salinan sheet bahan (gabung_id_sumber.py) &
+    berkas lain: dari folder, CSV yang bukan audit (judulnya tidak memuat
+    timestamp/kunci/status) dilewati. Berkas yang disebut langsung tetap diperiksa
+    ketat oleh baca_audit()."""
     out: list[Path] = []
     for s in sumber:
         p = Path(s)
         if p.is_dir():
-            out.extend(sorted(x for x in p.glob("*.csv") if x.is_file()))
+            for x in sorted(p.rglob("*.csv")):
+                if not x.is_file() or x.name.startswith(("~$", ".")) or di_folder_hasil(x, p):
+                    continue
+                if not JUDUL_WAJIB_AUDIT <= set(judul_csv(x)):
+                    print(f"  (dilewati, bukan audit: {x})")
+                    continue
+                out.append(x)
         elif p.exists():
             out.append(p)
         else:
             raise SystemExit(f"❌ --sumber {s} tidak ada.")
     if not out:
-        raise SystemExit("❌ Tidak ada berkas .csv yang ditemukan di --sumber.")
+        raise SystemExit("❌ Tidak ada berkas audit .csv yang ditemukan di --sumber.")
     return out
+
+
+def label_berkas(path: Path, sumber: list[str]) -> str:
+    """Nama berkas utk laporan: relatif thd folder --sumber-nya, supaya
+    `pc2/audit_log_gabungan.csv` & `pc3/audit_log_gabungan.csv` tetap terbedakan."""
+    for s in sumber:
+        akar = Path(s)
+        if akar.is_dir():
+            try:
+                return Path(path).resolve().relative_to(akar.resolve()).as_posix()
+            except ValueError:
+                continue
+    return Path(path).name
 
 
 # {id dokumen: (akun pemilik list, subsls dari kode identitas, status)} — diisi
@@ -604,29 +664,39 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sumber", action="append", required=True,
                     help="audit tiap PC (.csv) atau FOLDER berisi audit-audit itu; boleh diulang")
-    ap.add_argument("--keluaran", default=str(mg.AUDIT_LOG_PATH),
-                    help=f"berkas audit gabungan (default {mg.AUDIT_LOG_PATH})")
+    ap.add_argument("--keluaran", default=None,
+                    help=f"berkas audit gabungan (default <folder --sumber>/{FOLDER_HASIL}/audit_log_gabungan.csv)")
     ap.add_argument("--buang-akun", action="append", default=[],
                     help="buang SEMUA baris audit milik akun ini (akun yang sudah tidak dipakai). "
                          "Ingatan anti-duplikat utk dokumen akun itu ikut hilang — dokumennya TIDAK "
                          "terhapus di server, hanya catatannya di sini")
     ap.add_argument("--tulis", action="store_true",
                     help="tulis berkas gabungan (tanpa ini hanya laporan; audit tujuan dicadangkan dulu)")
-    ap.add_argument("--laporan", default=str(LAPORAN_PATH), help=f"CSV per dokumen (default {LAPORAN_PATH})")
-    ap.add_argument("--agregat", default=str(AGREGAT_PATH), help=f"CSV rekap (default {AGREGAT_PATH})")
+    ap.add_argument("--laporan", default=None,
+                    help=f"CSV per dokumen (default <folder --sumber>/{FOLDER_HASIL}/{LAPORAN_PATH.name})")
+    ap.add_argument("--agregat", default=None,
+                    help=f"CSV rekap (default <folder --sumber>/{FOLDER_HASIL}/{AGREGAT_PATH.name})")
     ap.add_argument("--sheet", default="", help="sheet sumber, utk menghitung baris yang BELUM dikerjakan")
     ap.add_argument("--format", choices=["standar", "tahap2"], default="standar", help="format --sheet")
-    ap.add_argument("--daftar-ganda", default=str(DAFTAR_GANDA_PATH),
-                    help=f"CSV dokumen ganda, satu baris per dokumen (default {DAFTAR_GANDA_PATH})")
+    ap.add_argument("--daftar-ganda", default=None,
+                    help=f"CSV dokumen ganda, satu baris per dokumen "
+                         f"(default <folder --sumber>/{FOLDER_HASIL}/{DAFTAR_GANDA_PATH.name})")
     ap.add_argument("--list-json", action="append", default=[],
                     help="list_api_<akun>.json dari sinkron_list.py (default: semua di folder ini)")
     args = ap.parse_args(argv)
+    hasil = folder_hasil(args.sumber)
+    args.keluaran = args.keluaran or str(hasil / "audit_log_gabungan.csv")
+    args.laporan = args.laporan or str(hasil / LAPORAN_PATH.name)
+    args.agregat = args.agregat or str(hasil / AGREGAT_PATH.name)
+    args.daftar_ganda = args.daftar_ganda or str(hasil / DAFTAR_GANDA_PATH.name)
+    for p in (args.keluaran, args.laporan, args.agregat, args.daftar_ganda):
+        Path(p).parent.mkdir(parents=True, exist_ok=True)
 
     berkas = kumpulkan_sumber(args.sumber)
     sumber = []
     for p in berkas:
         try:
-            sumber.append((p.name, baca_audit(p)))
+            sumber.append((label_berkas(p, args.sumber), baca_audit(p)))
         except ValueError as e:
             print(f"❌ {e}")
             return 2
@@ -745,7 +815,8 @@ def main(argv: list[str] | None = None) -> int:
         w.writeheader()
         for b in gabungan:
             w.writerow({k: b.get(k, "") for k in AUDIT_FIELDS})
-    print(f"✅ {len(gabungan)} baris ditulis ke {tujuan} — salin berkas ini ke SEMUA PC.")
+    print(f"✅ {len(gabungan)} baris ditulis ke {tujuan} — salin berkas ini ke SEMUA PC "
+          f"(termasuk PC ini: timpa {mg.AUDIT_LOG_PATH}).")
     return 0
 
 

@@ -180,15 +180,31 @@ waktu** — dua proses dengan akun sama saling memutus sesi login.
 
 ## 5. Selesai: kirim audit kembali
 
-Setelah batch berhenti, salin `audit_log_gabungan.csv` PC ini ke PC utama
-(`audit_pc/pc3.csv`, dst.), lalu di PC utama:
+Setelah batch berhenti, salin `audit_log_gabungan.csv` **dan** sheet bahan PC ini
+(mis. `bahan/input_tahap2.xlsx`) ke PC utama, ke satu subfolder per PC tanpa ganti
+nama: `audit_pc/pc3/audit_log_gabungan.csv` + `audit_pc/pc3/input_tahap2.xlsx`.
+Lalu di PC utama (tiga perintah, semua hasilnya masuk `audit_pc/hasil/`):
 
 ```bash
 python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
 ```
 
-Hasil gabungannya disebar lagi ke semua PC. Gabungkan **setelah** semua batch
-berhenti, bukan saat masih jalan.
+```bash
+python gabung_audit/gabung_id_sumber.py --format tahap2 --utama bahan/input_tahap2.xlsx --sumber audit_pc --tulis
+```
+
+```bash
+python input_gabungan/tulis_id_sumber.py --format tahap2 --sumber audit_pc/hasil/input_tahap2.xlsx --audit audit_pc/hasil --tulis
+```
+
+Yang pertama menyatukan audit; yang kedua menyatukan kolom **"ID Dokumen FASIH"** sheet
+bahan (tiap PC hanya menulis ID dokumen buatannya); yang ketiga mengisi ID yang masih
+kosong dari audit gabungan. Audit & sheet kerja PC utama sendiri tidak diubah.
+
+Sebarkan `audit_pc/hasil/audit_log_gabungan.csv` (ke root) dan
+`audit_pc/hasil/input_tahap2.xlsx` (ke `bahan/`) ke **semua** PC, termasuk PC utama.
+Gabungkan **setelah** semua batch berhenti, bukan saat masih jalan. Rincian:
+[`docs/PANDUAN_GABUNG_AUDIT.md`](PANDUAN_GABUNG_AUDIT.md).
 
 ## 6. Rekap progres
 
@@ -240,21 +256,23 @@ audit. Daftar lengkap per baris ada di kolom `rekap`, `status_server`,
 
 ### 6b. Satukan audit beberapa PC
 
-Salin `audit_log_gabungan.csv` tiap PC ke folder `audit_pc/` (nama berbeda,
-mis. `pc1.csv`, `pc2.csv`). Lihat laporannya dulu — tidak menulis apa pun:
+Salin `audit_log_gabungan.csv` (dan sheet bahan) tiap PC ke folder `audit_pc/`, satu
+subfolder per PC (`audit_pc/pc2/`, `audit_pc/pc3/`, ...) — atau langsung dgn nama berbeda
+(`pc1.csv`, `pc2.csv`). Lihat laporannya dulu — tidak menulis apa pun:
 
 ```bash
 python gabung_audit/gabung_audit.py --sumber audit_pc
 ```
 
-Tidak ada peringatan bentrok → tulis hasil gabungannya (audit lama otomatis
-dicadangkan `.bak-<waktu>`):
+Tidak ada peringatan bentrok → tulis hasil gabungannya ke `audit_pc/hasil/`
+(hasil lama di sana otomatis dicadangkan `.bak-<waktu>`; audit kerja PC ini tidak
+diubah — salin hasilnya ke root semua PC, lihat bagian 5):
 
 ```bash
 python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
 ```
 
-Keduanya juga menulis **`daftar_ganda.csv`**: dokumen ganda (satu baris sheet, ≥ 2
+Keduanya juga menulis **`audit_pc/hasil/daftar_ganda.csv`**: dokumen ganda (satu baris sheet, ≥ 2
 dokumen di server) beserta usulan mana yang dipertahankan/dihapus. Menghapusnya butuh
 akun **admin** fasih-sm — lihat `docs/PANDUAN_HAPUS_GANDA.md`:
 

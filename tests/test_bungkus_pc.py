@@ -36,6 +36,8 @@ def cek(nama, dapat, harap):
 print("\n== yang TIDAK ikut ==")
 for path, kelompok in (("audit_log_gabungan.csv.bak-20260924-081355", "audit gabungan"),
                        ("audit_pc/pc2.csv", "audit gabungan"),
+                       ("bahan_pc/pc2.xlsx", "audit gabungan"),
+                       ("laporan_gabung_id.csv", "hasil turunan"),
                        ("inti/__pycache__/config.cpython-312.pyc", "cache"),
                        (".git/HEAD", "cache"),
                        (".git.zip", "cache"),

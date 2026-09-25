@@ -37,5 +37,26 @@ cek("selesai tanpa sisa", evaluasi_hasil(
 cek("masih ada sisa", evaluasi_hasil(
     "Ringkasan run: 5 baris diproses, 2 dilewati, 3 belum sempat dikerjakan\nSelesai. Audit: a.csv")["tuntas"], False)
 
+print("\n== rate limit hanya dari ekor output ==")
+tengah = "HTTP 429 sesaat\n" + "\n".join(f"baris {i}: TERKIRIM" for i in range(200))
+cek("limit di tengah lalu run jalan terus -> bukan limit", evaluasi_hasil(tengah)["rate_limited"], False)
+cek("limit di akhir -> limit + bukti", evaluasi_hasil(tengah + "\nstatus: 429")["bukti_rate_limit"], "status: 429")
+
+print("\n== status tersimpan ==")
+from input_tahap2.jalankan_otomatis import status_berlaku  # noqa: E402
+
+ARG = {"akun": "ppl.contoh@mail.com", "subsls": "5108060006000110", "akun_cadangan": "pml.satu@mail.com",
+       "subsls_cadangan": "5108060006000116", "dari": 11, "sampai": 200, "sumber": "a.xlsx"}
+cadangan = {"akun_aktif": "pml.satu@mail.com", "subsls_aktif": "5108060006000116", "pakai_cadangan": True}
+cek("status format lama (tanpa argumen) diabaikan", status_berlaku(cadangan, ARG)[0], {})
+cek("status dari perintah SAMA dipakai", status_berlaku({**cadangan, "argumen": ARG}, ARG)[0],
+    {**cadangan, "argumen": ARG})
+cek("akun utama diganti -> status cadangan lama diabaikan",
+    status_berlaku({**cadangan, "argumen": ARG}, {**ARG, "akun": "ppl.dua@mail.com"})[0], {})
+cek("rentang diganti -> diabaikan", status_berlaku({**cadangan, "argumen": ARG}, {**ARG, "dari": 201})[0], {})
+cek("pasangan akun/subsls asing -> diabaikan",
+    status_berlaku({**cadangan, "subsls_aktif": "5108060006000224", "argumen": ARG}, ARG)[0], {})
+cek("tanpa status -> kosong tanpa pesan", status_berlaku({}, ARG), ({}, ""))
+
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)

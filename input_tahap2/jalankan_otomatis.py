@@ -159,6 +159,12 @@ POLA_AKUN_DIPAKAI = re.compile(r"sedang dipakai proses main_gabungan lain")
 POLA_STOP_MANUSIA = re.compile(r"STOP_WILAYAH_DOKUMEN_BEDA|STOP_SUBSLS_TIDAK_BISA_DIPILIH")
 
 
+# Rate limit hanya dicari di EKOR output: yang menghentikan run tercetak di akhir.
+# Teks yang cocok di tengah run yang lalu jalan terus (mis. nama usaha, pesan server
+# sesaat) bukan alasan pindah akun.
+BARIS_EKOR_RATE_LIMIT = 60
+
+
 def evaluasi_hasil(output: str) -> dict:
     tuntas = bool(POLA_SELESAI.search(output)) and not POLA_BERHENTI_TENGAH.search(output)
     sisa = None
@@ -167,10 +173,35 @@ def evaluasi_hasil(output: str) -> dict:
         sisa = int(m.group(3))
         if sisa and sisa > 0:
             tuntas = False
-    rate_limited = bool(POLA_RATE_LIMIT.search(output))
-    return {"tuntas": tuntas, "sisa": sisa, "rate_limited": rate_limited,
+    ekor = output.splitlines()[-BARIS_EKOR_RATE_LIMIT:]
+    bukti = next((b.strip() for b in ekor if POLA_RATE_LIMIT.search(b)), "")
+    return {"tuntas": tuntas, "sisa": sisa, "rate_limited": bool(bukti), "bukti_rate_limit": bukti,
             "akun_dipakai": bool(POLA_AKUN_DIPAKAI.search(output)),
             "stop_manusia": bool(POLA_STOP_MANUSIA.search(output))}
+
+
+def status_berlaku(status: dict, argumen: dict) -> tuple[dict, str]:
+    """Status tersimpan dipakai HANYA kalau dibuat oleh perintah yang SAMA (akun, subsls,
+    cadangan, rentang, sumber). -> (status yang dipakai, alasan kalau diabaikan).
+
+    2026-09-25: pola rate limit lama menganggap "429" di ID survei (a0429e96-…) sbg limit ->
+    wrapper pindah ke akun & subsls CADANGAN dan menyimpannya di status. Status itu lalu
+    menimpa --akun/--subsls di SETIAP run berikutnya, termasuk perintah dgn akun lain ->
+    "mencari subsls yang salah". Status format lama (tanpa `argumen`) = dari masa itu -> diabaikan."""
+    if not status:
+        return {}, ""
+    if status.get("argumen") != argumen:
+        lama = status.get("argumen")
+        sebab = ("format lama (dari wrapper sebelum perbaikan deteksi limit)" if lama is None
+                 else f"dibuat perintah lain {lama}")
+        return {}, (f"status tersimpan diabaikan — {sebab}; tadinya akun aktif "
+                    f"{status.get('akun_aktif')} / {status.get('subsls_aktif')}")
+    pasangan = {(argumen["akun"], argumen["subsls"]),
+                (argumen["akun_cadangan"], argumen["subsls_cadangan"])}
+    if (status.get("akun_aktif"), status.get("subsls_aktif")) not in pasangan:
+        return {}, (f"status tersimpan diabaikan — akun/subsls {status.get('akun_aktif')} / "
+                    f"{status.get('subsls_aktif')} bukan pasangan utama maupun cadangan")
+    return status, ""
 
 
 def main() -> int:
@@ -194,7 +225,13 @@ def main() -> int:
     if bool(args.akun_cadangan) != bool(args.subsls_cadangan):
         ap.error("--akun-cadangan & --subsls-cadangan harus diisi BERSAMA (atau keduanya dikosongkan).")
 
-    status = baca_status(args.label_pc)
+    argumen = {"akun": args.akun, "subsls": args.subsls, "akun_cadangan": args.akun_cadangan,
+               "subsls_cadangan": args.subsls_cadangan, "dari": args.dari, "sampai": args.sampai,
+               "sumber": args.sumber}
+    status, alasan = status_berlaku(baca_status(args.label_pc), argumen)
+    if alasan:
+        print(f"ℹ️ {alasan}. Mulai lagi dari akun utama {args.akun} / {args.subsls}.")
+        file_status(args.label_pc).unlink(missing_ok=True)
     akun_aktif = status.get("akun_aktif", args.akun)
     subsls_aktif = status.get("subsls_aktif", args.subsls)
     pakai_cadangan = status.get("pakai_cadangan", False)
@@ -241,6 +278,7 @@ def main() -> int:
             return 4
 
         if hasil["rate_limited"]:
+            print(f"\nTeks yang dianggap limit permintaan: {hasil['bukti_rate_limit'][:200]!r}")
             if not pakai_cadangan and args.akun_cadangan and args.subsls_cadangan:
                 print(f"\n⚠️ Terdeteksi kena limit permintaan pada akun {akun_aktif}. "
                       f"Pindah ke akun cadangan: {args.akun_cadangan} / {args.subsls_cadangan}")
@@ -248,7 +286,7 @@ def main() -> int:
                 pakai_cadangan = True
                 percobaan_gagal_beruntun = 0
                 tulis_status(args.label_pc, {"akun_aktif": akun_aktif, "subsls_aktif": subsls_aktif,
-                                              "pakai_cadangan": pakai_cadangan})
+                                              "pakai_cadangan": pakai_cadangan, "argumen": argumen})
                 time.sleep(5)
                 continue
             else:
@@ -258,7 +296,7 @@ def main() -> int:
                       "\n   Berhenti — tunggu limitnya reset (biasanya beberapa jam) lalu jalankan ulang "
                       "command yang sama, atau berikan akun lain lewat --akun-cadangan/--subsls-cadangan.")
                 tulis_status(args.label_pc, {"akun_aktif": akun_aktif, "subsls_aktif": subsls_aktif,
-                                              "pakai_cadangan": pakai_cadangan})
+                                              "pakai_cadangan": pakai_cadangan, "argumen": argumen})
                 return 3
 
         # Error biasa (gagal buat dokumen baru, VPN putus, crash, dll) -> retry akun yang sama.
@@ -269,7 +307,7 @@ def main() -> int:
               f"server sesaat. Tunggu {jeda} detik lalu coba lagi dgn akun & rentang yang sama.\n"
               f"  (Kalau ini terus berulang tanpa progres, cek VPN kantor & koneksi internet PC ini.)")
         tulis_status(args.label_pc, {"akun_aktif": akun_aktif, "subsls_aktif": subsls_aktif,
-                                      "pakai_cadangan": pakai_cadangan})
+                                      "pakai_cadangan": pakai_cadangan, "argumen": argumen})
         time.sleep(jeda)
 
 

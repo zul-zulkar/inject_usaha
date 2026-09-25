@@ -28,7 +28,7 @@ berkas TIDAK ditulis — tidak ada yang ditebak.
     python gabung_audit/pulihkan_excel.py              # rencana saja
     python gabung_audit/pulihkan_excel.py --tulis      # tulis (cadangan .bak otomatis)
 
-Bawaan memeriksa audit_log_gabungan.csv & audit_pc/*.csv; yang utuh dilewati.
+Bawaan memeriksa audit_log_gabungan.csv & audit_pc/**/*.csv (subfolder per PC ikut); yang utuh dilewati.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ for _stream in (sys.stdout, sys.stderr):
         except Exception:
             pass
 
-TARGET_BAWAAN = [str(mg.AUDIT_LOG_PATH), "audit_pc/*.csv"]
+TARGET_BAWAAN = [str(mg.AUDIT_LOG_PATH), "audit_pc/**/*.csv"]
 RUJUKAN_BAWAAN = ["audit_log_gabungan*.csv*", "audit_pc/**/*.csv", "audit_pc/**/*.csv.bak-*"]
 SHEET_BAWAAN = "bahan/input_tahap2.xlsx"
 KOLOM_TIDAK_DIUBAH = ("baris", "nama_usaha", "status", "dokumen_url", "akun_login", "error_message")
@@ -342,7 +342,7 @@ def kode_dari_list_api(pola: str = "list_api_*.json") -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--audit", action="append", default=[],
-                    help="audit yang dipulihkan (boleh pola; default audit_log_gabungan.csv & audit_pc/*.csv)")
+                    help="audit yang dipulihkan (boleh pola; default audit_log_gabungan.csv & audit_pc/**/*.csv)")
     ap.add_argument("--rujukan", action="append", default=[],
                     help="audit UTUH tambahan sbg sumber nilai asli (mis. audit dari PC lain)")
     ap.add_argument("--sheet", default=SHEET_BAWAAN if Path(SHEET_BAWAAN).exists() else "",

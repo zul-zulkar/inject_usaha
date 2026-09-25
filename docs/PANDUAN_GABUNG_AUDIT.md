@@ -35,18 +35,27 @@ pusat.
 
 ## Langkah
 
-### 1. Kumpulkan audit tiap PC ke satu folder
+### 1. Kumpulkan audit (dan sheet bahan) tiap PC ke satu folder
 
-Salin `audit_log_gabungan.csv` dari tiap PC, beri nama berbeda:
+Cara paling mudah: satu **subfolder per PC**, dan berkasnya disalin apa adanya tanpa
+ganti nama. Sheet bahan PC itu ikut ditaruh di subfolder yang sama (lihat
+[kolom ID](#menggabungkan-kolom-id-dokumen-fasih-di-sheet-bahan)):
 
 ```
 audit_pc/
-  pc1.csv
-  pc2.csv
-  pc3.csv
-  pc4.csv
-  pc5.csv
+  pc2/
+    audit_log_gabungan.csv
+    input_tahap2.xlsx
+  pc3/
+    audit_log_gabungan.csv
+    input_tahap2.xlsx
+  ...
 ```
+
+`gabung_audit` hanya mengambil CSV audit dari folder itu, sedangkan
+`gabung_id_sumber` hanya mengambil sheet yang punya kolom "ID Dokumen FASIH".
+Berkas lain dilewati dan disebut di layar. Cara lama (semua audit langsung di
+`audit_pc/` dengan nama berbeda, mis. `pc1.csv`, `pc2.csv`) tetap bisa.
 
 ### 2. Lihat laporannya dulu (tidak menulis apa pun)
 
@@ -67,13 +76,17 @@ Keluarannya:
 | STATUS DI SERVER                  | status assignment sebenarnya, kalau ada`list_api_*.json` |
 | PEMERIKSAAN BENTROK               | lihat bagian di bawah                                      |
 
-Dua berkas juga ditulis (keduanya turunan, aman ditimpa):
+Semua keluaran ditulis ke **`audit_pc/hasil/`** (subfolder `hasil/` di folder
+`--sumber`). Isi folder itu tidak pernah dibaca ulang sebagai sumber, dan berkas
+kerja PC ini (`audit_log_gabungan.csv` di root, `bahan/`) tidak disentuh. Berkas
+yang ditulis setiap kali dijalankan (turunan, aman ditimpa):
 
 - `laporan_gabung.csv` — **satu baris per dokumen**: kunci, nomor baris, nama
   usaha, KBLI, akun PPL, akun yang login, wilayah asli + nama kecamatan/desa,
   wilayah tempat dokumen dibuat, status, kelompok status, status server, ID &
   URL dokumen, waktu terakhir, PC asal, catatan review, pesan galat.
 - `laporan_gabung_agregat.csv` — rekap tabel-tabel di atas.
+- `daftar_ganda.csv` — dokumen ganda + usulan mana yang dihapus.
 
 Tambahkan sheet sumbernya untuk tahu berapa baris yang **belum disentuh sama
 sekali**:
@@ -88,12 +101,16 @@ python gabung_audit/gabung_audit.py --sumber audit_pc --format tahap2 --sheet ba
 python gabung_audit/gabung_audit.py --sumber audit_pc --tulis
 ```
 
-Audit lama di tujuan dicadangkan otomatis ke `audit_log_gabungan.csv.bak-<waktu>`.
+Hasilnya `audit_pc/hasil/audit_log_gabungan.csv`. Kalau berkas itu sudah ada dari
+penggabungan sebelumnya, ia dicadangkan dulu ke `audit_log_gabungan.csv.bak-<waktu>`
+di folder yang sama. Mau langsung menimpa audit kerja PC ini? Tambahkan
+`--keluaran audit_log_gabungan.csv` (audit lamanya juga dicadangkan).
 
 ### 4. Sebarkan ke semua PC
 
-Salin `audit_log_gabungan.csv` hasil gabungan ke **setiap** PC, timpa yang lama.
-Sejak itu `--lewati-selesai` di PC mana pun melihat progres semua PC.
+Salin `audit_pc/hasil/audit_log_gabungan.csv` ke **setiap** PC — termasuk PC ini —
+ke root proyek, timpa yang lama. Sejak itu `--lewati-selesai` di PC mana pun
+melihat progres semua PC.
 
 ### 5. Cocokkan dengan server
 
@@ -250,11 +267,70 @@ python gabung_audit/pulihkan_excel.py
 python gabung_audit/pulihkan_excel.py --tulis
 ```
 
-Bawaannya memulihkan `audit_log_gabungan.csv` dan `audit_pc/*.csv`. Audit PC lain yang juga
+Bawaannya memulihkan `audit_log_gabungan.csv` dan semua audit di `audit_pc/` (termasuk subfolder). Audit PC lain yang juga
 rusak: salin dulu ke `audit_pc/` di PC yang punya cadangan, pulihkan di sana, baru gabungkan.
+
+## Menggabungkan kolom "ID Dokumen FASIH" di sheet bahan
+
+Sejak batch menulis ID dokumen ke kolom **"ID Dokumen FASIH"** di sheet bahan
+(mis. `bahan/input_tahap2.xlsx`), sheet itu juga berbeda di tiap PC: tiap PC hanya
+berisi ID dokumen yang dibuatnya sendiri. Satukan bersamaan dengan audit, dengan
+`gabung_audit/gabung_id_sumber.py`.
+
+1. Setelah batch di semua PC berhenti, salin sheet bahan tiap PC ke subfolder PC
+   itu di `audit_pc/`, di samping audit-nya (lihat [langkah 1](#1-kumpulkan-audit-dan-sheet-bahan-tiap-pc-ke-satu-folder)).
+   Sheet PC utama sendiri tidak perlu disalin, karena dialah `--utama`.
+
+2. Lihat laporannya dulu. Perintah ini tidak menulis apa pun:
+
+   ```bash
+   python gabung_audit/gabung_id_sumber.py --format tahap2 --utama bahan/input_tahap2.xlsx --sumber audit_pc
+   ```
+
+3. Tulis. Hasilnya **`audit_pc/hasil/input_tahap2.xlsx`** = salinan sheet utama +
+   ID dari PC lain. Sheet utama (`bahan/input_tahap2.xlsx`) tidak diubah. Hasil lama
+   di folder itu dicadangkan dulu ke `.bak-<waktu>`:
+
+   ```bash
+   python gabung_audit/gabung_id_sumber.py --format tahap2 --utama bahan/input_tahap2.xlsx --sumber audit_pc --tulis
+   ```
+
+   Mau langsung mengisi sheet utama? Tambahkan `--keluaran bahan/input_tahap2.xlsx`
+   (sheet utama dicadangkan dulu).
+
+4. Isi ID yang masih kosong dari audit gabungan (langkah 3 bagian atas). Ini mencakup
+   dokumen yang dibuat sebelum kolom ID ada. Keduanya berkas di `audit_pc/hasil/`:
+
+   ```bash
+   python input_gabungan/tulis_id_sumber.py --format tahap2 --sumber audit_pc/hasil/input_tahap2.xlsx --audit audit_pc/hasil --tulis
+   ```
+
+5. Sebarkan kedua berkas di `audit_pc/hasil/` ke **setiap** PC, termasuk PC ini:
+   `audit_log_gabungan.csv` ke root proyek, `input_tahap2.xlsx` ke `bahan/`. Folder
+   `audit_pc/` (termasuk `hasil/`) tidak ikut `bungkus_pc`; kalau mau menyebar lewat
+   zip, salin kedua berkas ke tempatnya di PC ini dulu, baru bungkus.
+
+Baris salinan dicocokkan ke baris sheet utama lewat **isi barisnya** (tanpa kolom ID),
+jadi urutan sheet yang berbeda tidak masalah. Kalau isi baris di satu PC sudah
+dikoreksi (mis. koordinat), pencocokan memakai `kunci` (akun + idsubsls + nama +
+pemilik). Hasil per baris:
+
+| Hasil             | Artinya                                          | Tindakan                                                                                                   |
+| ----------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `TULIS`           | sel utama kosong, semua PC membawa ID yang sama | diisi (dengan `--tulis`)                                                                                   |
+| `SUDAH`           | sel utama sudah berisi ID itu                    | —                                                                                                          |
+| `BEDA`            | sel utama berisi ID lain                         | **tidak ditimpa**. Satu baris punya 2 dokumen (ganda) — cek `daftar_ganda.csv`, lalu isi selnya manual |
+| `KONFLIK`         | dua PC membawa ID berbeda untuk baris yang sama  | sama seperti `BEDA`                                                                                        |
+| `ID_GANDA`        | satu ID jatuh ke lebih dari satu baris           | tidak ditulis; periksa baris-baris itu                                                                     |
+| `SEL_TIDAK_VALID` | sel utama berisi teks yang bukan ID              | kosongkan atau perbaiki selnya                                                                             |
+| `TIDAK_KETEMU`    | baris salinan tidak ada di sheet utama           | barisnya dihapus/diubah besar-besaran di salah satu PC; ID-nya tetap ada di audit                          |
+
+Rinciannya ditulis ke `audit_pc/hasil/laporan_gabung_id.csv`. Sel yang sudah berisi apa pun **tidak
+pernah ditimpa**, jadi perintah ini aman dijalankan ulang, juga di PC mana pun
+(mis. di tiap PC dengan sheetnya sendiri sebagai `--utama`).
 
 ## Catatan
 
 - Alat ini **tidak pernah menyentuh server** dan tidak mengubah audit sumber.
 - Semua `*.csv` diabaikan git (berisi data responden) — termasuk laporannya.
-- Uji: `python tests/test_gabung_audit.py`.
+- Uji: `python tests/test_gabung_audit.py`, `python tests/test_gabung_id_sumber.py`.

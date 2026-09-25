@@ -166,10 +166,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tanpa-submit", action="store_true", help="perintah yang dicetak tanpa --submit")
     args = ap.parse_args(argv)
 
-    from gabung_audit.gabung_audit import kumpulkan_sumber
-    berkas = kumpulkan_sumber(args.audit or [str(mg.AUDIT_LOG_PATH)])
+    from gabung_audit.gabung_audit import kumpulkan_sumber, label_berkas
+    asal_audit = args.audit or [str(mg.AUDIT_LOG_PATH)]
+    berkas = kumpulkan_sumber(asal_audit)
     try:
-        gabungan, lap = gabung([(p.name, baca_audit(p)) for p in berkas])
+        gabungan, lap = gabung([(label_berkas(p, asal_audit), baca_audit(p)) for p in berkas])
     except ValueError as e:
         print(f"❌ {e}")
         return 2

@@ -55,7 +55,7 @@ FOLDER_DIBUANG: list[tuple[str, str]] = [
     ("cache", ".venv"), ("cache", "venv"), ("cache", "node_modules"),
     ("sesi browser", ".profil_*"),
     ("log", "log_screenshots"), ("log", "log_fasih_sm"), ("log", "log_approve"),
-    ("audit gabungan", "audit_pc"),
+    ("audit gabungan", "audit_pc"), ("audit gabungan", "bahan_pc"),
     ("hasil turunan", "kontrol_kualitas_per_ppl"),
 ]
 BERKAS_DIBUANG: list[tuple[str, str]] = [
