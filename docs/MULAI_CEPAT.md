@@ -149,7 +149,7 @@ python input_tahap2/main_tahap2.py --sumber bahan/SUMBER_BARU.xlsx --audit audit
 perlu mengetiknya berulang, atur sekali per jendela terminal:
 PowerShell `$env:FASIH_AUDIT="audit_batch2\audit_log_gabungan.csv"`, cmd
 `set FASIH_AUDIT=audit_batch2\audit_log_gabungan.csv`. Baris pertama keluaran selalu
-mencetak `Audit: <lokasi>` — cek itu.
+mencetak `Audit: <lokasi>` — cek itu. Panduan lengkap: [`PANDUAN_AUDIT_BATCH.md`](PANDUAN_AUDIT_BATCH.md).
 
 ⚠️ Audit baru = kosong, jadi dokumen yang tercatat di audit lama **tidak dikenali**.
 Pencegah ganda tinggal `--sinkron-dulu`, yang hanya melihat daftar akun yang sedang

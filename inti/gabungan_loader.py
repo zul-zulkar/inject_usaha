@@ -639,6 +639,11 @@ class GabunganRow:
     # MODE MURNI (config.GABUNGAN_MODE_MURNI): semua isian apa adanya dari sheet,
     # tanpa aturan penamaan/pelengkap/koreksi — lihat komentar di config.
     murni: bool = False
+    # Kolom "ID Dokumen FASIH" sheet (inti/id_dokumen.py, diisi muat_sumber) — dokumen
+    # baris ini dibuka lewat ID, bukan dicari lewat nama. `sidik_sumber` = sidik isi
+    # baris saat dibaca, dipakai menemukan barisnya lagi waktu ID ditulis balik.
+    id_dokumen: str = ""
+    sidik_sumber: str = ""
 
     def __getitem__(self, key: str) -> str:
         return self.v.get(key, "")

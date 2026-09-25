@@ -107,6 +107,7 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
     per_nama = defaultdict(list)
     for it in items:
         per_nama[norm(it.get("data1"))].append(it)
+    per_id = {it.get("id"): it for it in items}
     url_audit = {id_dari_url(b.get("dokumen_url")) for b in audit} - {""}
     akhir: dict = {}
     dok: dict = {}      # kunci -> akun_login dokumen tercatat
@@ -142,7 +143,14 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
             id_milik[i] = b["kunci"]
     for sumber, row, status_cek in sumber_rows:
         semua_docs = per_nama.get(norm(row.nama_dokumen), [])
-        docs = [d for d in semua_docs if id_milik.get(d["id"], row.kunci) == row.kunci]
+        # ID dokumen di sheet (kolom "ID Dokumen FASIH") menang atas nama: nama usaha bisa
+        # dikoreksi sesudah dokumennya dibuat, lalu tidak ketemu lagi di list lewat nama.
+        id_sheet = getattr(row, "id_dokumen", "")
+        if id_sheet in per_id and all(d.get("id") != id_sheet for d in semua_docs):
+            semua_docs = [per_id[id_sheet], *semua_docs]
+        # Dokumen ber-ID sheet milik baris ini walau audit mencatatnya dgn kunci lain
+        # (kunci LAMA sebelum nama dikoreksi).
+        docs = [d for d in semua_docs if d["id"] == id_sheet or id_milik.get(d["id"], row.kunci) == row.kunci]
         dipakai_lain = len(docs) < len(semua_docs)
         terkirim = [d for d in docs if status_server(d.get("assignmentStatusAlias")) == "TERKIRIM"]
         draft = [d for d in docs if status_server(d.get("assignmentStatusAlias")) == "DRAFT"]
@@ -235,10 +243,12 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
             # dihapus admin lewat hapus_ganda) -> dokumen bernama sama yang TERSISA dicatat
             # ulang walau id-nya pernah tercatat. Tanpa ini DOKUMEN_DIHAPUS di atas membuat
             # baris ini tak berdokumen & run berikutnya MEMBUAT dokumen baru = ganda lagi.
-            if d["id"] not in url_audit or hilang:
+            if d["id"] not in url_audit or hilang or (d["id"] == id_sheet and id_milik.get(d["id"]) != row.kunci):
                 dicatat = True
-                tulis.append(baris_audit(mg.STATUS_DIBUAT, d, f"sinkron list API ({sumber}): dokumen dibuat di "
-                                                              f"luar audit ini, status {d.get('assignmentStatusAlias')}"))
+                asal = ("dicocokkan lewat ID di sheet" if d["id"] == id_sheet
+                        else "dokumen dibuat di luar audit ini")
+                tulis.append(baris_audit(mg.STATUS_DIBUAT, d, f"sinkron list API ({sumber}): {asal}, "
+                                                              f"status {d.get('assignmentStatusAlias')}"))
         # Status TERAKHIR per kunci yang menentukan --lewati-selesai: DOKUMEN_DIBUAT
         # yang baru ditulis menimpa status terkirim lama -> ulangi status terkirimnya.
         if terkirim and (st_audit not in mg.STATUS_TERKIRIM or dicatat):
@@ -263,7 +273,9 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
                 f"server menandai {galat_draft.get('sumError')} galat "
                 f"(jawaban bersih {galat_draft.get('sumClean')}) — isi ulang lewat URL lalu kirim"))
     dikenali_nama = {norm(r.nama_dokumen) for _, r, _ in sumber_rows}
-    tak_dikenal = [it for it in items if norm(it.get("data1")) not in dikenali_nama]
+    dikenali_id = {getattr(r, "id_dokumen", "") for _, r, _ in sumber_rows} - {""}
+    tak_dikenal = [it for it in items
+                   if norm(it.get("data1")) not in dikenali_nama and it.get("id") not in dikenali_id]
     return laporan, tulis, tak_dikenal
 
 

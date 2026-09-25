@@ -483,6 +483,48 @@ Yang **tidak** berubah: dokumen yang baru saja dibuat tetap menghentikan batch
 kalau wilayahnya meleset (itu berarti subsls salah dipilih di modal, bukan sekadar
 wadah lain), begitu juga dokumen di luar kabupaten sendiri.
 
+## Kolom "ID Dokumen FASIH" di sheet
+
+Nama usaha di sheet boleh dikoreksi sesudah dokumennya dibuat, tapi setelah itu
+dokumennya tidak bisa lagi ditemukan lewat nama: di list server namanya masih nama
+lama, dan audit mengenal baris itu dengan kunci lama. Karena itu program menulis
+**ID dokumen** (UUID dari URL `…/<ID>/entry`) ke kolom `ID Dokumen FASIH` di paling
+kanan sheet sumber, begitu dokumen dibuat atau dibuka. Kolom yang sama juga berlaku
+untuk format standar (`input_usaha.xlsx`).
+
+- **Saat input:** baris yang punya ID tapi tidak dikenali audit dibuka lewat ID itu.
+  Program tidak mencarinya lewat nama dan **tidak pernah membuat dokumen baru** untuk
+  baris itu. Kalau ID di sheet berbeda dengan ID di audit, yang dipakai ID audit dan
+  bedanya dicatat di kolom `review_disarankan`.
+- **`sinkron_list.py`:** dokumen server dicocokkan lewat ID sheet dulu, baru lewat nama.
+- **Pemeriksaan offline (`--cek`):** sel ID yang bukan UUID
+  (`ID_DOKUMEN_TIDAK_VALID`), atau satu ID di beberapa baris (`ID_DOKUMEN_GANDA`,
+  misalnya karena salah salin), membuat baris itu dilewati.
+- **Aman untuk sheet yang sedang dipakai:** baris dicari lewat isinya, jadi sheet yang
+  diurutkan tetap benar. Sel yang sudah berisi sesuatu tidak pernah ditimpa. Sheet
+  yang berisi rumus tidak ditulis sama sekali. Kalau sheet sedang dibuka di Excel,
+  penulisannya ditunda lalu dicoba lagi. Gagal menulis tidak pernah menghentikan batch,
+  karena URL-nya tetap tercatat di audit.
+- Jangan mengedit atau menyalin sel di kolom ini secara manual. Jangan juga
+  menyalin-tempel satu baris utuh ke baris lain, karena ID-nya ikut tersalin.
+
+Untuk dokumen yang dibuat sebelum fitur ini ada (atau ID yang tertunda karena sheet
+sedang dibuka Excel), isi kolomnya dari audit. **Tutup Excel dulu**, lalu jalankan:
+
+```bash
+python input_gabungan/tulis_id_sumber.py --format tahap2 --sumber bahan/input_tahap2.xlsx
+```
+
+```bash
+python input_gabungan/tulis_id_sumber.py --format tahap2 --sumber bahan/input_tahap2.xlsx --tulis
+```
+
+Perintah pertama hanya menampilkan laporan. Perintah kedua benar-benar menulis ke sheet.
+
+> ⚠️ Kalau sheet diunduh ulang dari Google Sheets, kolom ID ikut hilang kecuali kolom
+> itu juga ada di Google Sheet-nya. Salin kolom `ID Dokumen FASIH` ke Google Sheet,
+> atau jalankan `tulis_id_sumber.py --tulis` lagi setelah mengunduh.
+
 ## 10. Mengembalikan dokumen ke subsls masing-masing
 
 Semua dokumen dibuat di satu subsls (`--subsls-tunggal`). Setelah terkirim & di-approve PML
@@ -498,5 +540,6 @@ python pindah_wilayah/pindah_wilayah.py --format tahap2 --sumber bahan/input_tah
 
 ```bash
 python tests/test_tahap2_loader.py
+python tests/test_id_dokumen.py
 python tests/jalankan_semua.py
 ```

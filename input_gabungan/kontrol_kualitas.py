@@ -440,6 +440,10 @@ SARAN_MASALAH: dict[str, str] = {
                                 "'13d' & '13e' di sheet, atau isi dokumennya manual.",
     "KODEPOS_TIDAK_DIKETAHUI": "Kodepos desa ini belum ada di daftar: tambahkan kolom 'kodepos' di sheet atau "
                                "lengkapi daftar kodepos di konfigurasi lokal.",
+    "ID_DOKUMEN_TIDAK_VALID": "Kolom 'ID Dokumen FASIH' diisi program; isinya harus ID dokumen (UUID) atau "
+                              "kosong. Kosongkan/betulkan selnya.",
+    "ID_DOKUMEN_GANDA": "Satu ID dokumen tertulis di beberapa baris (salah salin?). Sisakan di baris pemiliknya "
+                        "saja — cek lewat input_gabungan/tulis_id_sumber.py.",
 }
 
 

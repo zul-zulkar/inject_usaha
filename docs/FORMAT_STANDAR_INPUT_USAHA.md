@@ -123,6 +123,20 @@ justru TERKIRIM — men-skip semuanya lebih mahal daripada menampilkannya untuk 
 
 ---
 
+## Kolom `ID Dokumen FASIH` (diisi program)
+
+Program menambahkan kolom ini di paling kanan tab `input_usaha` dan menulis ID dokumen
+fasih-web begitu dokumen sebuah baris dibuat atau dibuka. Di run berikutnya, baris itu
+dibuka lewat ID tersebut, bukan dicari lewat nama. Jadi nama usaha boleh dikoreksi
+tanpa memicu dokumen ganda. Kolom ini jangan diisi atau disalin manual. Rinciannya
+(pengaman, dan cara mengisi kolom untuk dokumen lama lewat
+`input_gabungan/tulis_id_sumber.py`) ada di `docs/PANDUAN_INPUT_TAHAP2.md`, bagian
+"Kolom ID Dokumen FASIH di sheet".
+
+> Catatan: openpyxl tidak mendukung dropdown Excel yang disimpan sebagai *ekstensi*
+> validasi data (mis. daftar yang merujuk tab lain), jadi dropdown seperti itu hilang
+> setelah sheet ditulis. Isian sel tidak berubah.
+
 ## Yang tidak didukung (isi manual)
 
 - SE2026-P selain "Bangunan Lainnya", keberadaan selain `2. Baru`, perubahan SLS `1. Ya`.

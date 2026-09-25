@@ -212,6 +212,7 @@ mengubah kode, terutama selektor (`tests/test_selectors.py`).
 | [`docs/PANDUAN_APPROVE_PML.md`](docs/PANDUAN_APPROVE_PML.md) | Approve dokumen oleh akun PML (sesudah input, sebelum pindah wilayah) |
 | [`docs/PANDUAN_PINDAH_WILAYAH.md`](docs/PANDUAN_PINDAH_WILAYAH.md) | Pindah wilayah dokumen |
 | [`docs/PANDUAN_GABUNG_AUDIT.md`](docs/PANDUAN_GABUNG_AUDIT.md) | Menggabungkan progres beberapa PC & laporannya |
+| [`docs/PANDUAN_AUDIT_BATCH.md`](docs/PANDUAN_AUDIT_BATCH.md) | Audit terpisah per batch: mengatur lokasi `audit_log_gabungan.csv` (`--audit` / `FASIH_AUDIT`) |
 | [`docs/catatan usaha pecahan se2026.md`](docs/catatan%20usaha%20pecahan%20se2026.md) | Temuan awal perilaku form fasih-web |
 
 Tanggal di dokumen-dokumen itu (2026-09-xx) adalah tanggal temuan saat skrip dikembangkan.

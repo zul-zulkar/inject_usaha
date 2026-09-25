@@ -165,6 +165,56 @@ Yang pertama hanya menampilkan rencananya. Sesudah itu cocokkan audit dengan ser
 python input_gabungan/sinkron_list.py --format tahap2 --sumber bahan/input_tahap2.xlsx --akun-tunggal EMAIL --subsls-tunggal SUBSLS --tulis
 ```
 
+## Audit di lokasi lain (custom)
+
+Kalau batch ini memakai audit sendiri (mis. folder `audit\`, lihat
+[`PANDUAN_AUDIT_BATCH.md`](PANDUAN_AUDIT_BATCH.md)), **semua** perintah di atas harus menunjuk
+audit yang sama. Ada dua cara.
+
+**Sekali per terminal** (disarankan; PowerShell):
+
+```powershell
+$env:FASIH_AUDIT = "audit\audit_log_gabungan.csv"
+```
+
+Sesudah itu perintah di atas dijalankan persis seperti tertulis.
+
+**Atau `--audit` di setiap perintah** (folder `audit` = `audit\audit_log_gabungan.csv`; nama
+berkas sendiri juga boleh, mis. `--audit audit\batch2.csv`):
+
+```bash
+python gabung_audit/gabung_audit.py --sumber audit/pc --keluaran audit/audit_log_gabungan.csv
+```
+
+```bash
+python hapus_ganda/hapus_ganda.py --audit audit
+```
+
+```bash
+python hapus_ganda/hapus_ganda.py --audit audit --catat
+```
+
+```bash
+python hapus_ganda/hapus_ganda.py --audit audit --catat --tulis
+```
+
+```bash
+python input_gabungan/sinkron_list.py --audit audit --format tahap2 --sumber bahan/input_tahap2.xlsx --akun-tunggal EMAIL --subsls-tunggal SUBSLS --tulis
+```
+
+- Langkah 1 (`gabung_audit.py`) hanya perlu kalau audit batch itu berasal dari beberapa PC
+  (audit per PC dikumpulkan di `audit\pc\`). Satu PC saja → langsung `hapus_ganda.py`, karena ia
+  menghitung daftar ganda sendiri dari audit yang ditunjuk.
+- Baris pertama keluaran `Audit: …` harus menunjuk audit batch itu. Kalau yang tercetak
+  `audit_log_gabungan.csv` di folder kerja, `--audit`/`FASIH_AUDIT` terlewat.
+- `--catat --tulis` menulis ke audit yang ditunjuk. Menulis ke audit yang salah = baris batch ini
+  tetap menunjuk dokumen yang sudah dihapus → run berikutnya membuat dokumen BARU (ganda lagi).
+- `ganda_dihapus_*.csv` & `list_api_*.json` tetap di folder kerja dan berlaku untuk semua audit
+  (berisi id dokumen, bukan kunci baris), jadi tidak perlu dipindah.
+- Satu perintah membaca **satu** audit. Dokumen ganda antar-audit (baris yang sama pernah diinput
+  di audit bawaan DAN di audit batch) tidak terdeteksi — itu sebabnya audit baru hanya untuk usaha
+  yang belum pernah diinput.
+
 ## Kalau berhenti
 
 | Pesan                           | Artinya                                              | Tindakan                                                     |

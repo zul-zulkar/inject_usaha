@@ -82,6 +82,7 @@ from inti.gabungan_loader import (
     load_gabungan, parse_pilihan_baris, periksa_semua,
 )
 from inti.tahap2_loader import load_tahap2, periksa_semua_tahap2
+from inti.id_dokumen import PencatatIdSumber, baca_kolom_id, pasang_id, url_entry
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -467,7 +468,8 @@ def kunci_lain_bernama_sama(nama_dokumen: str, kunci: str, akun: str = "", audit
 
 
 def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set, nama_dokumen: str = "",
-                               punya_koordinat: bool = True, audit: list | None = None) -> str:
+                               punya_koordinat: bool = True, audit: list | None = None,
+                               id_sheet: str = "") -> str:
     """Audit dibaca ULANG tepat sebelum baris dikerjakan (daftar awal dihitung saat
     start). Batch lain (akun lain) bisa sudah membuat/mengirim dokumen baris ini
     selama batch ini berjalan -> membuatnya lagi di sini = duplikat. "" = kerjakan.
@@ -489,7 +491,8 @@ def alasan_lewati_saat_giliran(kunci: str, target: tuple[str, str], tuntas: set,
     if tuntas and tuntas_menurut_audit(status_terakhir_dari(baris_audit_).get(kunci, ""),
                                        tuntas, punya_koordinat):
         return "sudah selesai di audit (dikerjakan proses lain)"
-    if nama_dokumen and not tercatat:
+    if nama_dokumen and not tercatat and not id_sheet:
+        # Ber-ID di sheet: dokumennya dibuka lewat ID, tidak dicari lewat nama.
         lain = kunci_lain_bernama_sama(nama_dokumen, kunci, target[0], baris_audit_)
         if lain:
             return (f"SKIP_NAMA_DIPAKAI_BARIS_LAIN: '{nama_dokumen}' sudah jadi nama dokumen baris lain "
@@ -513,7 +516,7 @@ def kenapa_tidak_dikerjakan(rows, hasil: dict, tuntas: set, target_fn, audit: li
             continue
         keluar.append((r.baris, alasan_lewati_saat_giliran(
             r.kunci, target_fn(r), tuntas, r.nama_dokumen if satu_subsls else "",
-            r.punya_koordinat, audit=audit)))
+            r.punya_koordinat, audit=audit, id_sheet=getattr(r, "id_dokumen", ""))))
     return keluar
 
 
@@ -691,11 +694,14 @@ def _hasil_awal(row: GabunganRow, subsls_input: str, akun_login: str) -> dict:
 def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, dry_run: bool,
                     assignment_id: str, subsls_input: str, akun_login: str,
                     pernah_dibuat: bool = False, url_audit: str = "", mode_satu_list: bool = False,
-                    izinkan_wilayah_beda: bool = False, kirim_tanpa_koordinat: bool = False) -> dict:
+                    izinkan_wilayah_beda: bool = False, kirim_tanpa_koordinat: bool = False,
+                    catat_id=None) -> dict:
     """`subsls_input` = subsls tempat dokumen dibuat (mode satu subsls: sama
     utk semua baris). `pernah_dibuat` = audit mencatat dokumen baris ini dgn
     akun & subsls yang sama -> TIDAK PERNAH dibuat ulang; dibuka lewat
-    `url_audit` kalau ada, kalau tidak dicari di list."""
+    `url_audit` kalau ada, kalau tidak dicari di list. `catat_id(row, url)` =
+    tulis ID dokumen ke sheet sumber (PencatatIdSumber.catat; tidak pernah melempar)."""
+    catat_id = catat_id or (lambda _row, _url: None)
     result = _hasil_awal(row, subsls_input, akun_login)
     tanda = list(cek.tanda)
 
@@ -771,6 +777,9 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
             if sess.dokumen_dibuat:
                 append_audit({**result, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "status": STATUS_DIBUAT,
                               "dokumen_url": sess.dokumen_url_terakhir})
+                # Ke sheet SEKARANG, sebelum mengisi: kalau pengisian gagal di tengah,
+                # baris ini tetap terikat ke dokumennya walau namanya diubah nanti.
+                catat_id(row, sess.dokumen_url_terakhir)
             if sess.dokumen_dibuat and not dokumen_baru and not getattr(sess, "nama_di_modal", True):
                 # Dokumen baru tanpa nama & tanpa URL tidak bisa dicari di list —
                 # lanjut ke baris lain hanya menumpuk dokumen kosong yatim.
@@ -788,6 +797,7 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
             sess.open_entry_for(row.nama_dokumen, assignment_id, allow_retry_if_fresh=dokumen_baru)
         if "/entry" in sess.page.url:
             result["dokumen_url"] = sess.page.url
+            catat_id(row, sess.page.url)
 
         # 2. PENGANTAR -> IDENTITAS WILAYAH -> SE2026 - P (form-engine hanya
         #    merender section aktif).
@@ -1102,11 +1112,15 @@ def muat_sumber(sumber: str, format_sumber: str = "standar", mode_satu_subsls: b
     sinkron_list.py supaya format tahap 2 dikenali di kedua skrip."""
     if format_sumber == "tahap2":
         rows = load_tahap2(sumber, kodepos=kodepos)
-        return rows, periksa_semua_tahap2(rows, mode_satu_subsls=mode_satu_subsls, cek_total=cek_total,
-                                          izinkan_tanpa_koordinat=izinkan_tanpa_koordinat)
-    rows = load_gabungan(sumber)
-    return rows, periksa_semua(rows, mode_satu_subsls=mode_satu_subsls,
-                               izinkan_tanpa_koordinat=izinkan_tanpa_koordinat)
+        hasil = periksa_semua_tahap2(rows, mode_satu_subsls=mode_satu_subsls, cek_total=cek_total,
+                                     izinkan_tanpa_koordinat=izinkan_tanpa_koordinat)
+    else:
+        rows = load_gabungan(sumber)
+        hasil = periksa_semua(rows, mode_satu_subsls=mode_satu_subsls,
+                              izinkan_tanpa_koordinat=izinkan_tanpa_koordinat)
+    # Kolom "ID Dokumen FASIH" (ditulis balik oleh PencatatIdSumber): row.id_dokumen.
+    pasang_id(rows, hasil, baca_kolom_id(sumber, format_sumber))
+    return rows, hasil
 
 
 def koordinat_otomatis(pilihan: str | None, format_sumber: str) -> bool:
@@ -1371,7 +1385,7 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
     # sama baru berpengaruh pada run berikutnya.
     if not args.urut_sheet:
         bertanda = {k for k, st in status_terakhir_per_kunci().items() if st == STATUS_DRAFT_GALAT}
-        punya_dokumen = set(dokumen)
+        punya_dokumen = set(dokumen) | {r.kunci for r in rows if r.id_dokumen}
 
         def giliran(r: GabunganRow) -> int:
             return 0 if r.kunci in bertanda else 1 if r.kunci in punya_dokumen else 2
@@ -1414,6 +1428,9 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
 
     sesi = rencana_sesi(rows, akun_tunggal, args.baris_per_sesi)
     print(f"Dibagi jadi {len(sesi)} sesi login.")
+    # ID dokumen ditulis balik ke kolom "ID Dokumen FASIH" sheet sumber (permintaan
+    # user 2026-09-25): nama usaha bisa diubah, ID tidak.
+    pencatat_id = PencatatIdSumber(args.sumber, args.format)
 
     berhenti_segera = set(STATUS_BERHENTI_SEGERA)
     if satu_subsls and not args.paralel:
@@ -1521,12 +1538,26 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                 akun_login, subsls_input = target(row)
                 tercatat = dokumen_per_kunci().get(row.kunci)
                 pernah_dibuat = bool(tercatat) and dokumen_milik_target(tercatat, row)
+                url = tercatat[2] if pernah_dibuat else ""
+                catatan_id = ""
+                if row.id_dokumen and not url:
+                    # Audit tidak mengenal dokumen baris ini (mis. nama/kunci diubah di sheet,
+                    # atau dibuat PC lain) tapi sheet menyimpan ID-nya -> buka lewat ID itu,
+                    # JANGAN dicari lewat nama / dibuat baru.
+                    url, pernah_dibuat = url_entry(row.id_dokumen, args.assignment_id), True
+                    catatan_id = f"dokumen dibuka lewat ID di sheet ({row.id_dokumen[:8]})"
+                elif row.id_dokumen and id_dari_url(url) != row.id_dokumen:
+                    catatan_id = (f"ID di sheet ({row.id_dokumen[:8]}) BEDA dgn audit "
+                                  f"({id_dari_url(url)[:8]}) — dipakai audit; periksa dokumen ganda")
+                    print(f"  ⚠ {catatan_id}")
                 res = process_one_row(sess, row, hasil[row.baris], dry_run, args.assignment_id,
-                                      subsls_input, akun_login, pernah_dibuat,
-                                      tercatat[2] if pernah_dibuat else "",
+                                      subsls_input, akun_login, pernah_dibuat, url,
                                       mode_satu_list=satu_subsls and not args.paralel,
                                       izinkan_wilayah_beda=args.izinkan_wilayah_beda,
-                                      kirim_tanpa_koordinat=kirim_tanpa_koordinat)
+                                      kirim_tanpa_koordinat=kirim_tanpa_koordinat,
+                                      catat_id=pencatat_id.catat)
+                if catatan_id:
+                    res["review_disarankan"] = " | ".join(filter(None, [res.get("review_disarankan"), catatan_id]))
                 if not sess.akun_api.get("email"):
                     res["review_disarankan"] = " | ".join(filter(None, [
                         res.get("review_disarankan"),
@@ -1546,7 +1577,7 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
                     break
                 alasan = alasan_lewati_saat_giliran(row.kunci, target(row), tuntas_audit,
                                                     row.nama_dokumen if satu_subsls else "",
-                                                    row.punya_koordinat)
+                                                    row.punya_koordinat, id_sheet=row.id_dokumen)
                 if alasan:
                     print(f"\n=== baris {row.baris} — dilewati: {alasan} ===")
                     n_lewati += 1
@@ -1620,6 +1651,8 @@ def main(argv: list[str] | None = None, format_bawaan: str = "standar", perintah
         browser.close()
 
     tulis_laporan_tanpa_url(tanpa_url)
+    pencatat_id.simpan()   # sisa yang tertunda (mis. Excel sempat membuka sheet)
+    print(pencatat_id.ringkasan())
     print(f"\nSelesai. Audit: {AUDIT_LOG_PATH}")
     sisa = len(rows) - n_proses - n_lewati
     print(f"Ringkasan run: {n_proses} baris diproses, {n_lewati} dilewati, {sisa} belum sempat dikerjakan "
