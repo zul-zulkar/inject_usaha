@@ -1,0 +1,237 @@
+
+
+===== RUN 2026-09-25 14:24:50 | akun=suliyantiketut20@gmail.com subsls=5108060006000224 dari=11 sampai=200 =====
+Audit: D:\innovations\split_usaha\audit\audit_log_gabungan.csv (840 baris)
+Rentang baris 11â€“200: 190 baris.
+â›” 81 baris sudah punya dokumen dgn akun/subsls lain di audit\audit_log_gabungan.csv â€” dilewati:
+  baris 11: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/fadace97-81a6-4549-8d9d-a725d2418773/entry
+  baris 12: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/6493e177-f4f6-4b01-8c8e-2715444fa45e/entry
+  baris 13: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/9257afec-4743-4b40-af98-504019797878/entry
+  baris 14: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/52105ab1-97aa-422c-b9fc-ab2fb5bf11e4/entry
+  baris 15: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/e99029f5-78ad-4794-b178-2abfce8998be/entry
+  baris 16: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/05fa3691-ac60-4e8f-a7bf-f6eeafbc47f7/entry
+  baris 17: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/3296757f-5c0f-4f8f-8dd2-1e795fb5e022/entry
+  baris 18: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/04196801-9498-439a-b934-d56b239c028e/entry
+  baris 19: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/c5fef88c-503c-45b7-86fc-6ba743b10939/entry
+  baris 20: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/19106eca-76c8-4cc2-87e6-dd49393ef881/entry
+Sinkron tabel server dulu (login sebentar)...
+[fasih-web 14:24:55] Login sbg suliyantiketut20@gmail.com (percobaan 1) ...
+[fasih-web 14:24:59] Locator 'SSO Eksternal' ketemu 0 elemen.
+[fasih-web 14:25:10] âœ… Akun terverifikasi: suliyantiketut20@gmail.com (NIKETUT SULIANTI)
+[fasih-web 14:25:10] Login selesai â€” URL sekarang: https://fasih-web.bps.go.id/
+
+
+===== RUN 2026-09-25 14:34:45 | akun=suliyantiketut20@gmail.com subsls=5108060006000224 dari=11 sampai=200 =====
+Audit: D:\innovations\split_usaha\audit\audit_log_gabungan.csv (1032 baris)
+Rentang baris 11â€“200: 190 baris.
+â›” 81 baris sudah punya dokumen dgn akun/subsls lain di audit\audit_log_gabungan.csv â€” dilewati:
+  baris 11: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/fadace97-81a6-4549-8d9d-a725d2418773/entry
+  baris 12: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/6493e177-f4f6-4b01-8c8e-2715444fa45e/entry
+  baris 13: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/9257afec-4743-4b40-af98-504019797878/entry
+  baris 14: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/52105ab1-97aa-422c-b9fc-ab2fb5bf11e4/entry
+  baris 15: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/e99029f5-78ad-4794-b178-2abfce8998be/entry
+  baris 16: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/05fa3691-ac60-4e8f-a7bf-f6eeafbc47f7/entry
+  baris 17: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/3296757f-5c0f-4f8f-8dd2-1e795fb5e022/entry
+  baris 18: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/04196801-9498-439a-b934-d56b239c028e/entry
+  baris 19: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/c5fef88c-503c-45b7-86fc-6ba743b10939/entry
+  baris 20: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/19106eca-76c8-4cc2-87e6-dd49393ef881/entry
+Sinkron tabel server dulu (login sebentar)...
+[fasih-web 14:34:50] Login sbg suliyantiketut20@gmail.com (percobaan 1) ...
+[fasih-web 14:34:53] Locator 'SSO Eksternal' ketemu 0 elemen.
+[fasih-web 14:35:03] âœ… Akun terverifikasi: suliyantiketut20@gmail.com (NIKETUT SULIANTI)
+[fasih-web 14:35:03] Login selesai â€” URL sekarang: https://fasih-web.bps.go.id/
+
+
+===== RUN 2026-09-25 15:58:20 | akun=dian.id81@gmail.com subsls=5108060006000110 dari=11 sampai=200 =====
+Audit: D:\innovations\split_usaha\audit\audit_log_gabungan.csv (1099 baris)
+Rentang baris 11â€“200: 190 baris.
+â›” 115 baris sudah punya dokumen dgn akun/subsls lain di audit\audit_log_gabungan.csv â€” dilewati:
+  baris 11: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/fadace97-81a6-4549-8d9d-a725d2418773/entry
+  baris 12: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/6493e177-f4f6-4b01-8c8e-2715444fa45e/entry
+  baris 13: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/9257afec-4743-4b40-af98-504019797878/entry
+  baris 14: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/52105ab1-97aa-422c-b9fc-ab2fb5bf11e4/entry
+  baris 15: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/e99029f5-78ad-4794-b178-2abfce8998be/entry
+  baris 16: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/05fa3691-ac60-4e8f-a7bf-f6eeafbc47f7/entry
+  baris 17: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/3296757f-5c0f-4f8f-8dd2-1e795fb5e022/entry
+  baris 18: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/04196801-9498-439a-b934-d56b239c028e/entry
+  baris 19: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/c5fef88c-503c-45b7-86fc-6ba743b10939/entry
+  baris 20: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/19106eca-76c8-4cc2-87e6-dd49393ef881/entry
+Sinkron tabel server dulu (login sebentar)...
+[fasih-web 15:58:26] Login sbg dian.id81@gmail.com (percobaan 1) ...
+[fasih-web 15:58:28] Locator 'SSO Eksternal' ketemu 0 elemen.
+[fasih-web 15:58:38] âœ… Akun terverifikasi: dian.id81@gmail.com (Luh Diantini)
+[fasih-web 15:58:38] Login selesai â€” URL sekarang: https://fasih-web.bps.go.id/
+
+
+===== RUN 2026-09-25 16:06:50 | akun=dian.id81@gmail.com subsls=5108060006000110 dari=11 sampai=200 =====
+Audit: D:\innovations\split_usaha\audit\audit_log_gabungan.csv (1101 baris)
+Rentang baris 11–200: 190 baris.
+⛔ 115 baris sudah punya dokumen dgn akun/subsls lain di audit\audit_log_gabungan.csv — dilewati:
+  baris 11: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/fadace97-81a6-4549-8d9d-a725d2418773/entry
+  baris 12: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/6493e177-f4f6-4b01-8c8e-2715444fa45e/entry
+  baris 13: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/9257afec-4743-4b40-af98-504019797878/entry
+  baris 14: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/52105ab1-97aa-422c-b9fc-ab2fb5bf11e4/entry
+  baris 15: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/e99029f5-78ad-4794-b178-2abfce8998be/entry
+  baris 16: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/05fa3691-ac60-4e8f-a7bf-f6eeafbc47f7/entry
+  baris 17: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/3296757f-5c0f-4f8f-8dd2-1e795fb5e022/entry
+  baris 18: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/04196801-9498-439a-b934-d56b239c028e/entry
+  baris 19: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/c5fef88c-503c-45b7-86fc-6ba743b10939/entry
+  baris 20: windasariani1301@gmail.com / 5108060006000116 -> https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/19106eca-76c8-4cc2-87e6-dd49393ef881/entry
+Sinkron tabel server dulu (login sebentar)...
+[fasih-web 16:06:53] Login sbg dian.id81@gmail.com (percobaan 1) ...
+[fasih-web 16:06:56] Locator 'SSO Eksternal' ketemu 0 elemen.
+[fasih-web 16:07:06] ✅ Akun terverifikasi: dian.id81@gmail.com (Luh Diantini)
+[fasih-web 16:07:06] Login selesai — URL sekarang: https://fasih-web.bps.go.id/
+[fasih-web 16:07:07] Daftar dokumen lewat API: 2 dokumen.
+Sinkron tabel: 2 dokumen di server, 1 catatan audit diperbarui {'DRAFT_GALAT_DI_SERVER': 1}; 1 dokumen server tak dikenali.
+[fasih-web 16:07:07] Logout & bersihkan sesi ...
+[fasih-web 16:07:12] Tombol 'Keluar' di menu akun diklik.
+[fasih-web 16:07:12] Cookie SEMUA domain (termasuk sso.bps.go.id) + storage dibersihkan.
+--lewati-selesai: 0 baris dilewati (sudah selesai di audit\audit_log_gabungan.csv).
+Urutan kerja: 1 bertanda galat server, 0 dokumen belum tuntas, lalu 74 input baru.
+MODE SATU SUBSLS: subsls=5108060006000110 akun=dian.id81@gmail.com | format tahap2 (rincian di luar kuesioner kertas diisi TAHAP2_DEFAULT) | koordinat OTOMATIS (tanpa koordinat -> DRAFT)
+⚠️ MODE LIVE — akan klik Kirim final — 75 baris.
+Ketik 'YA' utk konfirmasi submit 75 dokumen SUNGGUHAN (irreversible): Dibagi jadi 2 sesi login.
+
+##### sesi 1/2 — dian.id81@gmail.com — 40 baris #####
+[fasih-web 16:07:13] Login sbg dian.id81@gmail.com (percobaan 1) ...
+[fasih-web 16:07:16] Locator 'SSO Eksternal' ketemu 0 elemen.
+[fasih-web 16:07:26] ✅ Akun terverifikasi: dian.id81@gmail.com (Luh Diantini)
+[fasih-web 16:07:26] Login selesai — URL sekarang: https://fasih-web.bps.go.id/
+
+=== baris 126 — toko pakaian muslim (ali alatas) (47713) — subsls 5108060006000110 ===
+[fasih-web 16:07:26] Buka dokumen 'toko pakaian muslim (ali alatas)' lewat URL audit: https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/512428c0-6a4e-4922-81b6-8d2c028c4c55/entry
+[fasih-web 16:07:28] Isi PENGANTAR (Waktu Mulai + Waktu Kunjungan I) ...
+[fasih-web 16:07:28]   [mulai] sudah terisi (Waktu Mulai 25 September 2026, 15:59:30) — dilewati.
+[fasih-web 16:07:28]   [kunjungan_1] sudah terisi (Waktu Kunjungan I 25 September 2026, 15:59:31 Perbarui Waktu) — dilewati.
+[fasih-web 16:07:29] Pindah section: 'PENGANTAR' -> 'IDENTITAS WILAYAH'
+[fasih-web 16:07:29] Wilayah dokumen (BLOK I): {'prov': '[51] BALI', 'kab': '[08] BULELENG', 'kec': '[060] BULELENG', 'desa': '[006] BANYUASRI', 'kode_sls': '0002'}
+[fasih-web 16:07:29]   ⚠️ Wilayah dokumen 51080600060002 != subsls input 5108060006000110 — diteruskan.
+[fasih-web 16:07:30] Isi BLOK I. IDENTITAS WILAYAH ...
+[fasih-web 16:07:30]   [ubah_sls] -> 2. Tidak
+[fasih-web 16:07:30]   [kodepos] = 81155
+[fasih-web 16:07:31] Pindah section: 'IDENTITAS WILAYAH' -> 'SE2026 - P'
+[fasih-web 16:07:31] Isi SE2026-P ...
+[fasih-web 16:07:31]   [is_new] -> Bangunan Lainnya (Selain Tempat Tinggal dan Campuran)
+[fasih-web 16:07:31]   [nama_usaha_bang] = toko pakaian muslim (ali alatas)
+[fasih-web 16:07:31]   [ada_bang_usaha] -> 2. Baru
+[fasih-web 16:07:31]   [jalan_domisili] = bd celukan bawang
+[fasih-web 16:07:32]   [nomor_domisili] = -
+[fasih-web 16:07:32] SE2026-P selesai (Nomor Urut Bangunan sengaja tidak disentuh).
+[fasih-web 16:07:32] Geotagging: lat=-8.194313, long=114.8364961, akurasi=10m (akurasi = asumsi skrip)
+[fasih-web 16:07:33]   koordinat di modal sebelum commit: {'lat': '-8.194313', 'lon': '114.836496', 'acc': '10'}
+[fasih-web 16:07:33]   [geotag] terisi: Geotagging Buka di Google Maps LATITUDE -8.194313 LONGITUDE 114.836496 AKURASI 10m Perbarui Lokasi Hapus
+[fasih-web 16:07:34] Save diklik (ikon disket floating toolbar).
+[fasih-web 16:07:36] Pindah section: 'SE2026 - P' -> 'SE2026 - L BLOK II'
+[fasih-web 16:07:38] Buka nested[0]: 1 TOKO PAKAIAN MUSLIM (ALI ALATAS) Belum Diisi 0% Isi Rincian -> section aktif 'TOKO PAKAIAN MUSLIM (ALI ALATAS)'
+[fasih-web 16:07:38] Isi BLOK II dari sheet gabungan (baris 126) ...
+[fasih-web 16:07:39]   [pilih_umkm_sls] 1 opsi tersedia: ['Tidak Ada']
+[fasih-web 16:07:40]   [pilih_umkm_sls] -> 'Tidak Ada' (cocok kandidat 'Tidak Ada')
+[fasih-web 16:07:40]   [keberadaan_usaha] -> 2. Baru
+[fasih-web 16:07:40]   [nama_komersial] = toko pakaian muslim (ali alatas)
+[fasih-web 16:07:40]   [hp] = 9999
+[fasih-web 16:07:42]   [jenis_kawasan] -> 10. Di luar kawasan
+[fasih-web 16:07:42]   [punya_nib] -> 2. Tidak
+[fasih-web 16:07:42]   [tidak_nib] -> 3. Tidak memerlukan NIB
+[fasih-web 16:07:42]   [badan_usaha] -> 13. Bukan Badan Usaha
+[fasih-web 16:07:42]   [lap_keuangan] -> 2. Tidak
+[fasih-web 16:07:42]   [pengusaha] = ali alatas
+[fasih-web 16:07:42]   [jk] -> 1. Laki-laki
+[fasih-web 16:07:42]   [umur] = 34
+[fasih-web 16:07:42]   [nik_pengusaha] = 9999
+[fasih-web 16:07:42]   [keg_utama] = menjual pakaian muslim
+[fasih-web 16:07:43]   [produk_sendiri] -> 2. Tidak
+[fasih-web 16:07:43]   [layanan_mamin] -> 2. Tidak
+[fasih-web 16:07:44]   [keg_penjualan] -> 1. Ya
+[fasih-web 16:07:44]   [lokasi_usaha] -> 4. Toko, ruko, dan sejenisnya
+[fasih-web 16:07:44]   [produk] = baju koko, sarung, peci
+[fasih-web 16:07:45]   [kbli_genai] -> Pilih dari Master KBLI
+[fasih-web 16:07:48]   KBLI dipilih: [G][47713]Perdagangan Eceran Perlengkapan Pakaian Kelompok ini mencakup perdagangan eceran
+[fasih-web 16:07:49]   [kategori] 13h terisi otomatis: 'G'
+[fasih-web 16:07:50] 13h Kategori Lapangan Usaha (auto) = 'G'
+[fasih-web 16:07:54]   [jaringan] -> 1. Tunggal
+[fasih-web 16:07:54]   [internet] -> 2. Tidak
+[fasih-web 16:07:54]   [produksi_lingkungan] -> 3. Tidak sama sekali
+[fasih-web 16:07:54]   [perlindungan_lingkungan] -> 2. Tidak
+[fasih-web 16:07:54]   [produk_seni] -> 2. Tidak
+[fasih-web 16:07:54]   19a: tidak dirender di form ini — dilewati.
+[fasih-web 16:07:54]   19c: tidak dirender di form ini — dilewati.
+[fasih-web 16:08:00] Rincian 20 (BPOM) tidak dirender utk kategori ini — dilewati.
+[fasih-web 16:08:00]   [mitra_kdkmp] -> 2. Tidak
+[fasih-web 16:08:01]   [peran_mbg] -> 5. Tidak terlibat MBG
+[fasih-web 16:08:01]   [barang_non_pddk] -> 2. Tidak
+[fasih-web 16:08:01]   [jasa_non_pddk] -> 2. Tidak
+[fasih-web 16:08:01]   [beli_jasa_non_pddk] -> 2. Tidak
+[fasih-web 16:08:01]   [tk_laki] = 1
+[fasih-web 16:08:01]   [tk_pr] = 0
+[fasih-web 16:08:01]   [tk_dibayar] = 0
+[fasih-web 16:08:01]   [tk_tdk_dibayar] = 1
+[fasih-web 16:08:01]   [tahun_operasi] = 2021
+[fasih-web 16:08:03]   [gaji] = 0
+[fasih-web 16:08:03]   [biaya_produksi] = 0
+[fasih-web 16:08:03]   [biaya_pembelian] = 3000000
+[fasih-web 16:08:03]   [operasional] = 2400000
+[fasih-web 16:08:03]   [non_operasional] = 0
+[fasih-web 16:08:03] 26f total pengeluaran (sheet) = 5,400,000
+[fasih-web 16:08:03]   [nilai_pendapatan] = 7000000
+[fasih-web 16:08:04]   [pendapatan_lain] = 0
+[fasih-web 16:08:08] 27d (persentase pendapatan online) tidak dirender — dilewati.
+[fasih-web 16:08:08]   [aset_usaha_thn] = 170000000
+[fasih-web 16:08:08]   [aset_lain_thn] = 3000000
+[fasih-web 16:08:08]   [luas_tanah_thn] = 120
+[fasih-web 16:08:08]   [pribadi] = 100
+[fasih-web 16:08:08]   [non_profit] = 0
+[fasih-web 16:08:08]   [publik] = 0
+[fasih-web 16:08:08]   [non_publik] = 0
+[fasih-web 16:08:08]   [pemerintah] = 0
+[fasih-web 16:08:08]   [asing] = 0
+[fasih-web 16:08:08] BLOK II selesai diisi.
+[fasih-web 16:08:09] Save diklik (ikon disket floating toolbar).
+[fasih-web 16:08:12] goto_section('KETERANGAN PEMBERI JAWABAN') -> True
+[fasih-web 16:08:12] Isi KETERANGAN PEMBERI JAWABAN ...
+[fasih-web 16:08:14]   [nama_info_list] -> Lainnya
+[fasih-web 16:08:14]   [persetujuan_responden] dicentang.
+[fasih-web 16:08:14] KETERANGAN PEMBERI JAWABAN selesai.
+[fasih-web 16:08:16] goto_section('CATATAN') -> True
+[fasih-web 16:08:16] Isi CATATAN ...
+[fasih-web 16:08:16]   [waktu_selesai] terisi: Waktu Selesai * 25 September 2026, 16:08:16 Perbarui Waktu H
+[fasih-web 16:08:16] CATATAN selesai (textarea Catatan sengaja dibiarkan kosong).
+[fasih-web 16:08:17] Save diklik (ikon disket floating toolbar).
+[fasih-web 16:08:21] Ringkasan: GALAT=0 PERINGATAN=1 CATATAN=0 KOSONG=24 JAWABAN=None
+[fasih-web 16:08:23] Submit: halaman pindah ke https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24 (redirect pasca-kirim).
+  -> TERKIRIM_BELUM_TERVERIFIKASI
+
+=== baris 127 — toko sepatu (ali alatas) (47712) — subsls 5108060006000110 ===
+[fasih-web 16:08:27] Opsi '[51]' outerHTML: <span class="f:truncate">[51] BALI</span>
+[fasih-web 16:08:27] Input 'Pilih PROVINSI' -> '[51] BALI'
+[fasih-web 16:08:27] Opsi '[08]' outerHTML: <span class="f:truncate">[08] BULELENG</span>
+[fasih-web 16:08:28] Input 'Pilih KABUPATEN/KOTA' -> '[08] BULELENG'
+[fasih-web 16:08:28] Opsi '[060]' outerHTML: <span class="f:truncate">[060] BULELENG</span>
+[fasih-web 16:08:28] Input 'Pilih KECAMATAN' -> '[060] BULELENG'
+[fasih-web 16:08:29] Opsi '[006]' outerHTML: <span class="f:truncate">[006] BANYUASRI</span>
+[fasih-web 16:08:29] Input 'Pilih DESA' -> '[006] BANYUASRI'
+[fasih-web 16:08:29] Opsi '[0001]' outerHTML: <span class="f:truncate">[0001] LINGKUNGAN I</span>
+[fasih-web 16:08:29] Input 'Pilih SLS' -> '[0001] LINGKUNGAN I'
+[fasih-web 16:08:30] Opsi '[10]' outerHTML: <span class="f:truncate">[10] LINGKUNGAN I</span>
+[fasih-web 16:08:30] Input 'Pilih SUBSLS' -> '[10] LINGKUNGAN I'
+[fasih-web 16:08:30] Wilayah Responden dipilih via kode idsubsls=5108060006000110 (nama referensi tidak ada di WILAYAH_BY_IDSUBSLS, tapi kode tetap dipilih).
+[fasih-web 16:08:30] Nama dokumen di modal = 'toko sepatu (ali alatas)'.
+[fasih-web 16:08:31] Dokumen baru 'toko sepatu (ali alatas)' dibuat & langsung terbuka: https://fasih-web.bps.go.id/survey/a0429e96-51a5-477b-a415-485f9c153004/fd68e454-ba45-4b85-8205-f3bf777ded24/6d9442f6-16ce-4eed-952c-d82b77c52a83/entry
+[fasih-web 16:08:33] Dokumen baru sudah terbuka langsung — lewati pencarian di list.
+[fasih-web 16:08:33] Dokumen 'toko sepatu (ali alatas)' terbuka: True (section aktif: PENGANTAR)
+[fasih-web 16:08:33] Isi PENGANTAR (Waktu Mulai + Waktu Kunjungan I) ...
+[fasih-web 16:08:34]   [mulai] terisi: Waktu Mulai 25 September 2026, 16:08:34
+[fasih-web 16:08:35]   [kunjungan_1] terisi: Waktu Kunjungan I 25 September 2026, 16:08:35 Perbarui Waktu
+[fasih-web 16:08:36] Pindah section: 'PENGANTAR' -> 'IDENTITAS WILAYAH'
+[fasih-web 16:08:36] Wilayah dokumen (BLOK I): {'prov': '[51] BALI', 'kab': '[08] BULELENG', 'kec': '[060] BULELENG', 'desa': '[006] BANYUASRI', 'kode_sls': '0002'}
+  -> STOP_WILAYAH_DOKUMEN_BEDA (wilayah dokumen BUKAN 5108060006000110: kode_sls='0002' | prov='[51] BALI'; kab='[08] BULELENG'; kec='[060] BULELENG'; desa='[006] BANYUASRI'; kode_sls='0002' | --izinkan-wilayah-beda tidak berlaku: dokumen BARU dibuat (berarti subsls salah dipilih, bukan sekadar wadah lain))
+
+⛔ STOP_WILAYAH_DOKUMEN_BEDA — batch DIHENTIKAN (akan berulang di baris berikutnya). Baca error_message di audit\audit_log_gabungan.csv & log_screenshots/.
+[fasih-web 16:08:36] Logout & bersihkan sesi ...
+[fasih-web 16:08:42] Tombol 'Keluar' di menu akun diklik.
+[fasih-web 16:08:42] Cookie SEMUA domain (termasuk sso.bps.go.id) + storage dibersihkan.
+ID dokumen ditulis ke kolom 'ID Dokumen FASIH' input_tahap2_22.xlsx: 1 baris
+
+Selesai. Audit: audit\audit_log_gabungan.csv
+Ringkasan run: 2 baris diproses, 0 dilewati, 73 belum sempat dikerjakan (dari 75 baris dalam rentang ini).
+Run BERHENTI di tengah — alasannya tercetak di atas & tersimpan di audit.

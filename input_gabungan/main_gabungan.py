@@ -609,13 +609,39 @@ def dokumen_asing(daftar: list[dict], id_tercatat: set, sejak: str = "") -> list
     return sorted(out, key=lambda x: x["waktu"], reverse=True)
 
 
-def sebut_dokumen_asing(sess, assignment_id: str, sejak: str = "") -> str:
-    """Kalimat "dokumen yang terbuat" utk error_message & laporan ("" kalau tidak ada
-    / list tidak terbaca). READ-ONLY: cuma membaca list API."""
+def dokumen_bernama_persis(daftar: list[dict], nama: str, id_tercatat: set, sejak: str = "") -> dict | None:
+    """Dokumen yang BOLEH diakui sbg milik baris bernama `nama` sesudah 'Buat Dokumen'
+    tampak gagal: di SELURUH list tepat satu dokumen ber-`data1` persis `nama` (spasi &
+    huruf besar diabaikan, sama spt sinkron_list), dan dokumen itu DRAFT, belum tercatat
+    di audit, dibuat pada/sesudah `sejak`. Selain itu None (tetap dicek manual).
+    Kasus 2026-09-25 baris 58: server tertahan "Memuat Halaman...", dokumen bernama
+    persis terbuat 54 dtk kemudian, tapi jumlah list naik 5 krn proses lain di akun yang
+    sama -> dulu DOKUMEN_TANPA_URL_PERLU_CEK padahal dokumennya jelas."""
+    kunci = " ".join((nama or "").split()).upper()
+    if not kunci:
+        return None
+    sama = [d for d in daftar if " ".join(str(d.get("data1") or "").split()).upper() == kunci]
+    if len(sama) != 1:
+        return None
+    kandidat = dokumen_asing(sama, id_tercatat, sejak)
+    return kandidat[0] if kandidat else None
+
+
+def baca_list_dokumen(sess, assignment_id: str) -> list[dict] | None:
+    """List API (READ-ONLY); None kalau tidak terbaca."""
     try:
-        daftar = sess.daftar_dokumen_api(assignment_id)
+        return sess.daftar_dokumen_api(assignment_id)
     except Exception as e:  # list tidak terbaca -> laporan tetap jalan, tanpa rincian
         sess._log(f"List dokumen tidak terbaca ({e}) — dokumen yang terbuat tidak bisa disebutkan.")
+        return None
+
+
+def sebut_dokumen_asing(sess, assignment_id: str, sejak: str = "", daftar: list[dict] | None = None) -> str:
+    """Kalimat "dokumen yang terbuat" utk error_message & laporan ("" kalau tidak ada
+    / list tidak terbaca). READ-ONLY: cuma membaca list API (kecuali `daftar` sudah dibaca)."""
+    if daftar is None:
+        daftar = baca_list_dokumen(sess, assignment_id)
+    if daftar is None:
         return ""
     asing = dokumen_asing(daftar, id_dokumen_tercatat(), sejak)
     if not asing:
@@ -714,6 +740,7 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
         #    diizinkan utk dokumen yang BARU dibuat (0% progres) — dokumen
         #    lama yang ketemu di list bisa sudah berisi (aturan keselamatan #2).
         sess.dokumen_url_terakhir = ""
+        diakui_dari_list = False
         if url_audit:
             tanda.append("dokumen SUDAH ADA sebelumnya (dibuka lewat URL audit, diisi ulang)")
             sess.buka_dokumen_url(url_audit, row.nama_dokumen)
@@ -743,7 +770,20 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
                     n_akhir = sess.jumlah_dokumen_list(assignment_id)
                     lebih = (kenaikan_tak_terjelaskan(n_awal, n_akhir, waktu_awal, row.kunci, akun_login)
                              if n_akhir is not None else None)
-                    if lebih is not None and lebih > 0:
+                    daftar = baca_list_dokumen(sess, assignment_id) if lebih is not None and lebih > 0 else None
+                    milik = dokumen_bernama_persis(daftar or [], row.nama_dokumen, id_dokumen_tercatat(),
+                                                   result.get("timestamp", ""))
+                    if milik:
+                        # Dokumen bernama PERSIS baris ini (satu-satunya di list, belum
+                        # tercatat) = 'Buat Dokumen' sebenarnya berhasil, server saja lambat.
+                        sess._log(f"'Buat Dokumen' tampak gagal, tapi list memuat tepat satu DRAFT bernama persis "
+                                  f"'{row.nama_dokumen}' ({milik['id']} @ {milik['waktu'] or '?'}) — dokumen itu dipakai.")
+                        tanda.append(f"'Buat Dokumen' tampak gagal; dokumen bernama persis {milik['id']} "
+                                     f"ditemukan di list & dipakai (jumlah list {n_awal} -> {n_akhir})")
+                        sess.dokumen_dibuat = True
+                        sess.dokumen_url_terakhir = url_entry(milik["id"], assignment_id)
+                        dibuat = diakui_dari_list = True
+                    elif lebih is not None and lebih > 0:
                         result["status"] = STATUS_TANPA_URL
                         result["error_message"] = (
                             f"'Buat Dokumen' tampak gagal tapi jumlah dokumen naik {n_awal} -> {n_akhir} "
@@ -751,10 +791,10 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
                             "tanpa URL tercatat. Cari DRAFT terbaru di list, catat URL-nya sbg DOKUMEN_DIBUAT "
                             "baris ini di audit, lalu jalankan ulang.")
                         result["error_message"] += " || " + sebut_dokumen_asing(
-                            sess, assignment_id, result.get("timestamp", ""))
+                            sess, assignment_id, result.get("timestamp", ""), daftar)
                         _tulis_tanda()
                         return result
-                    if lebih is not None and lebih <= 0:
+                    elif lebih is not None and lebih <= 0:
                         sess._log(f"Jumlah dokumen {n_awal} -> {n_akhir}, semua terjelaskan — aman diulang sekali.")
                         dibuat = sess.create_document(assignment_id, subsls_input, row.nama_dokumen,
                                                       nama_lama=row.nama_lama_dicari)
@@ -794,7 +834,10 @@ def process_one_row(sess: FasihWebSession, row: GabunganRow, cek: Pemeriksaan, d
                 return result
             if not dokumen_baru:
                 tanda.append("dokumen SUDAH ADA sebelumnya (diisi ulang)")
-            sess.open_entry_for(row.nama_dokumen, assignment_id, allow_retry_if_fresh=dokumen_baru)
+            if diakui_dari_list:
+                sess.buka_dokumen_url(sess.dokumen_url_terakhir, row.nama_dokumen)
+            else:
+                sess.open_entry_for(row.nama_dokumen, assignment_id, allow_retry_if_fresh=dokumen_baru)
         if "/entry" in sess.page.url:
             result["dokumen_url"] = sess.page.url
             catat_id(row, sess.page.url)

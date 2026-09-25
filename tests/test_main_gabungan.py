@@ -316,6 +316,29 @@ check("tanpa batas waktu: semua DRAFT tak tercatat ikut",
       sorted(d["id"] for d in mg.dokumen_asing(_list, set())), ["aaa", "bbb", "ddd"])
 check("dokumen yang ID-nya sudah tercatat di audit tidak dilaporkan",
       sorted(d["id"] for d in mg.dokumen_asing(_list, {"ddd", "bbb"})), ["aaa"])
+# --- 'Buat Dokumen' tampak gagal tapi dokumen bernama persis ada (2026-09-25 baris 58) ---
+_list_b = _list + [
+    {"id": "hp1", "data1": "Dagang Eceran  HP (Ketut Contoh)", "assignmentStatusAlias": "DRAFT",
+     "dateCreated": _iso("2026-09-23 23:14:00")},
+    {"id": "lain", "data1": "PEDAGANG BUMBU (I KETUT CONTOH)", "assignmentStatusAlias": "DRAFT",
+     "dateCreated": _iso("2026-09-23 23:14:05")},
+]
+check("satu DRAFT bernama persis (spasi/huruf besar diabaikan) -> diakui",
+      (mg.dokumen_bernama_persis(_list_b, "DAGANG ECERAN HP (KETUT CONTOH)", set(), "2026-09-23 23:10:00")
+       or {}).get("id"), "hp1")
+check("nama tidak ada -> tidak diakui",
+      mg.dokumen_bernama_persis(_list_b, "DAGANG ECERAN PULSA (KETUT CONTOH)", set(), ""), None)
+check("dua dokumen bernama sama -> tidak diakui (ganda, cek manual)",
+      mg.dokumen_bernama_persis(_list_b + [dict(_list_b[-2], id="hp2")],
+                                "Dagang Eceran HP (Ketut Contoh)", set(), ""), None)
+check("sudah tercatat di audit -> tidak diakui",
+      mg.dokumen_bernama_persis(_list_b, "Dagang Eceran HP (Ketut Contoh)", {"hp1"}, ""), None)
+check("dibuat sebelum baris mulai -> tidak diakui",
+      mg.dokumen_bernama_persis(_list_b, "Dagang Eceran HP (Ketut Contoh)", set(), "2026-09-23 23:20:00"), None)
+check("dokumen bernama sama tapi sudah terkirim -> tidak diakui",
+      mg.dokumen_bernama_persis(_list, "SUDAH KIRIM", set(), ""), None)
+check("nama kosong tidak pernah cocok dgn dokumen tanpa nama",
+      mg.dokumen_bernama_persis(_list, "", set(), ""), None)
 # --- 13c: alternatif kode 5 utk galat yang belum teratasi (ketetapan user 2026-09-23) ---
 class Ring:
     def __init__(self, galat):
