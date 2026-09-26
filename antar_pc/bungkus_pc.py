@@ -82,7 +82,7 @@ BERKAS_DIBUANG: list[tuple[str, str]] = [
 
 KELOMPOK_KECUALI = "--kecuali"
 # --kode-saja: data & pengaturan milik PC tujuan tidak ikut (extract tidak menimpanya).
-KECUALI_KODE_SAJA = ("audit", "bahan", "inti/config_lokal.py")
+KECUALI_KODE_SAJA = ("audit", "bahan", "inti/config_lokal.py", "gui/pengaturan.json*")
 
 
 def cocok_kecuali(rel: Path, kecuali: tuple[str, ...] | list[str]) -> bool:
@@ -189,7 +189,8 @@ def main(argv=None) -> int:
                     help="buang folder/berkas ini juga (boleh diulang; nama mis. 'audit' = folder audit/ di "
                          "mana pun, path relatif mis. 'bahan/lama', wildcard mis. '*.bak')")
     ap.add_argument("--kode-saja", action="store_true",
-                    help="HANYA kode/dokumen/templat: tanpa audit/, bahan/ & inti/config_lokal.py. Pakai utk "
+                    help="HANYA kode/dokumen/templat: tanpa audit/, bahan/, inti/config_lokal.py & "
+                         "gui/pengaturan.json. Pakai utk "
                          "memperbarui kode di PC yang masih punya pekerjaan (audit-nya tidak tertimpa)")
     args = ap.parse_args(argv)
 

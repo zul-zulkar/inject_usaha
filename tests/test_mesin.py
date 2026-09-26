@@ -669,7 +669,29 @@ with tempfile.TemporaryDirectory() as d:
         check("audit di akar (lokasi lama) menghentikan alat", "pindah_struktur.py" in str(e), True)
     lokasi.AUDIT_LOKASI_LAMA = lama
 
+# --paksa (2026-09-26): audit keliru (dokumen dipindah admin ke akun lain) -> dokumen dibuka lewat
+# ID sheet dulu, cadangan URL audit akun APA PUN; tanpa keduanya -> "" (dilewati, TIDAK dibuat baru).
+ID_A, ID_B = "0c3f7a82-6746-45d0-9420-02d76aab86d7", "c456bc23-218c-47f5-a262-c54e9dab86fd"
+url_b = mg.url_entry(ID_B, "periode-x")
+check("--paksa: ID sheet didahulukan atas URL audit",
+      mg.dokumen_paksa(ID_A, ("lama@gmail.com", "5108060006000224", url_b), "periode-x")[0],
+      mg.url_entry(ID_A, "periode-x"))
+check("--paksa: tanpa ID sheet -> URL audit walau akunnya lain",
+      mg.dokumen_paksa("", ("lama@gmail.com", "5108060006000224", url_b), "periode-x")[0], url_b)
+check("--paksa: catatan menyebut akun lama dari audit",
+      "lama@gmail.com" in mg.dokumen_paksa("", ("lama@gmail.com", "", url_b), "periode-x")[1], True)
+check("--paksa: tidak ada dokumen dikenal (audit tanpa URL / tak tercatat) -> kosong",
+      [mg.dokumen_paksa("", ("a@gmail.com", "", ""), "p"), mg.dokumen_paksa("", None, "p")], [("", ""), ("", "")])
 import subprocess  # noqa: E402
+keluaran_paksa = subprocess.run(
+    [sys.executable, "input_usaha/jalankan.py", "--sumber", "tidak_ada.xlsx", "--paksa",
+     "--akun-tunggal", "ppl.contoh@gmail.com", "--subsls-tunggal", "5108060006000224"],
+    capture_output=True, text=True, encoding="utf-8", errors="replace",
+    cwd=str(Path(__file__).resolve().parent.parent),
+    env={**os.environ, "FASIH_AUDIT": str(Path(tempfile.gettempdir()) / "audit_uji_paksa.csv")})
+check("--paksa tanpa --baris ditolak (kode 2) sebelum sheet dibaca",
+      (keluaran_paksa.returncode, "--paksa wajib bersama --baris" in keluaran_paksa.stderr), (2, True))
+
 keluaran = subprocess.run([sys.executable, "-c", "import input_usaha.mesin as mg; print(mg.AUDIT_LOG_PATH)"],
                           capture_output=True, text=True, cwd=str(Path(__file__).resolve().parent.parent),
                           env={**os.environ, "FASIH_AUDIT": "folder_uji/audit_env.csv"}).stdout.strip()

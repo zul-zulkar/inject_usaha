@@ -158,6 +158,8 @@ ALAT: list[dict] = [
             isian("urut_sheet", "centang", "Kerjakan murni urut baris sheet", "--urut-sheet", lanjutan=True),
             isian("coba_terkunci", "centang", "Coba lagi dokumen TERKUNCI (sesudah admin membukanya)",
                   "--coba-terkunci", lanjutan=True),
+            isian("paksa", "centang", "Paksa: abaikan keputusan audit utk baris terpilih (wajib isi Baris; "
+                  "dokumen dari ID sheet/URL audit, tidak pernah dibuat baru)", "--paksa", lanjutan=True),
             isian("paralel", "centang", "Berjalan paralel dgn batch lain (rentang tidak tumpang tindih)",
                   "--paralel", lanjutan=True),
             isian("per_baris", "centang", "Alur lama: dokumen per akun & subsls baris", "--per-baris", lanjutan=True),

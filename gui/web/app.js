@@ -70,7 +70,24 @@ function pyRepr(v) {
   return "{" + Object.entries(v).map(([k, x]) => `${JSON.stringify(k)}: ${pyRepr(x)}`).join(", ") + "}";
 }
 
+/** Salin teks (+ HTML bila ada). Cara pertama: event 'copy' + execCommand — sinkron, memasang
+ *  text/plain & text/html sekaligus, dan tetap jalan walau izin clipboard-write async ditolak.
+ *  HTML dipakai Excel (mso-number-format '@') supaya kode KBLI berawalan nol tidak hilang. */
+function salinLewatEvent(teks, html) {
+  let terpasang = false;
+  const f = (e) => {
+    e.clipboardData.setData("text/plain", teks);
+    if (html) e.clipboardData.setData("text/html", html);
+    e.preventDefault();
+    terpasang = true;
+  };
+  document.addEventListener("copy", f);
+  try { document.execCommand("copy"); } catch (e) { /* abaikan */ } finally { document.removeEventListener("copy", f); }
+  return terpasang;
+}
+
 async function salinKeClipboard(teks, html) {
+  if (salinLewatEvent(teks, html)) return html ? "lengkap" : "teks";
   if (html && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
     try {
       await navigator.clipboard.write([new ClipboardItem({

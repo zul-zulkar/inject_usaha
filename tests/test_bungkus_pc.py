@@ -19,7 +19,7 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 
 from pathlib import Path
 
-from antar_pc.bungkus_pc import alasan_dibuang
+from antar_pc.bungkus_pc import KECUALI_KODE_SAJA, alasan_dibuang
 
 gagal = 0
 
@@ -83,6 +83,15 @@ for path, kecuali, harap in (("audit/audit_log_gabungan.csv", ["audit"], "--kecu
                              ("audit/a.csv", ["audit\\"], "--kecuali"),          # garis miring Windows
                              ("audit/a.csv", [], "")):
     cek(f"{path} --kecuali {kecuali}", alasan_dibuang(Path(path), kecuali), harap)
+
+print("\n== --kode-saja (pengaturan milik PC tujuan tidak ikut, spt config_lokal.py) ==")
+for path, harap_biasa, harap_kode in (("inti/config_lokal.py", "", "--kecuali"),
+                                      ("gui/pengaturan.json", "", "--kecuali"),
+                                      ("gui/pengaturan.json.rusak-20260926-120000", "", "--kecuali"),
+                                      ("gui/hasil/isian_terakhir.json", "keluaran alat", "keluaran alat"),
+                                      ("gui/server.py", "", ""), ("gui/web/app.js", "", "")):
+    cek(f"{path} (zip biasa)", alasan_dibuang(Path(path)), harap_biasa)
+    cek(f"{path} (--kode-saja)", alasan_dibuang(Path(path), KECUALI_KODE_SAJA), harap_kode)
 
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)

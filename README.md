@@ -19,6 +19,7 @@ bisa menduplikasinya. Semua nilai milik Buleleng bisa diganti lewat `inti/config
 
 | Folder | Isi | Tutorial |
 | --- | --- | --- |
+| [`gui/`](gui/) | **GUI web lokal** untuk semua alat di bawah (klik dua kali `gui\buka_gui.bat`): pilih berkas, atur pengaturan, klik tombol | [README](gui/README.md) |
 | [`input_usaha/`](input_usaha/) | **Alat utama**: periksa sheet, buat & isi & kirim dokumen di fasih-web, sinkron, laporan progres | [README](input_usaha/README.md) |
 | [`approve_pml/`](approve_pml/) | Approve dokumen oleh akun PML (fasih-web) | [README](approve_pml/README.md) |
 | [`fasih_sm/`](fasih_sm/) | Alat Console fasih-sm: `ganti_moda`, `buka_wilayah`, `tandai_selesai`, `pindah_wilayah`, `hapus_ganda` | [README](fasih_sm/README.md) |

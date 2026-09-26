@@ -504,6 +504,22 @@ def dokumen_dari(baris: list[dict]) -> dict:
     return out
 
 
+def dokumen_paksa(id_sheet: str, tercatat: tuple | None, assignment_id: str) -> tuple[str, str]:
+    """--paksa: (url, catatan) dokumen yang dibuka TANPA mempercayai keputusan audit.
+    ID di kolom sheet didahulukan (audit bisa keliru, mis. 2026-09-26 dokumen dipindah
+    admin dari suliyanti ke windasariani tapi audit tetap mencatat akun lama -> baris
+    dilewati sbg "milik akun lain"), cadangannya URL terakhir di audit dgn akun APA PUN.
+    ("", "") = tidak ada dokumen yang dikenal -> baris dilewati; --paksa TIDAK PERNAH
+    membuat dokumen baru (ganda)."""
+    if id_sheet:
+        return url_entry(id_sheet, assignment_id), f"--paksa: dibuka lewat ID di sheet ({id_sheet[:8]})"
+    url = (tercatat or ("", "", ""))[2]
+    if url:
+        return url, (f"--paksa: dibuka lewat URL terakhir di audit ({id_dari_url(url)[:8]}, "
+                     f"tercatat akun {tercatat[0] or '?'})")
+    return "", ""
+
+
 def kunci_lain_bernama_sama(nama_dokumen: str, kunci: str, akun: str = "", audit: list | None = None) -> str:
     """Kunci baris LAIN yang dokumennya (akun `akun` kalau diisi) tercatat dgn nama dokumen
     yang sama persis, "" kalau tidak ada. Run 2026-09-15: Agenda2 baris 267 &
@@ -1346,6 +1362,13 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
     ap.add_argument("--coba-terkunci", action="store_true",
                     help="Kerjakan lagi baris berstatus DOKUMEN_TERKUNCI (bawaan: dilewati sbg tuntas, "
                          "karena UI membuktikan dokumennya read-only). Pakai setelah admin/PML membukanya.")
+    ap.add_argument("--paksa", action="store_true",
+                    help="Kerjakan baris --baris WALAU audit bilang sudah selesai / milik akun-subsls lain / "
+                         "tanpa URL (audit keliru, mis. dokumen dipindah admin ke akun lain). Dokumen dibuka "
+                         "lewat ID di sheet, cadangan URL terakhir di audit; baris tanpa dokumen yang dikenal "
+                         "DILEWATI (tidak pernah dibuat baru). Wajib bersama --baris; termasuk "
+                         "--izinkan-wilayah-beda. Jangan digabung --lewati-selesai (penyaring itu tetap "
+                         "jalan & memakai status audit).")
     ap.add_argument("--maks-tanpa-url", type=int, default=3,
                     help="Hentikan batch setelah N baris berstatus DOKUMEN_TANPA_URL_PERLU_CEK "
                          "(1 = perilaku lama: berhenti di kejadian pertama; 0 = jangan pernah berhenti). "
@@ -1394,6 +1417,12 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
     if args.dari is not None and args.sampai is not None and args.dari > args.sampai:
         print(f"❌ --dari {args.dari} lebih besar dari --sampai {args.sampai}.", file=sys.stderr)
         return 2
+    if args.paksa and not args.baris:
+        print("❌ --paksa wajib bersama --baris (baris yang dokumennya sudah Anda periksa di server): "
+              "keputusan audit diabaikan, jadi jangan dipakai utk satu rentang penuh.", file=sys.stderr)
+        return 2
+    if args.paksa:
+        mode += " | --PAKSA (keputusan audit diabaikan; dokumen dari ID sheet/URL audit, tidak pernah dibuat baru)"
     izinkan_tanpa_koordinat = koordinat_otomatis(args.koordinat, args.format)
     kirim_tanpa_koordinat = koordinat_dikirim(args.koordinat)
     mode += (" | koordinat OTOMATIS (tanpa koordinat -> DIKIRIM tanpa geotag)" if kirim_tanpa_koordinat
@@ -1470,7 +1499,14 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
     # Dokumen yang pernah dibuat utk baris ini dgn akun/subsls LAIN (mis. konfigurasi
     # diganti di tengah jalan) — membuat lagi di sini = duplikat. Lewati & laporkan.
     dokumen = dokumen_per_kunci()
-    di_tempat_lain = [r for r in rows if r.kunci in dokumen and not dokumen_milik_target(dokumen[r.kunci], r)]
+    if args.paksa:
+        tanpa_dok = [r for r in rows if not dokumen_paksa(r.id_dokumen, dokumen.get(r.kunci), args.assignment_id)[0]]
+        if tanpa_dok:
+            print(f"⛔ --paksa: {len(tanpa_dok)} baris tidak punya dokumen yang dikenal (ID sheet & URL audit kosong) "
+                  f"— dilewati, TIDAK dibuat baru: {', '.join(str(r.baris) for r in tanpa_dok[:20])}")
+            rows = [r for r in rows if r not in tanpa_dok]
+    di_tempat_lain = [] if args.paksa else [
+        r for r in rows if r.kunci in dokumen and not dokumen_milik_target(dokumen[r.kunci], r)]
     if di_tempat_lain:
         print(f"⛔ {len(di_tempat_lain)} baris sudah punya dokumen dgn akun/subsls lain di {AUDIT_LOG_PATH} — dilewati:")
         for r in di_tempat_lain[:10]:
@@ -1712,10 +1748,14 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
                     catatan_id = (f"ID di sheet ({row.id_dokumen[:8]}) BEDA dgn audit "
                                   f"({id_dari_url(url)[:8]}) — dipakai audit; periksa dokumen ganda")
                     print(f"  ⚠ {catatan_id}")
+                if args.paksa:
+                    url, catatan_id = dokumen_paksa(row.id_dokumen, tercatat, args.assignment_id)
+                    pernah_dibuat = True   # tanpa url: dicari di list, TIDAK PERNAH dibuat baru
+                    print(f"  {catatan_id or '--paksa: URL tidak dikenal lagi — dicari di list, tidak dibuat baru'}")
                 res = process_one_row(sess, row, hasil[row.baris], dry_run, args.assignment_id,
                                       subsls_input, akun_login, pernah_dibuat, url,
                                       mode_satu_list=satu_subsls and not args.paralel,
-                                      izinkan_wilayah_beda=args.izinkan_wilayah_beda,
+                                      izinkan_wilayah_beda=args.izinkan_wilayah_beda or args.paksa,
                                       kirim_tanpa_koordinat=kirim_tanpa_koordinat,
                                       catat_id=pencatat_id.catat)
                 if catatan_id:
@@ -1737,9 +1777,9 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
                           "Hapus file itu sebelum menjalankan ulang.")
                     berhenti = True
                     break
-                alasan = alasan_lewati_saat_giliran(row.kunci, target(row), tuntas_audit,
-                                                    row.nama_dokumen if satu_subsls else "",
-                                                    row.punya_koordinat, id_sheet=row.id_dokumen)
+                alasan = "" if args.paksa else alasan_lewati_saat_giliran(
+                    row.kunci, target(row), tuntas_audit, row.nama_dokumen if satu_subsls else "",
+                    row.punya_koordinat, id_sheet=row.id_dokumen)
                 if alasan:
                     print(f"\n=== baris {row.baris} — dilewati: {alasan} ===")
                     n_lewati += 1
