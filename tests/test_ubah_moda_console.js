@@ -3,7 +3,7 @@
 // Jalankan: node tests/test_ubah_moda_console.js
 "use strict";
 const path = require("path");
-const m = require(path.join(__dirname, "..", "ganti_moda", "ubah_moda_console.js"));
+const m = require(path.join(__dirname, "..", "fasih_sm", "ganti_moda", "ubah_moda_console.js"));
 
 let okAll = true;
 function check(label, got, want) {

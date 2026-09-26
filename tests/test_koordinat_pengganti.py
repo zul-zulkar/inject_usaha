@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
-from input_gabungan.rencana_ubah_wilayah import peta_dari_fitur  # noqa: E402
+from koordinat.peta import peta_dari_fitur  # noqa: E402
 from koordinat.koordinat_pengganti import (  # noqa: E402
     Jalan, TitikListing, baca_koordinat, dms_tanpa_simbol, kunci_kelompok, meter, pilih_subsls, rencana,
 )

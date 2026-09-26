@@ -2,7 +2,7 @@
 // Jalankan: node tests/test_buka_wilayah_console.js
 "use strict";
 const path = require("path");
-const m = require(path.join(__dirname, "..", "buka_wilayah", "buka_wilayah_console.js"));
+const m = require(path.join(__dirname, "..", "fasih_sm", "buka_wilayah", "buka_wilayah_console.js"));
 
 let okAll = true;
 function check(label, got, want) {

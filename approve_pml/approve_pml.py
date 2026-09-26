@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 approve_pml.py — Approve (oleh PML/Pengawas) dokumen SE2026 yang sudah dikirim PPL
-lewat main_gabungan.py. Dipetakan langsung 2026-09-15 (akun PML pml.dua, PPL ppl.contoh).
+lewat input_usaha/jalankan.py. Dipetakan langsung 2026-09-15 (akun PML pml.dua, PPL ppl.contoh).
 
 YANG SUDAH DILIHAT DI fasih-web (akun Pengawas)
 ----------------------------------------------
@@ -48,9 +48,9 @@ Tiap dokumen tetap wajib createdBy/updatedBy = Email PPL BARIS ITU.
    --limit berlaku PER PML. Login PML gagal -> PML itu dilewati (ERROR_LOGIN_PML), lanjut PML
    berikutnya; STOP_* / 3 ERROR beruntun menghentikan SELURUH run (anomali UI/VPN).
    ⚠️ Dry-run 2026-09-15: 765/768 dokumen file SQL Lab = CAPI -> SKIP_TIDAK_ADA_AKSES (web-entry
-   hanya membuka dokumen PAPI). Dokumen hasil main_gabungan (PAPI) aman.
+   hanya membuka dokumen PAPI). Dokumen hasil input_usaha (PAPI) aman.
 
-LANGKAH — MULTI PML, target dari ekspor tabel Data fasih-sm (--daftar submit.xlsx, 2026-09-15)
+LANGKAH — MULTI PML, target dari ekspor tabel Data fasih-sm (--daftar bahan/submit.xlsx, 2026-09-15)
 --------------------------------------------------------------------------------------------
 File = salinan tabel list fasih-sm (Kode Identitas, Nama, ..., Status, Mode, Petugas Saat Ini).
 Header-nya BERGESER, jadi kolom dibaca lewat JANGKAR sel "PAPI"/"CAPI": sel sebelumnya = Status,
@@ -59,17 +59,17 @@ File tidak memuat id dokumen & email PPL: per PML, list PENDATAAN dicari per sub
 awal kode) lalu codeIdentity dicocokkan PERSIS -> id; item harus bermode PAPI & petugas saat
 ini = PML itu. createdBy/updatedBy TIDAK dicek (tidak ada PPL di file) tapi dicatat di kolom
 akun_ppl audit. Kode yang terakhir APPROVED_TERVERIFIKASI/SUDAH_APPROVED di audit dilewati.
-   0. Rencana saja, tanpa browser:     python approve_pml/approve_pml.py --daftar submit.xlsx --cek
-   1. Dry-run semua PML:               python approve_pml/approve_pml.py --daftar submit.xlsx
-   2. 1 dokumen PER PML dulu:          ... --daftar submit.xlsx --eksekusi --limit 1
-   3. Sisanya:                         ... --daftar submit.xlsx --eksekusi
+   0. Rencana saja, tanpa browser:     python approve_pml/approve_pml.py --daftar bahan/submit.xlsx --cek
+   1. Dry-run semua PML:               python approve_pml/approve_pml.py --daftar bahan/submit.xlsx
+   2. 1 dokumen PER PML dulu:          ... --daftar bahan/submit.xlsx --eksekusi --limit 1
+   3. Sisanya:                         ... --daftar bahan/submit.xlsx --eksekusi
    --akun-pml / --limit / --abaikan-audit-approve sama dgn --rencana.
 
-Login (sama dgn main_gabungan): tiap PML = browser context BARU (cookie SSO kosong), login
+Login (sama dgn input_usaha): tiap PML = browser context BARU (cookie SSO kosong), login
 otomatis dgn FIXED_PASSWORD (inti/config_lokal.py) — diulang maks 3x utk gangguan
 transien, akun salah tidak diulang — lalu akun aktif WAJIB terbaca = PML itu. Selesai satu PML:
 logout + tutup context. Satu PML saja / --login-manual: sesi disimpan di
-.sesi_fasih_web_<akun>.json (.gitignore) & dipakai ulang tanpa logout, supaya run berikutnya
+approve_pml/hasil/.sesi_fasih_web_<akun>.json & dipakai ulang tanpa logout, supaya run berikutnya
 tidak perlu login lagi. --login-manual = tunggu manusia login di jendela browser.
 """
 from __future__ import annotations
@@ -85,6 +85,7 @@ from pathlib import Path
 
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from inti import lokasi
 from inti.config import (ASSIGNMENT_ID_GABUNGAN, FASIH_WEB_BASE, FASIH_WEB_LOGIN_URL, FIXED_PASSWORD, L,
                          SEL, SURVEY_ID)
 
@@ -95,11 +96,11 @@ for _stream in (sys.stdout, sys.stderr):
         except Exception:
             pass
 
-AUDIT_GABUNGAN = Path(_os.environ.get("FASIH_AUDIT") or "./audit_log_gabungan.csv")   # sama dgn main_gabungan
-AUDIT_APPROVE = Path("./audit_approve_pml.csv")
+AUDIT_GABUNGAN = lokasi.audit_dari_lingkungan()   # sama dgn input_usaha/mesin.py; --audit menimpa
+AUDIT_APPROVE = lokasi.AUDIT_APPROVE              # audit/audit_approve_pml.csv
 AUDIT_FIELDS = ["timestamp", "akun_pml", "akun_ppl", "id", "baris", "kunci", "nama", "sumber",
                 "status_sebelum", "status", "pesan", "dokumen_url"]
-LOG_DIR = Path("./log_approve")
+HASIL = lokasi.HASIL_APPROVE                      # approve_pml/hasil/: screenshot & sesi login
 API_DETAIL = "/api/assignment-general/api/assignment/web-entry/get-by-id-with-data?id="
 
 ST_SIAP = "SIAP_APPROVE"
@@ -426,7 +427,7 @@ def baca_csv(path: Path) -> list[dict]:
 
 def append_audit(row: dict):
     baru = not AUDIT_APPROVE.exists()
-    with AUDIT_APPROVE.open("a", newline="", encoding="utf-8") as f:
+    with lokasi.siapkan(AUDIT_APPROVE).open("a", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=AUDIT_FIELDS)
         if baru:
             w.writeheader()
@@ -542,7 +543,7 @@ def pastikan_login(sess, akun: str, manual: bool, file_sesi: Path | None):
     """Pakai sesi tersimpan kalau masih hidup & akunnya benar; kalau tidak, login.
     Cookie sesi (SSO & fasih-web tanpa tanggal kedaluwarsa -> TIDAK disimpan profil
     Chromium, terbukti 2026-09-15) disimpan di `file_sesi` & dipasang ulang saat mulai.
-    file_sesi None = langsung login di context baru (multi PML, seperti main_gabungan)."""
+    file_sesi None = langsung login di context baru (multi PML, seperti input_usaha)."""
     akun = akun.lower()
     ctx = sess.page.context
     if file_sesi and file_sesi.exists():
@@ -598,7 +599,7 @@ def simpan_sesi(sess, file_sesi: Path | None):
 
 
 def mulai_sesi_pml(browser, akun: str, manual: bool, file_sesi: Path | None):
-    """Seperti main_gabungan: context BARU (cookie SSO kosong -> tidak mungkin tembus sbg PML
+    """Seperti input_usaha: context BARU (cookie SSO kosong -> tidak mungkin tembus sbg PML
     sebelumnya), login dgn FIXED_PASSWORD & verifikasi akun. Gangguan transien (goto timeout,
     "Execution context was destroyed") diulang maks LOGIN_PERCOBAAN x dgn jeda LOGIN_JEDA_DTK;
     akun salah & login manual TIDAK diulang. -> (ctx, sess); context sudah ditutup kalau melempar."""
@@ -904,7 +905,15 @@ def main() -> int:
                          "audit; tetap wajib createdBy/updatedBy = akun PPL")
     ap.add_argument("--login-manual", action="store_true", help="tunggu manusia login di jendela browser (tiap PML)")
     ap.add_argument("--maks-error-beruntun", type=int, default=3)
+    ap.add_argument("--audit", default="", metavar="BERKAS",
+                    help="audit input (default audit/audit_log_gabungan.csv; folder -> <folder>/audit_log_gabungan.csv)")
     args = ap.parse_args()
+    lokasi.cek_struktur_lama()
+    global AUDIT_GABUNGAN
+    if args.audit:
+        AUDIT_GABUNGAN = lokasi.jalur_audit(args.audit)
+    from inti import fasih_web as _fw
+    _fw.SCREENSHOT_DIR = HASIL / "log_screenshots"
     pml_dipilih = [a.strip().lower() for s in args.akun_pml for a in s.split(",") if a.strip()]
     akun_ppl = (args.akun_ppl or "").strip().lower()
 
@@ -981,7 +990,7 @@ def main() -> int:
 
 
 def tutup_sesi_pml(ctx, sess, logout: bool):
-    """Akhiri sesi satu PML. Multi PML (seperti main_gabungan): logout UI + hapus cookie SEMUA domain
+    """Akhiri sesi satu PML. Multi PML (seperti input_usaha): logout UI + hapus cookie SEMUA domain
     (termasuk sso.bps.go.id), lalu tutup context. Satu PML / login manual: tanpa logout supaya sesi
     tersimpan tetap bisa dipakai run berikutnya."""
     if logout and sess is not None:
@@ -1003,11 +1012,11 @@ def jalankan_semua_pml(browser, kelompok: list[tuple[str, list[dict]]], args, au
     hitung: Counter = Counter()
     kode = 0
     # Satu PML / login manual: sesi disimpan & dipakai ulang (tanpa logout). Multi PML: seperti
-    # main_gabungan — login FIXED_PASSWORD di context baru, logout + tutup context di akhir tiap PML.
+    # input_usaha — login FIXED_PASSWORD di context baru, logout + tutup context di akhir tiap PML.
     pakai_sesi = len(kelompok) == 1 or args.login_manual
     for k, (akun_pml, target) in enumerate(kelompok, start=1):
         print(f"\n===== PML {k}/{len(kelompok)}: {akun_pml} — {len(target)} dokumen =====", flush=True)
-        file_sesi = Path(f".sesi_fasih_web_{slug_akun(akun_pml)}.json") if pakai_sesi else None
+        file_sesi = lokasi.siapkan(HASIL / f".sesi_fasih_web_{slug_akun(akun_pml)}.json") if pakai_sesi else None
         try:
             ctx, sess = mulai_sesi_pml(browser, akun_pml, args.login_manual, file_sesi)
         except Exception as e:

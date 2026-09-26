@@ -1,19 +1,13 @@
 """
-gabungan_loader.py — Baca FORMAT STANDAR input usaha (input_usaha.xlsx, tab
-"input_usaha"; nama lama: Agenda.xlsx, tab "gabungan") sbg sumber input, lalu periksa kelayakan tiap baris TANPA browser
-& TANPA VPN.
+gabungan_loader.py — DASAR pembaca & pemeriksa baris usaha: GabunganRow, periksa_semua,
+OPSI_FORM (opsi form dikutip dari dump DOM), aturan nama dokumen / alamat / koordinat / HP / NIK.
+Dipakai format input usaha yang sekarang jadi standar tunggal (inti/tahap2_loader.py membangun
+Tahap2Row di atas GabunganRow), plus pembaca format LAMA Agenda (92 kolom, tab "gabungan" /
+"input_usaha"; hanya lewat --format agenda) — nama modul ini berasal dari format lama itu.
 
-Format ini berlaku utk JENIS USAHA APA PUN (satu baris = satu usaha = satu
-dokumen; kolom = jawaban final per rincian SE2026-L BLOK II). Awalnya dibuat
-utk pangkalan gas LPG & faskes — nama tab lama "gabungan" berasal dari situ.
-Rincian yang hanya muncul utk jenis usaha tertentu (13d/13e produksi, 19
-halal, 20 BPOM, 13f) berupa kolom OPSIONAL (KOLOM_OPSIONAL). Spesifikasi &
-templat: docs/FORMAT_STANDAR_INPUT_USAHA.md, templates/input_usaha.contoh.xlsx.
-
-Beda mendasar dgn data_loader.py (backlog salin dokumen sumber):
-- Setiap kolom sheet ini SUDAH jawaban final per rincian form. Tidak ada
-  kalkulasi 10%, tidak ada file export fasih-sm, tidak ada aturan pekerja
-  <=3 / override aset 0 — angka diketik APA ADANYA.
+Prinsip (kedua format):
+- Setiap kolom sheet SUDAH jawaban final per rincian form — angka diketik APA ADANYA
+  (penggantian nilai hanya lewat aturan TAHAP2_* yang tercatat di review_disarankan).
 - Tidak ada kolom No/assignment_id. Identitas baris = `kunci` (hash akun
   PPL + idsubsls + nama dokumen), stabil walau urutan sheet berubah.
 
@@ -421,7 +415,7 @@ KEY_27 = ("nilai_pendapatan", "pendapatan_lain")
 KEY_28 = ("aset_usaha_thn", "aset_lain_thn", "luas_tanah_thn")
 KEY_29 = ("pribadi", "non_profit", "publik", "non_publik", "pemerintah", "asing")
 
-# Jalur yang di-hardcode fasih_web.py / main_gabungan.py. Baris yang meminta
+# Jalur yang di-hardcode fasih_web.py / input_usaha/jalankan.py. Baris yang meminta
 # nilai lain butuh alur berbeda (mis. rincian 9 kalau SLS berubah), jadi
 # di-skip — bukan diam-diam diisi dgn nilai hardcode.
 NILAI_TETAP: dict[str, tuple] = {

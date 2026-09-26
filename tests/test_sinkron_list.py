@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
-import input_gabungan.main_gabungan as mg
-from input_gabungan.sinkron_list import (STATUS_DRAFT_SERVER, id_dari_url, rencana_sinkron,
+import input_usaha.mesin as mg
+from input_usaha.sinkron_list import (STATUS_DRAFT_SERVER, id_dari_url, rencana_sinkron,
                                         status_server, url_entry)
 from inti.gabungan_loader import GabunganRow
 
@@ -147,7 +147,7 @@ check("status_server", [status_server(s) for s in ("DRAFT", "SUBMITTED BY Pencac
 # --- draft yang DITANDAI GALAT server: audit harus tahu supaya dikerjakan lagi ---
 # Tanpa ini, draft tanpa koordinat dianggap tuntas sementara oleh --lewati-selesai
 # dan galatnya tidak pernah dibereskan (laporan user 2026-09-23).
-from input_gabungan.sinkron_list import STATUS_DRAFT_GALAT  # noqa: E402
+from input_usaha.sinkron_list import STATUS_DRAFT_GALAT  # noqa: E402
 
 d_galat = dict(doc("id-galat", "APOTEK G (I MADE)", "DRAFT"), sumError=3, sumClean=18)
 r_galat = row(8, "APOTEK G")

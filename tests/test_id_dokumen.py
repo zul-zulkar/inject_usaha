@@ -14,9 +14,9 @@ os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak berg
 
 import openpyxl  # noqa: E402
 
-import input_gabungan.main_gabungan as mg  # noqa: E402
-from input_gabungan.sinkron_list import rencana_sinkron, url_entry  # noqa: E402
-from input_gabungan.tulis_id_sumber import rencana_id  # noqa: E402
+import input_usaha.mesin as mg  # noqa: E402
+from input_usaha.sinkron_list import rencana_sinkron, url_entry  # noqa: E402
+from input_usaha.tulis_id_sumber import rencana_id  # noqa: E402
 from inti import id_dokumen as idd  # noqa: E402
 from inti.gabungan_loader import KOLOM, GabunganRow, Pemeriksaan, _cari_indeks  # noqa: E402
 from inti.tahap2_loader import KOLOM_TAHAP2, KOLOM_TAHAP2_TAMBAHAN, _indeks_tahap2  # noqa: E402

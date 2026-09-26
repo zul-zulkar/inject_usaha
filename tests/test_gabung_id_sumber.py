@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Uji gabung_audit/gabung_id_sumber.py (satukan kolom ID dokumen sheet sumber
+"""Uji antar_pc/gabung_id_sumber.py (satukan kolom ID dokumen sheet sumber
 dari beberapa PC) — offline, data fiktif.
 Jalankan: python tests/test_gabung_id_sumber.py
 """
@@ -15,7 +15,7 @@ os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak berg
 
 import openpyxl  # noqa: E402
 
-from gabung_audit import gabung_id_sumber as gis  # noqa: E402
+from antar_pc import gabung_id_sumber as gis  # noqa: E402
 from inti import id_dokumen as idd  # noqa: E402
 
 ok_all = True
@@ -152,8 +152,8 @@ with tempfile.TemporaryDirectory() as d:
 # --- SATU folder utk audit & sheet bahan, satu subfolder per PC (berkas disalin apa adanya) ---
 import csv  # noqa: E402
 
-import input_gabungan.main_gabungan as mg  # noqa: E402
-from gabung_audit import gabung_audit as ga  # noqa: E402
+import input_usaha.mesin as mg  # noqa: E402
+from antar_pc import gabung_audit as ga  # noqa: E402
 
 with tempfile.TemporaryDirectory() as d:
     d = Path(d)

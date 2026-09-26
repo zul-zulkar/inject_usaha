@@ -8,7 +8,7 @@ dokumen (segmen URL entry, UUID) tidak pernah berubah, jadi ia ditulis ke kolom
 `JUDUL_ID` di baris sheet itu sendiri begitu dokumen dibuat/dibuka, dan dibaca
 lagi di run berikutnya:
 
-- main_gabungan: baris ber-ID yang tidak dikenali audit dibuka lewat URL ID itu,
+- input_usaha: baris ber-ID yang tidak dikenali audit dibuka lewat URL ID itu,
   TIDAK PERNAH dibuat baru;
 - sinkron_list: dokumen server dicocokkan lewat ID dulu, baru nama.
 
@@ -158,7 +158,7 @@ class PencatatIdSumber:
         self.beres: dict[int, str] = {}   # baris -> ID yang sudah ada di sel (tidak perlu ditulis lagi)
         self._pesan_tunda = 0.0
 
-    # --- dipanggil main_gabungan ---
+    # --- dipanggil input_usaha ---
     def catat(self, row, url_atau_id: str) -> None:
         try:
             i = id_dari_teks(url_atau_id)
@@ -205,7 +205,7 @@ class PencatatIdSumber:
         teks = f"ID dokumen ditulis ke kolom '{JUDUL_ID}' {self.path.name}: {self.tertulis} baris"
         if self.tertunda:
             teks += (f"; {len(self.tertunda)} baris TERTUNDA (berkas terkunci?) — tutup Excel lalu jalankan "
-                     f"input_gabungan/tulis_id_sumber.py --sumber {self.path} --tulis")
+                     f"input_usaha/tulis_id_sumber.py --sumber {self.path} --tulis")
         return teks
 
     # --- dalaman ---

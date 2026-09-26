@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
-import input_gabungan.main_gabungan as mg  # noqa: E402
-from gabung_audit.gabung_audit import (  # noqa: E402
+import input_usaha.mesin as mg  # noqa: E402
+from antar_pc.gabung_audit import (  # noqa: E402
     agregat, gabung, id_dokumen, kelompok_status, periksa_bentrok, ringkas_per_kunci,
 )
 
@@ -135,8 +135,8 @@ check("nilai kosong tidak hilang dari rekap",
       ["(kosong)"])
 
 # --- bersihkan_error: tindakan per jenis masalah ---
-from gabung_audit.bersihkan_error import klasifikasi, perintah, ringkas_baris  # noqa: E402
-from gabung_audit.gabung_audit import kelompok_status  # noqa: E402
+from input_usaha.bersihkan_error import klasifikasi, perintah, ringkas_baris  # noqa: E402
+from antar_pc.gabung_audit import kelompok_status  # noqa: E402
 
 
 def rec(status, **lain):
@@ -190,11 +190,11 @@ check("nomor baris diringkas jadi rentang", ringkas_baris([9, 2, 3, 4, 11, 10]),
 check("satu nomor tetap tunggal", ringkas_baris([7]), "7")
 check("tahap 2 memakai entry point-nya sendiri",
       perintah("tahap2", "bahan/input_tahap2.xlsx", "a@x.com", "51080", [3, 4]),
-      "python input_tahap2/main_tahap2.py --sumber bahan/input_tahap2.xlsx --akun-tunggal a@x.com "
+      "python input_usaha/jalankan.py --sumber bahan/input_tahap2.xlsx --akun-tunggal a@x.com "
       "--subsls-tunggal 51080 --baris 3-4 --lewati-selesai --submit")
-check("format standar & --tanpa-submit",
+check("format agenda (nama lama 'standar') & --tanpa-submit",
       perintah("standar", "Agenda.xlsx", "a@x.com", "51080", [3], submit=False),
-      "python input_gabungan/main_gabungan.py --sumber Agenda.xlsx --akun-tunggal a@x.com "
+      "python input_usaha/jalankan.py --sumber Agenda.xlsx --format agenda --akun-tunggal a@x.com "
       "--subsls-tunggal 51080 --baris 3 --lewati-selesai")
 
 check("DRAFT_GALAT_DI_SERVER masuk kelompok DRAFT", kelompok_status("DRAFT_GALAT_DI_SERVER"), "DRAFT")
@@ -202,7 +202,7 @@ check("draft bergalat -> ULANGI lewat URL",
       klasifikasi(rec("DRAFT_GALAT_DI_SERVER", dokumen_url=URL1), False)[0], "ULANGI")
 
 # --- rangkum_audit: progres per BARIS sheet & alasan run tidak mengerjakan apa-apa ---
-from gabung_audit.rangkum_audit import kelompok_baris, rangkum  # noqa: E402
+from input_usaha.rangkum_audit import kelompok_baris, rangkum  # noqa: E402
 from inti.gabungan_loader import GabunganRow, Pemeriksaan  # noqa: E402
 
 AKUN_R, SUBSLS_R = "a@mail.com", "5108060006000224"
@@ -254,7 +254,7 @@ check("rekap kelompok", dict(kel_r), {"BELUM DISENTUH": 1, "TERKIRIM": 1,
 check("baris yang dikerjakan tidak punya alasan", alasan_r[""], 1)
 
 # --- rangkum_audit: rekap BELUM TUNTAS & ERROR ---
-from gabung_audit.rangkum_audit import daftar_baris, rekap_baris  # noqa: E402
+from input_usaha.rangkum_audit import daftar_baris, rekap_baris  # noqa: E402
 
 check("terkirim & server setuju -> tuntas", rekap_baris("TERKIRIM_TERVERIFIKASI", True, "SUBMITTED BY Pencacah"), "")
 check("audit terkirim tapi server DRAFT", rekap_baris("TERKIRIM_TERVERIFIKASI", True, "DRAFT"), "SERVER_DRAFT")
@@ -297,7 +297,7 @@ check("daftar baris panjang dipotong di koma + sisanya",
       "(+89 baris lagi — kolom 'rekap' di CSV)")
 
 # --- daftar ganda & usulan (kasus kembar dgn putuskanGrup di tests/test_hapus_ganda_console.js) ---
-from gabung_audit.gabung_audit import daftar_ganda, peringkat_status, usulan_grup  # noqa: E402
+from antar_pc.gabung_audit import daftar_ganda, peringkat_status, usulan_grup  # noqa: E402
 
 check("peringkat status", [peringkat_status(x) for x in ("APPROVED BY Pengawas", "SUBMITTED BY Pencacah",
                                                           "REJECTED BY Pengawas", "DRAFT", "OPEN", "")],
@@ -372,7 +372,7 @@ luar = daftar_ganda(audit_d, {I2: "SUBMITTED BY Pencacah", I3: "DRAFT", "4444444
 check("dokumen server bernama sama di luar audit masuk grup barisnya",
       [r["di_luar_audit"] for r in luar if r["id_dokumen"].startswith("4444")], ["ya"])
 
-from hapus_ganda.hapus_ganda import target_dari_ganda, tulis_console  # noqa: E402
+from fasih_sm.hapus_ganda.hapus_ganda import target_dari_ganda, tulis_console  # noqa: E402
 t = target_dari_ganda(g)
 check("TARGET Console", [(x["g"], [d["id"] for d in x["d"]], [d["c"] for d in x["d"]]) for x in t],
       [("k1", [I1, I2], [False, True])])
@@ -388,7 +388,7 @@ check("siap.js: penanda terisi", ("/*__TARGET__*/[]" in _teks, "__SURVEI__*/\"\"
       (False, False, True))
 
 # --- hapus_ganda --catat: arahkan audit ke dokumen yang dipertahankan ---
-from hapus_ganda.hapus_ganda import rencana_catat  # noqa: E402
+from fasih_sm.hapus_ganda.hapus_ganda import rencana_catat  # noqa: E402
 hapus_r = [{"id": I2, "status": "DIHAPUS_TERVERIFIKASI", "grup": "k1", "baris": "5", "alias": "SUBMITTED BY Pencacah",
             "dipertahankan": I1, "alias_dipertahankan": "SUBMITTED BY Pencacah", "akun_dipertahankan": "a@mail.com",
             "subsls_dipertahankan": "5108060006000224"}]

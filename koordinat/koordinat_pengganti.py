@@ -45,6 +45,7 @@ import re  # noqa: E402
 from collections import Counter, defaultdict  # noqa: E402
 from pathlib import Path  # noqa: E402
 
+from inti import lokasi  # noqa: E402
 from inti.config import JALAN_PATH, PETA_SLS_PATH, TAHAP2_KOTAK_KOORDINAT, TITIK_LISTING_PATH  # noqa: E402
 
 for _stream in (_sys.stdout, _sys.stderr):
@@ -55,7 +56,7 @@ for _stream in (_sys.stdout, _sys.stderr):
             pass
 
 DERAJAT = "°"
-HASIL_DIR = Path("koordinat/hasil")
+HASIL_DIR = lokasi.hasil("koordinat")
 GESER_M = (5.0, 15.0)
 
 
@@ -261,7 +262,7 @@ def titik_acak(idsubsls: str, peta, listing: TitikListing | None, jalan: Jalan |
     """(lat, lon, sumber) acak di dalam poligon subsls. Urutan: titik listing dekat
     jalan -> titik listing -> titik di tepi ruas jalan di poligon -> titik bebas di
     poligon. None kalau subsls tidak ada di peta."""
-    from input_gabungan.rencana_ubah_wilayah import _dalam_poligon
+    from koordinat.peta import _dalam_poligon
     s = peta.sls.get(idsubsls)
     if s is None:
         return None
@@ -306,7 +307,7 @@ def rencana(baris: list[dict], peta, listing=None, jalan=None, batas_m: float = 
             jarak_jalan_m: float = 50.0, kotak=TAHAP2_KOTAK_KOORDINAT) -> list[dict]:
     """baris: [{baris, idsubsls, pemilik, alamat, lat_mentah, lon_mentah}] ->
     [{...masukan, lat, lon, sumber, jarak_asli_m, kelompok, subsls_koordinat}] sejajar."""
-    from input_gabungan.rencana_ubah_wilayah import _dalam_poligon
+    from koordinat.peta import _dalam_poligon
     dikabupaten = (lambda la, lo: kotak is None or (kotak[0] <= la <= kotak[1] and kotak[2] <= lo <= kotak[3]))
 
     def jarak(idsubsls, la, lo):
@@ -546,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
             print("❌ Isi JALAN_PATH di inti/config_lokal.py atau --jalan <berkas.json>.")
             return 2
         unduh_jalan(Path(args.jalan))
-    from input_gabungan.rencana_ubah_wilayah import muat_peta
+    from koordinat.peta import muat_peta
     sumber = Path(args.sumber)
     keluaran = Path(args.keluaran) if args.keluaran else HASIL_DIR / f"{sumber.stem}_koordinat.xlsx"
     if keluaran.resolve() == sumber.resolve():

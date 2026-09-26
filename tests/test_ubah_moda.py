@@ -10,7 +10,7 @@ import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
 from inti.gabungan_loader import GabunganRow, Pemeriksaan
-from ganti_moda.ubah_moda import (
+from fasih_sm.ganti_moda.ubah_moda import (
     STATUS_BERHENTI_SEGERA, STATUS_TUNTAS_LIVE, BarisAssignment, Berhenti, Target, angka_item_menu, bangun_target,
     baca_daftar, baris_dari_tabel, dialog_sesuai, diulang_per_subsls, jeda_cek_verifikasi, jeda_rate_limit,
     masih_tuntas, normalisasi_kode, pilih_tombol_konfirmasi, pola_item_ganti_mode, putuskan_verifikasi, rencanakan,
@@ -292,7 +292,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # file siap-tempel memuat arah per target (Console menolak jalan ke arah lain)
     import json
     import re as _re
-    import ganti_moda.ubah_moda as um
+    import fasih_sm.ganti_moda.ubah_moda as um
     um_siap_lama = um.KONSOL_SIAP
     um.KONSOL_SIAP = Path(tmp) / "siap.js"
     try:

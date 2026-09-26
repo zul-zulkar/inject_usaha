@@ -1,0 +1,4 @@
+# Daftar akun PPL untuk reset_mitra.py --daftar: satu email per baris, '#' = komentar.
+# Kunci cocok di manajemen-mitra = alamat email (gmail) akun mitra.
+ppl.contoh@gmail.com
+ppl.kedua@gmail.com

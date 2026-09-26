@@ -10,9 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
-import input_gabungan.main_gabungan as mg  # noqa: E402
-from gabung_audit.gabung_audit import baca_audit  # noqa: E402
-from gabung_audit.pulihkan_excel import (  # noqa: E402
+import input_usaha.mesin as mg  # noqa: E402
+from antar_pc.gabung_audit import baca_audit  # noqa: E402
+from antar_pc.pulihkan_excel import (  # noqa: E402
     cocok_excel, pulihkan, subsls_dari_catatan_wilayah, urutan_tanggal, waktu_iso,
 )
 

@@ -1,86 +1,68 @@
 r"""
 config_lokal.py — Pengaturan MILIK ANDA (password, akun, wilayah kabupaten).
 
-CARA PAKAI
-----------
-1. Salin file ini ke  inti/config_lokal.py
+1. Salin ke  inti/config_lokal.py
        Windows :  copy templates\config_lokal.contoh.py inti\config_lokal.py
        Linux   :  cp templates/config_lokal.contoh.py inti/config_lokal.py
-2. Isi nilai di bawah. Hapus / beri tanda # pada baris yang tidak perlu diubah
-   (nilai bawaan di inti/config.py yang akan dipakai).
+2. Isi nilai di bawah. Baris yang tidak perlu diubah boleh dihapus / diberi # (nilai bawaan
+   di inti/config.py yang dipakai).
 
-inti/config_lokal.py ada di .gitignore — TIDAK ikut ter-commit, jadi aman
-untuk password & email. JANGAN menulis nilai-nilai ini di inti/config.py.
-
-Setiap nama yang didefinisikan di sini MENIMPA nama yang sama di inti/config.py
-(dimuat di baris paling bawah config.py). Jadi Anda juga bisa menimpa konstanta
-lain dari config.py kalau perlu — salin nama & formatnya persis.
+inti/config_lokal.py ada di .gitignore — tidak ikut ter-commit. Setiap nama di sini MENIMPA
+nama yang sama di inti/config.py, jadi konstanta lain dari config.py juga boleh ditimpa
+(salin nama & formatnya persis).
 """
 
 # ---------------------------------------------------------------------------
-# 1. Kredensial
+# 1. Kredensial (WAJIB)
 # ---------------------------------------------------------------------------
-
-# Password SSO Eksternal fasih-web yang SAMA untuk semua akun PPL/PML yang
-# dipakai skrip. Biasanya diseragamkan dulu lewat reset_mitra/ (lihat
-# docs/PANDUAN_RESET_MITRA.md). Alternatif: variabel lingkungan FASIH_PASSWORD.
+# Password SSO Eksternal fasih-web yang SAMA untuk semua akun PPL/PML yang dipakai skrip
+# (diseragamkan lewat reset_mitra/). Alternatif: variabel lingkungan FASIH_PASSWORD.
 FIXED_PASSWORD = ""
 
 # ---------------------------------------------------------------------------
-# 2. Wilayah kabupaten/kota Anda
+# 2. Wilayah kabupaten/kota (WAJIB)
 # ---------------------------------------------------------------------------
-
-# 2 digit provinsi + 2 digit kabupaten/kota = awalan setiap idsubsls 16 digit.
-# Contoh: "5108" = Bali / Buleleng, "3201" = Jawa Barat / Bogor. GANTI.
+# 2 digit provinsi + 2 digit kab/kota = awalan setiap idsubsls. "5108" = Bali/Buleleng. GANTI.
 KODE_KAB = "5108"
 
-# Tiga pengaturan di bawah OPSIONAL. inti/config.py berisi data CONTOH Buleleng
-# untuk KODEPOS_BY_IDSUBSLS & WILAYAH_BY_IDSUBSLS; data itu tidak akan cocok
-# dgn idsubsls kabupaten lain, jadi aman dibiarkan. Buka tanda # kalau perlu.
-
-# Kodepos per idsubsls (16 digit) — WAJIB untuk alur backlog lama
-# (input_fasihweb/main.py): baris yang idsubsls-nya tidak ada di sini di-skip
-# (SKIP_KODEPOS_TIDAK_DIKETAHUI), kecuali kodepos bisa diturunkan dari file
-# export. Kodepos dialokasikan per DESA. Format standar (input_gabungan/)
-# membaca kodepos dari kolom sheet, jadi tidak butuh ini.
-# KODEPOS_BY_IDSUBSLS = {
-#     "5108080008000202": "81172",
+# Kodepos per DESA (10 digit pertama idsubsls). Sheet input usaha tidak punya kolom kodepos
+# (boleh ditambah: kolom 'kodepos'), jadi kodepos diambil dari sini. Desa yang tidak ada ->
+# baris ditolak SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI (tidak ditebak).
+# KODEPOS_BY_DESA = {
+#     "5108010008": "81155",
 # }
 
-# Nama wilayah per idsubsls — hanya REFERENSI (log & pencocokan rincian 1-6
-# BLOK I dokumen yang terbuka). Dropdown "Wilayah Responden" dipilih lewat kode.
+# Nama wilayah per idsubsls — hanya referensi (log & pencocokan BLOK I). Opsional.
 # WILAYAH_BY_IDSUBSLS = {
-#     "5108080008000202": {
-#         "provinsi": "BALI", "kabkota": "BULELENG", "kecamatan": "KUBUTAMBAHAN",
-#         "desa": "TAMBLANG", "sls": "BANJAR KAJA KANGIN", "subsls": "BANJAR KAJA KANGIN",
-#     },
+#     "5108080008000202": {"provinsi": "BALI", "kabkota": "BULELENG", "kecamatan": "KUBUTAMBAHAN",
+#                          "desa": "TAMBLANG", "sls": "BANJAR KAJA KANGIN", "subsls": "BANJAR KAJA KANGIN"},
 # }
 
-# Peta batas SUBSLS (GeoJSON, properti idsubsls/nmkec/nmdesa/nmsls) — hanya
-# dipakai input_gabungan/rencana_ubah_wilayah.py utk mengecek titik koordinat.
-# Tanpa peta: jalankan skrip itu dengan --tanpa-peta.
-# PETA_SLS_PATH = r"D:\data\peta\final_sls_5108_2025-1.json"
-
 # ---------------------------------------------------------------------------
-# 3. Format standar input usaha (input_usaha.xlsx, input_gabungan/main_gabungan.py)
+# 3. Akun & subsls tempat dokumen dibuat (bisa juga lewat --akun-tunggal / --subsls-tunggal)
 # ---------------------------------------------------------------------------
-# Mode "satu subsls + satu akun" (bawaan): semua dokumen dibuat di SATU subsls
-# oleh SATU akun PPL, lalu dipindah ke wilayah aslinya belakangan
-# (pindah_wilayah/). Akun ini harus punya assignment mode PAPI di subsls tsb
-# (lihat ganti_moda/). Bisa juga lewat CLI: --subsls-tunggal / --akun-tunggal.
+# Semua dokumen dibuat di SATU subsls oleh SATU akun PPL, lalu dipindah ke wilayah aslinya
+# belakangan (fasih_sm/pindah_wilayah). Akun ini harus punya assignment PAPI di subsls itu
+# (fasih_sm/ganti_moda).
 GABUNGAN_SUBSLS_TUNGGAL = ""   # mis. "5108010010000105"
 GABUNGAN_AKUN_TUNGGAL = ""     # mis. "ppl.contoh@gmail.com"
 
-# MODE MURNI (disarankan untuk data hasil pendataan lapangan): SEMUA isian form
-# diambil apa adanya dari Excel — tanpa aturan penamaan, default, atau koreksi
-# data yang ditetapkan BPS Buleleng. Kalau form meminta sesuatu yang kosong di
-# Excel, baris di-skip (tidak ditebak). Lihat docs/FORMAT_STANDAR_INPUT_USAHA.md.
-GABUNGAN_MODE_MURNI = True
+# ---------------------------------------------------------------------------
+# 4. Aturan pengisian (TINJAU sebelum mengirim data sungguhan)
+# ---------------------------------------------------------------------------
+# Rincian yang TIDAK ada di kuesioner kertas diisi TAHAP2_DEFAULT, dan sel yang kosong/rusak
+# diganti menurut aturan TAHAP2_* di inti/config.py (mis. umur kosong -> 45, HP rusak -> 9999,
+# 16a Ya tanpa 16b -> b6 Ya). Semuanya KEPUTUSAN BPS Buleleng. Kalau kebijakan Anda berbeda,
+# timpa di sini, mis.:
+# TAHAP2_UMUR_KOSONG_JADI = ""          # "" = jangan ganti, baris ditolak
+# TAHAP2_DEFAULT = {...}                # salin dari inti/config.py lalu ubah
 
 # ---------------------------------------------------------------------------
-# 4. ID periode survei (segmen URL list PENDATAAN fasih-web)
+# 5. ID periode survei (segmen URL list PENDATAAN fasih-web)
 # ---------------------------------------------------------------------------
 # https://fasih-web.bps.go.id/survey/<SURVEY_ID>/<ASSIGNMENT_ID_GABUNGAN>
-# Bawaan di config.py = periode SE2026 yang dipakai di Buleleng. Kalau URL list
-# PENDATAAN Anda berbeda, salin segmen kedua URL itu ke sini.
+# Bawaan = periode SE2026 yang dipakai di Buleleng; ganti kalau URL list Anda berbeda.
 # ASSIGNMENT_ID_GABUNGAN = "fd68e454-ba45-4b85-8205-f3bf777ded24"
+
+# Peta batas SUBSLS (GeoJSON) — hanya utk koordinat/koordinat_pengganti.py.
+# PETA_SLS_PATH = r"D:\data\peta\final_sls_5108_2025-1.json"

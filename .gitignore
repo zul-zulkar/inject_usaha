@@ -1,7 +1,7 @@
 # =============================================================================
-# Repo ini PUBLIK. Semua data sensus (data pribadi responden & akun petugas),
-# rahasia (password), sesi login, dan artefak runtime JANGAN PERNAH di-commit.
-# Satu-satunya pengecualian: folder templates/ (templat KOSONG / data fiktif).
+# Repo ini PUBLIK. Data sensus (data pribadi responden & akun petugas), rahasia
+# (password), sesi login, dan keluaran alat JANGAN PERNAH di-commit.
+# Satu-satunya pengecualian: folder templates/ (templat kosong / data fiktif).
 # =============================================================================
 
 # --- Konfigurasi lokal (password, akun, kode & data wilayah kabupaten Anda) ---
@@ -15,45 +15,42 @@ __pycache__/
 venv/
 nul
 
-# --- Data sumber & hasil (data pribadi responden: nama, NIK, HP, dll) ---
+# --- Folder data milik Anda (hanya README-nya yang ikut git) ---
+bahan/*
+!bahan/README.md
+audit/*
+!audit/README.md
+arsip/
+
+# --- Keluaran alat: SEMUA alat menulis ke <alat>/hasil/ (laporan, *.siap.js, log,
+#     screenshot, list_api_*.json, sesi & profil browser berisi cookie login) ---
+hasil/
+
+# --- Jaring pengaman: jenis berkas data di mana pun (mis. tersalin ke akar) ---
 *.csv
 *.xlsx
 *.xlsm
 *.xls
+*.zip
+*.bak-*
+*.siap.js
 export/
 list_api_*.json
 dump_akun_mitra*.json
-
-# --- Daftar kode wilayah/identitas milik Anda (hasil kerja lokal) ---
 daftar*.txt
 list*.txt
-
-# --- File siap-tempel Console (berisi email petugas, nama usaha, password baru) ---
-*.siap.js
-
-# --- Log, screenshot, rekaman halaman & audit ---
-log_screenshots/
-log_fasih_sm/
-log_approve/
+log_*/
+log_*.txt
 audit_*.csv
-
-# --- Profil & sesi browser (berisi cookie login!) ---
-.profil_fasih_sm/
-.profil_fasih_web_*/
-.sesi_fasih_web_*.json
+.profil_*/
+.sesi_*.json
 .proses_*.lock
+.status_*.json
+
+# --- Catatan perintah pribadi (berisi email akun PPL) ---
+run_*.txt
 
 # --- Pengecualian: templat kosong/fiktif untuk pengguna baru ---
 !templates/
 !templates/**
 templates/**/__pycache__/
-.claude.zip
-
-# --- Cadangan audit (gabung_audit --tulis membuat audit_log_gabungan.csv.bak-<waktu>) ---
-*.bak-*
-
-# --- Catatan perintah pribadi (berisi email akun PPL) ---
-run_*.txt
-
-# --- Arsip (hasil bungkus_pc.py, salinan .git, dll) ---
-*.zip

@@ -1,9 +1,9 @@
 """
-tahap2_loader.py — Baca FORMAT TAHAP 2 (bahan/input_tahap2.xlsx) — hasil
+tahap2_loader.py — Baca FORMAT TAHAP 2 (bahan/input_usaha.xlsx) — hasil
 pendataan KERTAS Sensus Ekonomi 2026 tahap 2 — lalu ubah jadi baris yang
 BENTUKNYA SAMA dgn FORMAT STANDAR (gabungan_loader.GabunganRow), supaya
 seluruh alur input otomatis yang sudah teruji dipakai apa adanya:
-periksa_semua() -> main_gabungan.process_one_row() -> fill_blok2_gabungan().
+periksa_semua() -> input_usaha.process_one_row() -> fill_blok2_gabungan().
 
 Kenapa adaptor, bukan alur baru: jalur pengisian & pengiriman fasih-web
 adalah bagian paling mahal (dan paling irreversible) di repo ini. Format
@@ -69,7 +69,7 @@ from inti.gabungan_loader import (
 
 # Nama tab yang diterima. File contoh dari user bertab "Sheet1"; tab yang
 # namanya cocok salah satu di bawah menang, kalau tidak ada dipakai tab PERTAMA.
-NAMA_SHEET_TAHAP2 = ("input_tahap2", "tahap2", "tahap 2")
+NAMA_SHEET_TAHAP2 = ("input_usaha", "input_tahap2", "tahap2", "tahap 2")
 
 # ---------------------------------------------------------------------------
 # Pemetaan kolom. Judul dicocokkan PERSIS (setelah _norm_judul: huruf kecil,
@@ -1297,6 +1297,16 @@ def kbli_tidak_nyambung(row: Tahap2Row) -> str:
             + " — periksa apakah KBLI-nya keliru (di form bisa pakai tombol generate KBLI lalu opsi 1)")
 
 
+# Baris contoh di templates/input_usaha.xlsx diberi penanda ini di kolom "Uraian:". Baris
+# bertanda SELALU ditolak (SKIP_DATA_BARIS_CONTOH), supaya contoh yang lupa dihapus tidak
+# pernah menjadi dokumen sungguhan di server (dokumen hanya bisa dihapus admin).
+PENANDA_CONTOH = "CONTOH"
+
+
+def baris_contoh(row: Tahap2Row) -> bool:
+    return " ".join(str(row.info.get("uraian", "")).split()).upper().startswith(PENANDA_CONTOH)
+
+
 def periksa_semua_tahap2(rows: list[Tahap2Row], tahun_berjalan: int | None = None,
                          mode_satu_subsls: bool = False, cek_total: bool = True,
                          izinkan_tanpa_koordinat: bool = False) -> dict[int, Pemeriksaan]:
@@ -1307,6 +1317,9 @@ def periksa_semua_tahap2(rows: list[Tahap2Row], tahun_berjalan: int | None = Non
     hasil = periksa_semua(rows, tahun_berjalan, mode_satu_subsls, izinkan_tanpa_koordinat)
     for row in rows:
         h = hasil[row.baris]
+        if baris_contoh(row):
+            h.masalah.insert(0, ("BARIS_CONTOH", "baris CONTOH dari templat (kolom 'Uraian:' diawali "
+                                                 f"{PENANDA_CONTOH}) — hapus baris ini, isi data sungguhan"))
         if cek_total:
             h.masalah.extend(periksa_total(row, h.tanda))
         # 13b1 = Ya -> form merender 13d & 13e, yang tidak ada di kuesioner

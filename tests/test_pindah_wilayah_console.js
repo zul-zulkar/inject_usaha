@@ -2,7 +2,7 @@
 // Jalankan: node tests/test_pindah_wilayah_console.js
 "use strict";
 const path = require("path");
-const m = require(path.join(__dirname, "..", "pindah_wilayah", "pindah_wilayah_console.js"));
+const m = require(path.join(__dirname, "..", "fasih_sm", "pindah_wilayah", "pindah_wilayah_console.js"));
 
 let okAll = true;
 function check(label, got, want) {

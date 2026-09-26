@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 test_kontrol_kualitas.py — Uji OFFLINE (tanpa browser/VPN) program kontrol kualitas
-sumber data (input_gabungan/kontrol_kualitas.py). Jalankan:
+sumber data (input_usaha/kontrol_kualitas.py). Jalankan:
     python tests/test_kontrol_kualitas.py
 
 Yang dikunci:
@@ -24,13 +24,14 @@ import sys as _sys, os as _os
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 
 import csv
+import json
 import tempfile
 import warnings
 from pathlib import Path
 
 import openpyxl
 
-import input_gabungan.kontrol_kualitas as kk
+import input_usaha.kontrol_kualitas as kk
 from inti.gabungan_loader import KEY_26, KEY_27, KEY_29, KEY_PEKERJA, GabunganRow, _cari_indeks, _sel
 
 warnings.simplefilter("ignore")   # openpyxl: "Data Validation extension is not supported"
@@ -234,11 +235,9 @@ cek("nomor baris ringkas (format --baris)", kk.nomor_ringkas([9, 2, 3, 4, 7, 3])
 cek("huruf kolom", [kk.huruf_kolom(i) for i in (0, 25, 26, 51, 52)], ["A", "Z", "AA", "AZ", "BA"])
 
 # --------------------------------------------------------------------------
-print("\n== format standar (dasar: tab 'contoh' templat publik) ==")
-wb = openpyxl.load_workbook(AKAR / "templates" / "input_usaha.contoh.xlsx", read_only=True)
-_contoh = [[_sel(v) for v in r] for r in wb["contoh"].iter_rows(values_only=True)]
-wb.close()
-JUDUL_STD, DAGANG = _contoh[0], _contoh[1]
+print("\n== format lama Agenda (dasar: tests/fixture_format_agenda.json, data fiktif) ==")
+_fixture = json.loads((AKAR / "tests" / "fixture_format_agenda.json").read_text(encoding="utf-8"))
+JUDUL_STD, DAGANG = _fixture["judul"], _fixture["contoh_dagang"]
 IDX = _cari_indeks(JUDUL_STD)
 
 
@@ -425,11 +424,12 @@ os.chdir(TMP)   # audit_log_gabungan.csv di folder kerja proyek tidak ikut terba
 try:
     keluar = TMP / "cli.xlsx"
     cek("ada baris ditolak -> kode keluar 1",
-        kk.main(["--sumber", str(SUMBER_STD), "--keluaran", str(keluar), "--tanpa-salinan"]), 1)
+        kk.main(["--sumber", str(SUMBER_STD), "--format", "agenda", "--audit", str(TMP / "audit_cli.csv"),
+                 "--keluaran", str(keluar), "--tanpa-salinan"]), 1)
     cek("--tanpa-salinan: tanpa lembar Data bertanda",
         "Data bertanda" in openpyxl.load_workbook(keluar, read_only=True).sheetnames, False)
     cek("hanya baris bersih -> kode keluar 0",
-        kk.main(["--sumber", str(SUMBER_STD), "--baris", "2", "--keluaran", str(keluar)]), 0)
+        kk.main(["--sumber", str(SUMBER_STD), "--format", "standar", "--baris", "2", "--keluaran", str(keluar)]), 0)
     folder = TMP / "per_ppl"
     csv_path = TMP / "temuan.csv"
     cek("tahap 2 + --per-ppl + --csv -> kode keluar 1 (baris 8 ditolak)",
@@ -439,9 +439,9 @@ try:
     with csv_path.open(encoding="utf-8-sig") as f:
         cek("CSV temuan: judul kolom", next(csv.reader(f)), list(kk.KOLOM_TEMUAN))
     cek("berkas tidak ada -> kode keluar 2", kk.main(["--sumber", str(TMP / "tidak_ada.xlsx")]), 2)
-    cek("sheet tahap 2 dibaca sbg standar -> kode keluar 2 (petunjuk --format tahap2)",
-        kk.main(["--sumber", str(SUMBER_T2), "--keluaran", str(keluar)]), 2)
-    cek("--dari > --sampai ditolak", kk.main(["--sumber", str(SUMBER_STD), "--dari", "9", "--sampai", "3"]), 2)
+    cek("sheet format lama dibaca sbg format bawaan (tahap2) -> kode keluar 2",
+        kk.main(["--sumber", str(SUMBER_STD), "--keluaran", str(keluar)]), 2)
+    cek("--dari > --sampai ditolak", kk.main(["--sumber", str(SUMBER_STD), "--format", "agenda", "--dari", "9", "--sampai", "3"]), 2)
 finally:
     os.chdir(awal)
 

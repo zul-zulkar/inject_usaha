@@ -9,7 +9,7 @@ os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak berg
 
 import subprocess
 
-from buka_wilayah.buka_wilayah import KONSOL_TEMPLATE, PENANDA_CAKUPAN, PENANDA_TARGET, baca_daftar, isi_template
+from fasih_sm.buka_wilayah.buka_wilayah import KONSOL_TEMPLATE, PENANDA_CAKUPAN, PENANDA_TARGET, baca_daftar, isi_template
 
 ok_all = True
 

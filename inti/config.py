@@ -1,9 +1,8 @@
 """
 config.py — Konfigurasi & konstanta untuk otomatisasi input Usaha Pecahan SE2026.
 
-SEMUA nilai di file ini diringkas dari catatan proyek
-"docs/catatan usaha pecahan se2026.md" (hasil 3x pengisian manual penuh yang
-sudah terverifikasi sukses terkirim). Kalau ada label field yang ternyata
+Nilai di file ini berasal dari pengisian manual penuh yang sudah terverifikasi terkirim
+& dump DOM asli fasih-web (lihat docs/CATATAN_TEKNIS.md). Kalau ada label field yang ternyata
 tidak ketemu saat dry-run, PALING BESAR KEMUNGKINAN cukup edit string di
 sini saja — logika utama di file lain tidak perlu diubah.
 
@@ -268,13 +267,13 @@ KEPEMILIKAN_MODAL_DEFAULT = {
 # FORMAT STANDAR input usaha (input_usaha.xlsx, tab input_usaha; nama lama: sheet
 # "Agenda" tab gabungan — 2026-09-13). Beda dari backlog salin dokumen sumber: tiap kolom sheet ini SUDAH berupa jawaban
 # final per rincian form (tidak ada 10%, tidak ada file export). Dipakai
-# gabungan_loader.py / fill_gabungan.py / main_gabungan.py.
+# gabungan_loader.py / input_usaha/isi_blok2.py / input_usaha/jalankan.py.
 # ---------------------------------------------------------------------------
 
 # Segmen URL list PENDATAAN: /survey/{SURVEY_ID}/{ini}. Sheet gabungan tidak
 # punya kolom ini. Nilai di bawah KONSTAN di seluruh 90 baris backlog lama
 # (12 PPL berbeda), jadi tampaknya ID periode survei, bukan per-PPL — tapi
-# belum diuji utk PPL gabungan. Bisa ditimpa: main_gabungan.py --assignment-id.
+# belum diuji utk PPL gabungan. Bisa ditimpa: input_usaha/jalankan.py --assignment-id.
 ASSIGNMENT_ID_GABUNGAN = "fd68e454-ba45-4b85-8205-f3bf777ded24"
 
 # MODE SATU SUBSLS + SATU AKUN (ketetapan user 2026-09-14). Sebagian subsls
@@ -282,7 +281,7 @@ ASSIGNMENT_ID_GABUNGAN = "fd68e454-ba45-4b85-8205-f3bf777ded24"
 # dokumen dibuat di SATU subsls oleh SATU akun PPL; wilayah asli tiap baris
 # (kolom idsubsls sheet) dipindahkan belakangan lewat "ubah alokasi wilayah".
 # Isi keduanya (atau pakai --subsls-tunggal / --akun-tunggal). Akun ini harus
-# punya assignment PAPI di subsls tsb (lihat ganti_moda/). Kosong = main_gabungan
+# punya assignment PAPI di subsls tsb (lihat ganti_moda/). Kosong = input_usaha
 # menolak jalan kecuali diberi --per-baris (alur lama: subsls & akun per baris).
 GABUNGAN_SUBSLS_TUNGGAL = ""
 GABUNGAN_AKUN_TUNGGAL = ""
@@ -353,7 +352,7 @@ GABUNGAN_IZINKAN_JALAN_KOSONG = False
 GABUNGAN_MODE_MURNI = False
 
 # ---------------------------------------------------------------------------
-# FORMAT TAHAP 2 (bahan/input_tahap2.xlsx — hasil pendataan KERTAS SE2026
+# FORMAT TAHAP 2 (bahan/input_usaha.xlsx — hasil pendataan KERTAS SE2026
 # tahap 2, 2026-09-22). Dipakai inti/tahap2_loader.py + input_tahap2/.
 #
 # Format ini JAUH lebih pendek dari FORMAT STANDAR: hanya rincian yang
@@ -778,7 +777,7 @@ DK = {
     # milik 10a -> komponen()/_komponen_wajib() me-resolve DUA KALI ("nib_nomor" ->
     # "nib" -> "punya_nib") & 10b diketik ke radio 10a (run 2026-09-15, Agenda baris 40,
     # "Input of type radio cannot be filled"). JANGAN buat key DK yang sama dgn nilai
-    # key lain — dikunci tests/test_fill_gabungan.py.
+    # key lain — dikunci tests/test_isi_blok2.py.
     "nib_nomor": "nib",
     "alasan_tanpa_nib": "tidak_nib",          # 10c — bersyarat (10a = Tidak)
     "tempat_usaha": "lokasi_usaha",           # 13c — bersyarat (muncul stlh 13b3)

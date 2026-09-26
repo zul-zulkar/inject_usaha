@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
-import pindah_wilayah.pindah_wilayah as pw
-from input_gabungan.sinkron_list import url_entry
+import fasih_sm.pindah_wilayah.pindah_wilayah as pw
+from input_usaha.sinkron_list import url_entry
 from inti.gabungan_loader import GabunganRow
 
 ok_all = True
@@ -94,7 +94,7 @@ import tempfile  # noqa: E402
 with tempfile.TemporaryDirectory() as d:
     f = Path(d) / "tujuan.txt"
     check("daftar tujuan unik & terurut", pw.tulis_daftar_tujuan(target, f), sorted({T1, T2}))
-    from buka_wilayah.buka_wilayah import baca_daftar  # noqa: E402
+    from fasih_sm.buka_wilayah.buka_wilayah import baca_daftar  # noqa: E402
     check("daftar tujuan terbaca buka_wilayah --daftar", baca_daftar(f.read_text(encoding="utf-8"))[0],
           sorted({T1, T2}))
 

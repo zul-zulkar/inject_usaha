@@ -2,7 +2,7 @@
 // Jalankan: node tests/test_hapus_ganda_console.js
 "use strict";
 const path = require("path");
-const m = require(path.join(__dirname, "..", "hapus_ganda", "hapus_ganda_console.js"));
+const m = require(path.join(__dirname, "..", "fasih_sm", "hapus_ganda", "hapus_ganda_console.js"));
 
 let okAll = true;
 function check(label, got, want) {

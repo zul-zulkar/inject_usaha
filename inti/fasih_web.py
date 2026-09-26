@@ -5,7 +5,7 @@ catatan-usaha-pecahan-se2026.md: retry KBLI, nuance Nomor Urut Bangunan,
 field kondisional (26c/rincian 20), geotagging, dsb.
 
 Desain: setiap method sengaja DIBUNGKUS try/except yg logging jelas +
-screenshot ke folder ./log_screenshots/ setiap kali sebuah langkah gagal,
+screenshot ke folder <alat>/hasil/log_screenshots/ setiap kali sebuah langkah gagal,
 supaya waktu dry-run pertama gampang didiagnosis field mana yg selector-nya
 meleset (lihat config.py -> dict L) tanpa harus baca ulang seluruh kode.
 """
@@ -26,8 +26,10 @@ from inti.config import (
     DK, L, NAV_RETRY_ON_TRANSIENT_ERROR, PESAN_PASSWORD_KOSONG, SEL, SURVEY_ID, WILAYAH_BY_IDSUBSLS,
 )
 
-SCREENSHOT_DIR = Path("./log_screenshots")
-SCREENSHOT_DIR.mkdir(exist_ok=True)
+# Folder screenshot & dump DOM. Alat yang memakai sesi ini menimpanya dgn folder hasil/-nya
+# sendiri (input_usaha/hasil/log_screenshots, approve_pml/hasil/log_screenshots) SEBELUM sesi
+# dibuat; folder baru dibuat saat pertama kali ada yang ditulis.
+SCREENSHOT_DIR = Path(__file__).resolve().parents[1] / "input_usaha" / "hasil" / "log_screenshots"
 
 
 class FieldNotFound(RuntimeError):
@@ -183,6 +185,7 @@ class FasihWebSession:
     def _shot(self, name: str):
         try:
             safe = re.sub(r"[^a-zA-Z0-9_-]", "_", name)[:80]
+            SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
             self.page.screenshot(path=str(SCREENSHOT_DIR / f"{int(time.time())}_{safe}.png"))
         except Exception:
             pass
@@ -205,12 +208,13 @@ class FasihWebSession:
             safe = re.sub(r"[^a-zA-Z0-9_-]", "_", name)[:60]
             stamp = f"{int(time.time())}_{safe}"
             field_map = self.page.evaluate(_JS_FIELD_MAP)
+            SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
             header = f"# section aktif : {self.active_section_title()}\n# url          : {self.page.url}\n# kolom        : dataKey \\t jenis-input \\t teks\n\n"
             (SCREENSHOT_DIR / f"{stamp}.map.tsv").write_text(header + field_map, encoding="utf-8")
             root = self.page.locator(SEL["form_root"])
             if root.count() > 0:
                 (SCREENSHOT_DIR / f"{stamp}.html").write_text(root.first.inner_html(), encoding="utf-8")
-            self._log(f"📄 DOM di-dump: log_screenshots/{stamp}.map.tsv (+ .html)")
+            self._log(f"📄 DOM di-dump: {SCREENSHOT_DIR / stamp}.map.tsv (+ .html)")
         except Exception as e:
             self._log(f"⚠️ dump DOM gagal (tidak fatal): {e}")
 

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os  # noqa: E402
 os.environ.setdefault("FASIH_ABAIKAN_CONFIG_LOKAL", "1")  # hasil uji tidak bergantung inti/config_lokal.py
 
-from tandai_selesai.tandai_selesai import KONSOL_TEMPLATE, PENANDA_CAKUPAN, PENANDA_TARGET, isi_template
+from fasih_sm.tandai_selesai.tandai_selesai import KONSOL_TEMPLATE, PENANDA_CAKUPAN, PENANDA_TARGET, isi_template
 
 ok_all = True
 

@@ -2,7 +2,7 @@
 // Jalankan: node tests/test_tandai_selesai_console.js
 "use strict";
 const path = require("path");
-const m = require(path.join(__dirname, "..", "tandai_selesai", "tandai_selesai_console.js"));
+const m = require(path.join(__dirname, "..", "fasih_sm", "tandai_selesai", "tandai_selesai_console.js"));
 
 let okAll = true;
 function check(label, got, want) {

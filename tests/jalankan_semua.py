@@ -18,6 +18,10 @@ from pathlib import Path
 
 AKAR = Path(__file__).resolve().parent.parent
 
+for _stream in (sys.stdout, sys.stderr):   # konsol Windows cp1252 tidak bisa mencetak emoji keluaran uji
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 def jalankan(perintah: list[str]) -> tuple[bool, str]:
     env = {**os.environ, "FASIH_ABAIKAN_CONFIG_LOKAL": "1", "PYTHONIOENCODING": "utf-8"}

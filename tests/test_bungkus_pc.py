@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""test_bungkus_pc.py — uji OFFLINE aturan isi zip bungkus_pc.py.
+"""test_bungkus_pc.py — uji OFFLINE aturan isi zip antar_pc/bungkus_pc.py.
 Jalankan: python tests/test_bungkus_pc.py
 
-Yang dikunci: audit gabungan `audit_log_gabungan.csv` IKUT (2026-09-24 — zip
-dipakai menyebarkan hasil gabung_audit ke semua PC sekaligus), tapi CADANGANNYA
-(`*.bak-*`) & audit per-PC (`audit_pc/`) tetap tidak ikut; sesi browser & cache
-tidak ikut; bahan & config lokal ikut.
+Yang dikunci (struktur folder 2026-09-25): audit/ IKUT (zip dipakai menyebarkan hasil
+gabung_audit ke semua PC sekaligus) kecuali audit per-PC (audit/pc/) & cadangan *.bak-*;
+SEMUA folder hasil/ (keluaran alat) & arsip/ tidak ikut; sesi browser & cache tidak ikut;
+bahan & config lokal ikut.
 
-⚠️ Konsekuensi yang disengaja: meng-extract zip ini di PC yang SUDAH bekerja lagi
-akan MENIMPA audit PC itu, dan ingatan anti-duplikatnya hilang. Zip hanya boleh
-disebar setelah semua PC berhenti & auditnya digabung (docs/PANDUAN_GABUNG_AUDIT.md)."""
+⚠️ Konsekuensi yang disengaja: meng-extract zip ini di PC yang SUDAH bekerja lagi akan
+MENIMPA audit PC itu, dan ingatan anti-duplikatnya hilang. Zip hanya boleh disebar setelah
+semua PC berhenti & auditnya digabung (antar_pc/README.md)."""
 
 import os
 os.environ["FASIH_ABAIKAN_CONFIG_LOKAL"] = "1"   # uji pakai data contoh Buleleng di config.py
@@ -19,7 +19,7 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 
 from pathlib import Path
 
-from bungkus_pc.bungkus_pc import alasan_dibuang
+from antar_pc.bungkus_pc import alasan_dibuang
 
 gagal = 0
 
@@ -34,36 +34,40 @@ def cek(nama, dapat, harap):
 
 
 print("\n== yang TIDAK ikut ==")
-for path, kelompok in (("audit_log_gabungan.csv.bak-20260924-081355", "audit gabungan"),
-                       ("audit_pc/pc2.csv", "audit gabungan"),
-                       ("bahan_pc/pc2.xlsx", "audit gabungan"),
-                       ("laporan_gabung_id.csv", "hasil turunan"),
+for path, kelompok in (("audit/audit_log_gabungan.csv.bak-20260924-081355", "cadangan"),
+                       ("audit/batch21/audit_log_gabungan.csv.bak-20260924-081355", "cadangan"),
+                       ("audit/pc/pc2/audit_log_gabungan.csv", "audit per-PC"),
+                       ("audit/pc/hasil/laporan_gabung.csv", "audit per-PC"),
+                       ("audit_pc/pc2.csv", "audit per-PC"),                 # lokasi lama
+                       ("bahan_pc/pc2.xlsx", "audit per-PC"),
+                       ("input_usaha/hasil/cek_input.csv", "keluaran alat"),
+                       ("input_usaha/hasil/list_api_ppl.contoh_at_mail.com.json", "keluaran alat"),
+                       ("input_usaha/hasil/log_screenshots/gagal.png", "keluaran alat"),
+                       ("input_usaha/hasil/.proses_ppl_contoh_gmail_com.lock", "keluaran alat"),
+                       ("approve_pml/hasil/.sesi_fasih_web_ppl_contoh_gmail_com.json", "keluaran alat"),
+                       ("fasih_sm/pindah_wilayah/hasil/pindah_wilayah_console.siap.js", "keluaran alat"),
+                       ("fasih_sm/ganti_moda/hasil/.profil_fasih_sm/Default/Cookies", "keluaran alat"),
+                       ("antar_pc/hasil/split_usaha_pc_20260924-1128.zip", "keluaran alat"),
+                       ("koordinat/hasil/input_usaha_koordinat.xlsx", "keluaran alat"),
+                       ("arsip/Agenda.xlsx", "arsip"),
                        ("inti/__pycache__/config.cpython-312.pyc", "cache"),
                        (".git/HEAD", "cache"),
                        (".git.zip", "cache"),
-                       ("split_usaha_pc_20260924-1128.zip", "cache"),
                        (".claude/worktrees/x/inti/config.py", "cache"),
                        (".profil_fasih_sm/Default/Cookies", "sesi browser"),
                        (".sesi_fasih_web_ppl_contoh_gmail_com.json", "sesi browser"),
-                       (".proses_ppl_contoh_gmail_com.lock", "sesi browser"),
-                       ("log_screenshots/gagal.png", "log"),
-                       ("cek_gabungan.csv", "hasil turunan"),
-                       ("rangkum_audit.csv", "hasil turunan"),
-                       ("list_api_ppl.contoh_at_mail.com.json", "hasil turunan"),
-                       ("pindah_wilayah_console.siap.js", "hasil turunan"),
-                       ("kontrol_kualitas.xlsx", "hasil turunan"),
-                       ("kontrol_kualitas_tahap2.csv", "hasil turunan"),
-                       ("kontrol_kualitas_per_ppl/I_KETUT_CONTOH.xlsx", "hasil turunan"),
-                       ("daftar_ganda.csv", "hasil turunan")):
+                       ("cek_gabungan.csv", "hasil turunan"),                # nama lama di akar
+                       ("pindah_wilayah_console.siap.js", "hasil turunan")):
     cek(path, alasan_dibuang(Path(path)), kelompok)
 
 print("\n== yang IKUT ==")
-for path in ("audit_log_gabungan.csv",   # sengaja IKUT sejak 2026-09-24 (lihat docstring)
-             "bahan/input_tahap2.xlsx", "Agenda.xlsx", "inti/config_lokal.py", "inti/config.py",
-             "export/2510_abc.converted.json", "audit_approve_pml.csv", "docs/MULAI_CEPAT.md",
-             "templates/input_usaha.kosong.xlsx", "CLAUDE.md", "input_tahap2/main_tahap2.py",
-             "pindah_wilayah/pindah_wilayah_console.js", "input_gabungan/kontrol_kualitas.py",
-             "ganda_dihapus_202609241530.csv"):   # catatan hapus admin — tidak bisa dibuat ulang
+for path in ("audit/audit_log_gabungan.csv",   # sengaja IKUT (lihat docstring)
+             "audit/batch21/audit_log_gabungan.csv", "audit/audit_approve_pml.csv",
+             "audit/ganda_dihapus_202609241530.csv",   # catatan hapus admin — tidak bisa dibuat ulang
+             "bahan/input_usaha.xlsx", "bahan/daftar_subsls.txt", "inti/config_lokal.py", "inti/config.py",
+             "docs/ALUR_KERJA.md", "templates/input_usaha.xlsx", "CLAUDE.md", "input_usaha/jalankan.py",
+             "fasih_sm/pindah_wilayah/pindah_wilayah_console.js", "input_usaha/kontrol_kualitas.py",
+             "antar_pc/pindah_struktur.py"):
     cek(path, alasan_dibuang(Path(path)), "")
 
 print("\n== --kecuali ==")
@@ -73,7 +77,8 @@ for path, kecuali, harap in (("audit/audit_log_gabungan.csv", ["audit"], "--kecu
                              ("audit_log_gabungan.csv", ["audit_log_gabungan.csv"], "--kecuali"),
                              ("audit/audit_log_gabungan.csv", ["audit_log_gabungan.csv"], "--kecuali"),
                              ("bahan/lama/a.xlsx", ["bahan/lama"], "--kecuali"),
-                             ("bahan/input_tahap2.xlsx", ["bahan/lama"], ""),
+                             ("bahan/input_usaha.xlsx", ["bahan/lama"], ""),
+                             ("audit/batch21/audit_log_gabungan.csv", ["audit/batch21"], "--kecuali"),
                              ("audit_malam/a.csv", ["audit*"], "--kecuali"),
                              ("audit/a.csv", ["audit\\"], "--kecuali"),          # garis miring Windows
                              ("audit/a.csv", [], "")):
