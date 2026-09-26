@@ -191,6 +191,23 @@ CONTOH_TANDA = [
     ("13f disalin dari 13a (sheet tidak punya kolom 13f)", "INFO", "13F_DISALIN_DARI_13A", ("produk",)),
     ("nama dokumen tanpa (12a): format lengkap > 50 karakter", "INFO", "NAMA_TANPA_12A", ("nama",)),
     ("8b tanpa (12a): format lengkap > 50 karakter", "INFO", "NAMA_TANPA_12A", ("nama_komersial",)),
+    # 2026-09-26 (kontrol kualitas input_tahap2_23)
+    ("12d NIK kosong -> '9999' (tidak ada/tidak bersedia)", "DIGANTI", "NIK_KOSONG_JADI_9999", ("nik_pengusaha",)),
+    ("26a 300,000 / 8 pekerja dibayar = 37,500 <= Rp 50,000 -> 26a 800,000 (100,000 x 8) (DINAIKKAN)", "DIGANTI",
+     "GAJI_PER_PEKERJA_DINAIKKAN", ("gaji", "tk_dibayar")),
+    ("25 tahun operasi 2099 di masa depan -> 2025 (nilai pengganti)", "DIGANTI", "TAHUN_MASA_DEPAN_PENGGANTI",
+     ("tahun_operasi",)),
+    ("25 tahun operasi 2099 di masa depan -> 2010 (disalin dari usaha lain pemilik yang sama)", "DIKOREKSI",
+     "TAHUN_MASA_DEPAN_DARI_USAHA_LAIN", ("tahun_operasi",)),
+    ("27d 150 > 100 persen -> dibatasi 100", "DIGANTI", "27D_DIBATASI_100", ("pendapatan_online",)),
+    ("24 dibayar/tidak dibayar 0 padahal laki+perempuan 2 -> 2 pekerja tidak dibayar (26a 0)", "DIKOREKSI",
+     "PEKERJA_STATUS_DARI_JK", KEY_PEKERJA),
+    ("nilai uang < 1.000 dianggap ribuan (dikali 1.000): biaya_pembelian 950 -> 950000, operasional 50 -> 50000",
+     "DIKOREKSI", "UANG_RIBUAN_DIKALI_1000", ("biaya_pembelian", "operasional")),
+    ("kodepos desa 5108080099 tidak ada di daftar -> 81172 (semua desa lain di kecamatan 080 berkodepos sama)",
+     "TINJAU", "KODEPOS_DARI_KECAMATAN", ("kodepos",)),
+    ("nama dokumen 'WARUNG CONTOH' termuat di nama dokumen baris 12 'WARUNG CONTOH (BU MADE)' -> nama dibedakan "
+     "dgn tetap memuat 12a: WARUNG CONTOH (I KETUT CONTOH)", "INFO", "NAMA_TERMUAT_DIBEDAKAN", ("nama_komersial",)),
 ]
 diuji = set()
 for teks, kategori, jenis, keys in CONTOH_TANDA:

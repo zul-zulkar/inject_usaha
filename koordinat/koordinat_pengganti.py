@@ -17,17 +17,28 @@ Ketetapan user 2026-09-24:
      TANPA simbol ("-8,747" = 8°7'47") & salah ketik satu digit ("144,59" ->
      "114,59") — HANYA dipakai kalau hasilnya jatuh di subsls itu (<= batas).
 
+--subsls-dari-koordinat (permintaan user 2026-09-26: "menentukan subslsnya pakai
+koordinat aja"): kebalikan aturan 1 — titik yang terbaca & jatuh di poligon subsls
+MANA PUN di kabupaten dipakai apa adanya, dan subsls baris = poligon itu (kolom 3/4/5
+ikut dikeluarkan utk ditempel). Titik rusak / di luar semua poligon / cuma <= --toleransi-m
+(20 m) di luar subsls kolom 5 tetap diperlakukan spt aturan 1-4 thd kolom 5. Baris yang SUDAH punya dokumen (ID di sheet, atau kuncinya
+tercatat di audit mana pun di audit/**) TIDAK diubah subsls-nya: kolom 5 ikut `kunci`
+audit, mengubahnya = dokumen baris itu tidak dikenali lagi = dibuat GANDA.
+
 Acak tapi TETAP: benih = kelompok + subsls, jadi menjalankan ulang memberi titik
 yang sama (draft yang sudah di-geotag tidak berpindah). Titik listing digeser
 5–15 m (tetap di poligon) supaya tidak persis di titik rumah keluarga.
 
     python koordinat/koordinat_pengganti.py --sumber bahan/input_tahap2_22.xlsx
     -> koordinat/hasil/input_tahap2_22_koordinat.xlsx
+    python koordinat/koordinat_pengganti.py --sumber bahan/input_tahap2_22.xlsx --subsls-dari-koordinat
 
 Keluaran utk SALIN-TEMPEL: baris ke-N = baris ke-N sheet sumber; kolom A:B =
 Latitude/Longitude (salin A2:B<akhir>, tempel ke sel Latitude baris 2 sheet). Baris
 yang tidak berubah berisi teks ASLINYA persis; yang berubah diwarnai kuning & diberi
 keterangan (sumber, nilai asli, jarak asli ke subsls, kelompok) di kolom C dst.
+Dgn --subsls-dari-koordinat kolom C:E = kolom 3/4/5 sheet (tempel ke sel kolom "3"
+baris 2); baris yang pindah desa/kecamatan berwarna jingga (tinjau).
 """
 
 from __future__ import annotations
@@ -144,6 +155,27 @@ def pilih_subsls(anggota: list[dict], dalam: dict) -> str:
         return ""
     titik = Counter(dalam.get(a["baris"], "") for a in anggota)
     return min(jumlah, key=lambda s: (-jumlah[s], -titik.get(s, 0), s))
+
+
+def pilih_subsls_titik(anggota: list[dict]) -> str:
+    """--subsls-dari-koordinat: subsls `acuan` terbanyak (acuan = poligon tempat titik baris
+    jatuh; baris tanpa titik di poligon / sudah berdokumen = kolom 5-nya); seri -> subsls
+    kolom 5 terbanyak di kelompok -> kode terkecil."""
+    jumlah = Counter(a["acuan"] for a in anggota if a["acuan"])
+    if not jumlah:
+        return ""
+    sheet = Counter(a["idsubsls"] for a in anggota)
+    return min(jumlah, key=lambda s: (-jumlah[s], -sheet.get(s, 0), s))
+
+
+def tingkat_beda(lama: str, baru: str) -> str:
+    """Seberapa jauh subsls berpindah menurut kodenya: "" (sama) / SUB_SLS / SLS / DESA / KECAMATAN."""
+    if lama == baru:
+        return ""
+    for n, nama in ((7, "KECAMATAN"), (10, "DESA"), (14, "SLS")):
+        if lama[:n] != baru[:n]:
+            return nama
+    return "SUB_SLS"
 
 
 def benih(*bagian) -> random.Random:
@@ -304,9 +336,13 @@ def titik_acak(idsubsls: str, peta, listing: TitikListing | None, jalan: Jalan |
 
 
 def rencana(baris: list[dict], peta, listing=None, jalan=None, batas_m: float = 500.0,
-            jarak_jalan_m: float = 50.0, kotak=TAHAP2_KOTAK_KOORDINAT) -> list[dict]:
-    """baris: [{baris, idsubsls, pemilik, alamat, lat_mentah, lon_mentah}] ->
-    [{...masukan, lat, lon, sumber, jarak_asli_m, kelompok, subsls_koordinat}] sejajar."""
+            jarak_jalan_m: float = 50.0, kotak=TAHAP2_KOTAK_KOORDINAT,
+            subsls_dari_koordinat: bool = False, toleransi_m: float = 20.0) -> list[dict]:
+    """baris: [{baris, idsubsls, pemilik, alamat, lat_mentah, lon_mentah[, berdokumen]}] ->
+    [{...masukan, lat, lon, sumber, jarak_asli_m, kelompok, subsls_koordinat, subsls_titik,
+    idsubsls_baru, asal_subsls}] sejajar. `subsls_koordinat` = subsls kelompok (titik hasil
+    ada di/dekat situ); `idsubsls_baru` = isi kolom 5 sesudahnya (= idsubsls kecuali
+    subsls_dari_koordinat & baris belum berdokumen)."""
     from koordinat.peta import _dalam_poligon
     dikabupaten = (lambda la, lo: kotak is None or (kotak[0] <= la <= kotak[1] and kotak[2] <= lo <= kotak[3]))
 
@@ -345,8 +381,20 @@ def rencana(baris: list[dict], peta, listing=None, jalan=None, batas_m: float = 
                 if len(cocok) == 1:
                     la, lo = cocok.pop()
                     cara, j = "SALAH_KETIK_DIPERBAIKI", 0.0
+        # Subsls yang MEMUAT titik (bukan cuma dekat) — dasar --subsls-dari-koordinat.
+        titik = (sorted(peta.titik(lo, la)) if la is not None and lo is not None and dikabupaten(la, lo) else [])
+        titik = titik[0] if titik else ""
+        # Titik yang cuma <= toleransi_m di luar subsls kolom 5 tidak dihitung "di subsls lain":
+        # GPS HP & garis batas peta sama-sama meleset beberapa meter. Data 2026-09-26: 105 dari 168
+        # baris yang akan pindah berjarak <= 10 m, mis. baris 1569-1574 beralamat "LINGK WIDYASARI"
+        # (= subsls kolom 5) dgn titik < 1 m di seberang batas desa -> pindah desa tanpa dasar.
+        lain = bool(titik) and titik != b["idsubsls"] and (j is None or j > toleransi_m)
+        # Acuan subsls baris: titiknya sendiri (mode koordinat), kecuali baris yang sudah berdokumen
+        # (kolom 5 = bagian kunci audit) atau titiknya tidak di poligon lain -> kolom 5.
+        acuan = titik if subsls_dari_koordinat and lain and not b.get("berdokumen") else b["idsubsls"]
         hasil.append({**b, "lat_baca": la, "lon_baca": lo, "cara_baca": cara,
-                      "jarak_asli_m": None if j is None else round(j)})
+                      "jarak_asli_m": None if j is None else round(j), "subsls_titik": titik,
+                      "titik_di_subsls_lain": lain, "acuan": acuan})
 
     # 2. Kelompok pemilik+alamat -> subsls terbanyak -> satu koordinat.
     kelompok = defaultdict(list)
@@ -354,18 +402,34 @@ def rencana(baris: list[dict], peta, listing=None, jalan=None, batas_m: float = 
         h["kelompok"] = kunci_kelompok(h["baris"], h["pemilik"], h["alamat"])
         kelompok[h["kelompok"]].append(h)
     for kunci, anggota in kelompok.items():
-        dalam = {}
+        if subsls_dari_koordinat:
+            s = pilih_subsls_titik(anggota)
+        else:
+            dalam = {}
+            for h in anggota:
+                if h["lat_baca"] is not None and h["lon_baca"] is not None:
+                    hit = [s for s in (h["idsubsls"],) if s in peta.sls
+                           and any(_dalam_poligon(h["lon_baca"], h["lat_baca"], p) for p in peta.sls[s]["poligon"])]
+                    dalam[h["baris"]] = hit[0] if hit else ""
+            s = pilih_subsls(anggota, dalam)
         for h in anggota:
-            if h["lat_baca"] is not None and h["lon_baca"] is not None:
-                hit = [s for s in (h["idsubsls"],) if s in peta.sls
-                       and any(_dalam_poligon(h["lon_baca"], h["lat_baca"], p) for p in peta.sls[s]["poligon"])]
-                dalam[h["baris"]] = hit[0] if hit else ""
-        s = pilih_subsls(anggota, dalam)
+            asal = ""
+            if subsls_dari_koordinat and h.get("berdokumen"):
+                if s != h["idsubsls"] or h["titik_di_subsls_lain"]:
+                    asal = "TETAP_SUDAH_ADA_DOKUMEN"
+            elif subsls_dari_koordinat and s != h["idsubsls"]:
+                asal = "KOORDINAT" if h["acuan"] == s else "KOORDINAT_KELOMPOK"
+            h["idsubsls_baru"] = s if asal.startswith("KOORDINAT") else h["idsubsls"]
+            h["asal_subsls"] = asal
         layak = []   # koordinat anggota yang sah utk subsls terpilih
         for h in anggota:
             j = jarak(s, h["lat_baca"], h["lon_baca"])
             if j is not None and j <= batas_m:
                 layak.append((round(h["lat_baca"], 7), round(h["lon_baca"], 7), j, h["baris"], h["cara_baca"]))
+        if subsls_dari_koordinat:
+            # Titik yang benar-benar DI DALAM subsls terpilih didahulukan: di mode ini subsls
+            # baris = poligon tempat titiknya jatuh, jadi titik "dekat" tidak boleh menang.
+            layak = [x for x in layak if x[2] == 0] or layak
         if s not in peta.sls:
             for h in anggota:     # subsls tak ada di peta: tidak bisa dinilai, pakai bacaan kalau di kabupaten
                 ok = h["lat_baca"] is not None and h["lon_baca"] is not None and dikabupaten(h["lat_baca"], h["lon_baca"])
@@ -392,24 +456,48 @@ def rencana(baris: list[dict], peta, listing=None, jalan=None, batas_m: float = 
 # --------------------------------------------------------------------------
 # I/O & CLI
 # --------------------------------------------------------------------------
-def baca_sheet(path: Path) -> tuple[list[dict], int]:
-    """([{baris, idsubsls, pemilik, alamat, lat_mentah, lon_mentah, dinilai}], nomor baris
-    terakhir). idsubsls/pemilik/alamat lewat load_tahap2 (idsubsls sudah diperbaiki spt
-    batch); koordinat MENTAH dari sel supaya format aslinya bisa dinilai sendiri. Baris
-    yang dilewati loader (kosong) tidak dinilai tapi posisinya tetap dihitung."""
+def baca_sheet(path: Path, kunci_dokumen: set | None = None) -> tuple[list[dict], int]:
+    """([{baris, idsubsls, pemilik, alamat, lat_mentah, lon_mentah, kec_mentah, desa_mentah,
+    subsls_mentah, berdokumen, dinilai}], nomor baris terakhir). idsubsls/pemilik/alamat lewat
+    load_tahap2 (idsubsls sudah diperbaiki spt batch); koordinat & kolom 3/4/5 MENTAH dari sel
+    supaya teks aslinya bisa dikembalikan persis. `berdokumen`: kolom "ID Dokumen FASIH" terisi
+    atau `kunci` baris ada di `kunci_dokumen`. Baris yang dilewati loader (kosong) tidak dinilai
+    tapi posisinya tetap dihitung."""
     from inti.gabungan_loader import _sel as sel_teks
+    from inti.id_dokumen import baca_kolom_id
     from inti.tahap2_loader import _baca_mentah_tahap2, _indeks_tahap2, load_tahap2
     mentah = _baca_mentah_tahap2(path)
     idx = _indeks_tahap2([sel_teks(j) for j in mentah[0]])
     rows = {r.baris: r for r in load_tahap2(path)}
+    id_sheet = baca_kolom_id(path, "tahap2").mentah
     out = []
     for nomor, isi in enumerate(mentah[1:], start=2):
         ambil = lambda k: isi[idx[k]] if k in idx and idx[k] < len(isi) else None  # noqa: E731
         r = rows.get(nomor)
         out.append({"baris": nomor, "idsubsls": r.idsubsls if r else "", "pemilik": r["pengusaha"] if r else "",
                     "alamat": r["jalan_domisili"] if r else "", "lat_mentah": ambil("latitude"),
-                    "lon_mentah": ambil("longitude"), "dinilai": r is not None})
+                    "lon_mentah": ambil("longitude"), "kec_mentah": ambil("info_kec"),
+                    "desa_mentah": ambil("info_desa"), "subsls_mentah": ambil("idsubsls"),
+                    "berdokumen": bool(id_sheet.get(nomor)) or bool(r and r.kunci in (kunci_dokumen or ())),
+                    "dinilai": r is not None})
     return out, len(mentah)
+
+
+def kunci_berdokumen() -> set[str]:
+    """Kunci baris yang dokumennya tercatat di audit MANA PUN di audit/** (audit aktif, batch
+    lama, kiriman PC lain) — aturan `dokumen_dari` yang sama dgn mesin input. Sengaja lebih
+    luas dari audit aktif: salah menganggap berdokumen cuma membuat subsls tidak diubah,
+    salah menganggap belum = kunci berubah = dokumen GANDA. Audit rusak Excel -> berhenti."""
+    import input_usaha.mesin as mg
+    lokasi.cek_struktur_lama()
+    out: set[str] = set()
+    for f in lokasi.cari(lokasi.AUDIT / "**" / "audit_log_gabungan*.csv"):
+        with f.open(newline="", encoding="utf-8-sig") as fh:
+            baris = list(csv.DictReader(fh))
+        if rusak := mg.kerusakan_excel(baris):
+            raise SystemExit("❌ " + mg.pesan_audit_rusak(rusak, f))
+        out |= set(mg.dokumen_dari(baris))
+    return out
 
 
 def teks_sel(v) -> str:
@@ -437,21 +525,46 @@ def nilai_tempel(h: dict) -> tuple[str, str, bool]:
     return f(h["lat"]), f(h["lon"]), True
 
 
+def nilai_wilayah(h: dict, peta) -> tuple[str, str, str, str]:
+    """(kolom 3, kolom 4, kolom 5, tingkat_beda) utk ditempel. Subsls tidak berubah -> teks
+    ASLI ketiganya persis. Pindah desa/kecamatan -> nama dari peta (huruf spt sheet:
+    "Celukanbawang"); pindah SLS/sub-SLS di desa yang sama -> nama tetap teks asli."""
+    kec, desa, sub = teks_sel(h.get("kec_mentah")), teks_sel(h.get("desa_mentah")), teks_sel(h.get("subsls_mentah"))
+    baru = h.get("idsubsls_baru") or h["idsubsls"]
+    if not h.get("dinilai", True) or baru == h["idsubsls"]:
+        return kec, desa, sub, ""
+    tingkat = tingkat_beda(h["idsubsls"], baru)
+    info = peta.sls.get(baru, {}) if peta is not None else {}
+    if tingkat == "KECAMATAN":
+        kec = info.get("nmkec", "").title() or kec
+    if tingkat in ("KECAMATAN", "DESA"):
+        desa = info.get("nmdesa", "").title() or desa
+    return kec, desa, baru, tingkat
+
+
 JUDUL_TEMPEL = ["Latitude", "Longitude", "Berubah", "Sumber koordinat", "Latitude asli", "Longitude asli",
                 "Jarak asli ke subsls (m)", "idsubsls", "Kelompok"]
+# --subsls-dari-koordinat: C:E = kolom "3"/"4"/"5" sheet (bersebelahan -> satu kali tempel).
+JUDUL_TEMPEL_SUBSLS = ["Latitude", "Longitude", "3", "4", "5", "Berubah", "Sumber koordinat", "Asal subsls",
+                       "Pindah", "idsubsls asli", "Subsls tempat titik asli", "Latitude asli", "Longitude asli",
+                       "Jarak asli ke subsls asli (m)", "Kelompok"]
 
 
-def tulis_tempel(keluaran: Path, hasil: list[dict], terakhir: int) -> int:
+def tulis_tempel(keluaran: Path, hasil: list[dict], terakhir: int, peta=None, subsls: bool = False) -> int:
     """Baris ke-N berkas ini = baris ke-N sheet sumber. Kolom A:B = Latitude/Longitude
-    (disalin ke kolom Latitude/Longitude sheet mulai baris 2); C dst = keterangan."""
+    (disalin ke kolom Latitude/Longitude sheet mulai baris 2); C dst = keterangan.
+    subsls=True: C:E = kolom 3/4/5 (disalin ke kolom "3" sheet mulai baris 2), keterangan
+    mulai F. Mengembalikan jumlah baris yang berubah (koordinat dan/atau subsls)."""
     import openpyxl
     from openpyxl.styles import PatternFill
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "koordinat"
-    for k, judul in enumerate(JUDUL_TEMPEL, start=1):
-        ws.cell(1, k, judul)
+    judul = JUDUL_TEMPEL_SUBSLS if subsls else JUDUL_TEMPEL
+    for k, teks in enumerate(judul, start=1):
+        ws.cell(1, k, teks)
     kuning = PatternFill("solid", fgColor="FFF2CC")
+    jingga = PatternFill("solid", fgColor="F8CBAD")
     per_baris = {h["baris"]: h for h in hasil}
     berubah = 0
     for r in range(2, terakhir + 1):
@@ -459,16 +572,29 @@ def tulis_tempel(keluaran: Path, hasil: list[dict], terakhir: int) -> int:
         if h is None:
             continue
         lat, lon, ubah = nilai_tempel(h)
-        berubah += ubah
-        isi = [lat, lon, "YA" if ubah else "", h.get("sumber", ""), teks_sel(h["lat_mentah"]),
-               teks_sel(h["lon_mentah"]), "" if h.get("jarak_asli_m") is None else h["jarak_asli_m"],
-               h["idsubsls"], "" if h.get("kelompok", "baris:").startswith("baris:") else h["kelompok"]]
+        kelompok = "" if h.get("kelompok", "baris:").startswith("baris:") else h["kelompok"]
+        jarak_asli = "" if h.get("jarak_asli_m") is None else h["jarak_asli_m"]
+        if subsls:
+            kec, desa, sub, tingkat = nilai_wilayah(h, peta)
+            berubah += bool(ubah or tingkat)
+            isi = [lat, lon, kec, desa, sub,
+                   " + ".join(x for x in ("KOORDINAT" if ubah else "", "SUBSLS" if tingkat else "") if x),
+                   h.get("sumber", ""), h.get("asal_subsls", ""), tingkat, h["idsubsls"], h.get("subsls_titik", ""),
+                   teks_sel(h["lat_mentah"]), teks_sel(h["lon_mentah"]), jarak_asli, kelompok]
+            warna = {1: ubah, 2: ubah, 3: tingkat == "KECAMATAN", 4: tingkat in ("KECAMATAN", "DESA"), 5: tingkat}
+        else:
+            berubah += ubah
+            isi = [lat, lon, "YA" if ubah else "", h.get("sumber", ""), teks_sel(h["lat_mentah"]),
+                   teks_sel(h["lon_mentah"]), jarak_asli, h["idsubsls"], kelompok]
+            warna = {1: ubah, 2: ubah}
         for k, v in enumerate(isi, start=1):
             c = ws.cell(r, k, v)
-            if k <= 2:
-                c.number_format = "@"          # teks: Excel tidak mengubah "-8,14435" jadi angka/tanggal
-                if ubah:
-                    c.fill = kuning
+            if k in warna:
+                # teks: Excel tidak mengubah "-8,14435" jadi angka/tanggal, dan idsubsls 16 digit
+                # tidak dipotong jadi 15 digit ("…0224" -> "…0220").
+                c.number_format = "@"
+                if warna[k]:
+                    c.fill = jingga if subsls and tingkat in ("KECAMATAN", "DESA") and k >= 3 else kuning
     ws.freeze_panes = "A2"
     keluaran.parent.mkdir(parents=True, exist_ok=True)
     wb.save(keluaran)
@@ -540,6 +666,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--jarak-jalan-m", type=float, default=50.0, help="'dekat jalan' = sejauh ini dari ruas jalan")
     ap.add_argument("--unduh-jalan", action="store_true",
                     help="unduh dulu jaringan jalan OpenStreetMap ke --jalan (sekali saja, butuh internet)")
+    ap.add_argument("--subsls-dari-koordinat", action="store_true",
+                    help="subsls baris = poligon tempat titiknya jatuh (kolom 3/4/5 ikut dikeluarkan); baris "
+                         "yang sudah punya dokumen tidak diubah subsls-nya")
+    ap.add_argument("--toleransi-m", type=float, default=20.0,
+                    help="--subsls-dari-koordinat: titik yang cuma sejauh ini di luar subsls kolom 5 tidak "
+                         "memindahkan subsls (ketelitian GPS & batas peta; 0 = murni koordinat)")
     args = ap.parse_args(argv)
 
     if args.unduh_jalan:
@@ -570,8 +702,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("⚠️  Tanpa data jalan — syarat 'dekat jalan' tidak dipakai.")
 
-    semua, terakhir = baca_sheet(sumber)
-    hasil = rencana([b for b in semua if b["dinilai"]], peta, listing, jalan, args.batas_m, args.jarak_jalan_m)
+    kunci_dok = kunci_berdokumen() if args.subsls_dari_koordinat else set()
+    semua, terakhir = baca_sheet(sumber, kunci_dok)
+    hasil = rencana([b for b in semua if b["dinilai"]], peta, listing, jalan, args.batas_m, args.jarak_jalan_m,
+                    subsls_dari_koordinat=args.subsls_dari_koordinat, toleransi_m=args.toleransi_m)
     hasil += [b for b in semua if not b["dinilai"]]          # baris kosong: posisi tetap, isi apa adanya
 
     ringkas = Counter(re.sub(r" \(dari baris \d+\)", "", h["sumber"]) for h in hasil if h.get("sumber"))
@@ -581,13 +715,36 @@ def main(argv: list[str] | None = None) -> int:
     kel = Counter(h["kelompok"] for h in hasil if not h.get("kelompok", "baris:").startswith("baris:"))
     print(f"Kelompok pemilik+alamat (>1 baris): {sum(1 for n in kel.values() if n > 1)} kelompok, "
           f"{sum(n for n in kel.values() if n > 1)} baris")
-    beda = sum(1 for h in hasil if h.get("subsls_koordinat") and h["subsls_koordinat"] != h["idsubsls"])
-    if beda:
-        print(f"Baris yang koordinatnya ikut subsls mayoritas kelompoknya (bukan subsls barisnya): {beda}")
+    if not args.subsls_dari_koordinat:
+        beda = sum(1 for h in hasil if h.get("subsls_koordinat") and h["subsls_koordinat"] != h["idsubsls"])
+        if beda:
+            print(f"Baris yang koordinatnya ikut subsls mayoritas kelompoknya (bukan subsls barisnya): {beda}")
+        berubah = tulis_tempel(keluaran, hasil, terakhir)
+        print(f"\n✅ {keluaran}  — {berubah} baris berubah (kuning); baris lain = teks aslinya.")
+        print(f"   Salin A2:B{terakhir} -> tempel (Paste Values) ke sel Latitude baris 2 di {sumber.name}.")
+        return 0
 
-    berubah = tulis_tempel(keluaran, hasil, terakhir)
-    print(f"\n✅ {keluaran}  — {berubah} baris berubah (kuning); baris lain = teks aslinya.")
-    print(f"   Salin A2:B{terakhir} -> tempel (Paste Values) ke sel Latitude baris 2 di {sumber.name}.")
+    pindah = [h for h in hasil if h.get("asal_subsls", "").startswith("KOORDINAT")]
+    tingkat = Counter(tingkat_beda(h["idsubsls"], h["idsubsls_baru"]) for h in pindah)
+    print(f"\n=== Subsls menurut koordinat (toleransi {args.toleransi_m:g} m): {len(pindah)} baris pindah subsls ===")
+    for k in ("SUB_SLS", "SLS", "DESA", "KECAMATAN"):
+        if tingkat[k]:
+            print(f"  {tingkat[k]:5d}  beda {k.replace('_', '-').lower()}")
+    tetap = [h for h in hasil if h.get("asal_subsls") == "TETAP_SUDAH_ADA_DOKUMEN"]
+    if tetap:
+        print(f"  {len(tetap):5d}  titiknya di subsls lain tapi SUDAH punya dokumen -> kolom 5 TIDAK diubah "
+              "(kunci audit); pindahkan dokumennya lewat pindah wilayah kalau perlu")
+    berdok = sum(1 for h in hasil if h.get("berdokumen"))
+    print(f"Baris yang sudah punya dokumen (ID sheet / audit di {lokasi.AUDIT.name}/): {berdok} — subsls-nya tidak disentuh.")
+
+    berubah = tulis_tempel(keluaran, hasil, terakhir, peta, subsls=True)
+    print(f"\n✅ {keluaran}  — {berubah} baris berubah (kuning; pindah desa/kecamatan = jingga, tinjau dulu).")
+    print(f"   1. Salin A2:B{terakhir} -> Paste Values ke sel Latitude baris 2 di {sumber.name}.")
+    print(f"   2. Salin C2:E{terakhir} -> Paste Values ke sel kolom \"3\" baris 2 (kolom 3, 4, 5 bersebelahan).")
+    if pindah:
+        print("   ⚠️  Kolom 5 ikut membentuk kunci baris. Tempel HANYA sesudah audit semua PC digabung, lalu bagikan\n"
+              "      sheet ini ke SEMUA PC — PC yang masih memakai sheet lama bisa membuat dokumen baris itu dgn\n"
+              "      kunci lama, dan sheet baru tidak lagi mengenalinya (dokumen GANDA).")
     return 0
 
 

@@ -465,9 +465,11 @@ with tempfile.TemporaryDirectory() as d:
 # --- satu akun = satu proses (run 2026-09-14: 2 proses akun ppl.kedua saling memutus sesi) ---
 import os
 import subprocess
-_cwd = os.getcwd()
+from inti import lokasi as _lokasi  # noqa: E402
+_cwd, _hasil_asli = os.getcwd(), _lokasi.HASIL_INPUT
 with tempfile.TemporaryDirectory() as d:
     os.chdir(d)
+    _lokasi.HASIL_INPUT = Path(d)    # berkas kunci tidak boleh jatuh ke input_usaha/hasil/ asli
     try:
         p1 = mg.kunci_proses_akun("Ab.C@mail.com")
         check("klaim pertama berhasil", p1 is not None and p1.exists(), True)
@@ -486,6 +488,7 @@ with tempfile.TemporaryDirectory() as d:
             hidup.wait()
     finally:
         os.chdir(_cwd)
+        _lokasi.HASIL_INPUT = _hasil_asli
 
 # --dari/--sampai: pembagian kerja antar-PC/proses per rentang baris sheet.
 _rows = [GabunganRow(n, {}) for n in (2, 3, 7, 10, 11)]
@@ -620,6 +623,37 @@ with tempfile.TemporaryDirectory() as d:
     check("audit PC lain sedikit lebih banyak (30 vs 20, <5x) tidak disebut; batch21 (100 = 5x) disebut",
           [f.relative_to(d).as_posix() for f, _ in mg.audit_lain_yang_mengenal(baris_sheet)[1]],
           ["batch21/audit_log_gabungan.csv"])
+    mg.AUDIT_LOG_PATH, lokasi.AUDIT = lama_audit, lama_folder
+
+
+# --- ID sheet sudah digabung, audit belum (kejadian 2026-09-26) ---
+def _audit_id(path: Path, ids: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=mg.AUDIT_FIELDS)
+        w.writeheader()
+        for i in ids:
+            w.writerow({"kunci": f"k-{i}", "status": mg.STATUS_DIBUAT,
+                        "dokumen_url": f"https://fasih-web.bps.go.id/survey/s/p/{i}/entry"})
+
+
+with tempfile.TemporaryDirectory() as d:
+    lama_audit, lama_folder = mg.AUDIT_LOG_PATH, lokasi.AUDIT
+    lokasi.AUDIT = Path(d)
+    mg.AUDIT_LOG_PATH = Path(d) / "audit_log_gabungan.csv"
+    _audit_id(mg.AUDIT_LOG_PATH, ["id-a"])                                        # audit PC ini saja
+    _audit_id(Path(d) / "pc" / "pc_b" / "audit_log_gabungan_b.csv", ["id-b", "id-c"])
+    sheet = [SimpleNamespace(baris=2, id_dokumen="id-a"), SimpleNamespace(baris=3, id_dokumen="id-b"),
+             SimpleNamespace(baris=4, id_dokumen="id-c"), SimpleNamespace(baris=5, id_dokumen="id-x"),
+             SimpleNamespace(baris=6, id_dokumen="")]
+    baris_asing, lain = mg.id_sheet_belum_digabung(sheet)
+    check("ID sheet dikenal audit PC lain tapi tidak audit aktif -> disebut (id-x tak dikenal siapa pun ikut)",
+          (baris_asing, [(f.relative_to(d).as_posix(), n) for f, n in lain]),
+          ([3, 4, 5], [("pc/pc_b/audit_log_gabungan_b.csv", 2)]))
+    check("ID yang tak dikenal audit mana pun: tidak menghentikan (tetap dibuka lewat ID)",
+          mg.id_sheet_belum_digabung([SimpleNamespace(baris=5, id_dokumen="id-x")]), ([5], []))
+    _audit_id(mg.AUDIT_LOG_PATH, ["id-a", "id-b", "id-c"])                        # sesudah digabung
+    check("audit sudah digabung: aman", mg.id_sheet_belum_digabung(sheet[:3]), ([], []))
     mg.AUDIT_LOG_PATH, lokasi.AUDIT = lama_audit, lama_folder
 
 with tempfile.TemporaryDirectory() as d:

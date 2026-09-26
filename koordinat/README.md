@@ -27,6 +27,25 @@ tiap koordinat di kolom `Sumber koordinat` (`ASLI`, `KELOMPOK`, `SALAH_KETIK_DIP
 `DERAJAT_TANPA_SIMBOL`, `ACAK_LISTING…`, `ACAK_POLIGON…`). Lalu `input_usaha/jalankan.py --cek`:
 baris DRAFT harus berkurang.
 
+### Subsls menurut koordinat
+
+```bash
+python koordinat/koordinat_pengganti.py --sumber bahan/input_usaha.xlsx --subsls-dari-koordinat
+```
+
+Kebalikan aturan 2: titik yang jatuh di poligon subsls **lain** dipakai apa adanya dan subsls barisnya
+ikut titik itu. Kolom `C:E` hasil = kolom **3, 4, 5** sheet → Paste Values ke sel kolom "3" baris 2
+(nama desa/kecamatan diganti hanya kalau pindah desa/kecamatan; baris itu jingga — tinjau dulu).
+
+- Titik yang cuma ≤ `--toleransi-m` (20 m) di luar subsls kolom 5 **tidak** memindahkan subsls —
+  GPS HP & garis batas peta sama-sama meleset beberapa meter. `--toleransi-m 0` = murni koordinat.
+- Titik rusak / di luar kabupaten / di luar semua poligon: tetap diperlakukan spt aturan 1–2.
+- Baris yang **sudah punya dokumen** (kolom "ID Dokumen FASIH" terisi, atau tercatat di audit mana
+  pun di `audit/`) **tidak diubah** subsls-nya (`TETAP_SUDAH_ADA_DOKUMEN`): kolom 5 ikut membentuk
+  kunci baris, mengubahnya = dokumen tidak dikenali lagi = dibuat **ganda**. Pindahkan dokumennya
+  lewat `fasih_sm/pindah_wilayah/` kalau perlu.
+- Tempel hanya sesudah audit semua PC digabung, lalu bagikan sheet itu ke **semua** PC.
+
 ## Berkas
 
 `koordinat_pengganti.py` (baca format, nilai jarak, kelompok, titik acak berbenih), `peta.py`

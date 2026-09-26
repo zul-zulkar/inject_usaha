@@ -10,6 +10,8 @@ Yang ditangani otomatis:
     baris yang sudah selesai tidak diulang).
   * Kena limit permintaan ("too many request") -> PINDAH ke akun & subsls cadangan (kalau
     diberikan), lanjut rentang yang sama. Cadangan juga kena -> berhenti & lapor.
+  * Audit tidak cocok dgn sheet ("⛔ AUDIT TIDAK COCOK", mis. sheet sudah digabung tapi
+    audit belum) -> berhenti (kode 5), TIDAK diulang: hasilnya pasti sama.
   * Tuntas (tidak ada sisa, tidak "BERHENTI di tengah") -> berhenti sendiri, lalu menyalin
     audit jadi audit_log_gabungan<LABEL>.csv supaya mudah dibedakan saat digabung.
 
@@ -138,6 +140,8 @@ def jalankan_sekali(sumber, audit_dir, dari, sampai, akun, subsls, log_path: Pat
 
 POLA_AKUN_DIPAKAI = re.compile(r"sedang dipakai proses (?:input|main_gabungan) lain")
 POLA_STOP_MANUSIA = re.compile(r"STOP_WILAYAH_DOKUMEN_BEDA|STOP_SUBSLS_TIDAK_BISA_DIPILIH")
+# = mesin.PENANDA_AUDIT_TIDAK_COCOK (tidak diimpor: wrapper sengaja tidak memuat mesin).
+POLA_AUDIT_TIDAK_COCOK = re.compile(r"⛔ AUDIT TIDAK COCOK")
 
 
 # Rate limit hanya dicari di EKOR output: yang menghentikan run tercetak di akhir.
@@ -158,7 +162,8 @@ def evaluasi_hasil(output: str) -> dict:
     bukti = next((b.strip() for b in ekor if POLA_RATE_LIMIT.search(b)), "")
     return {"tuntas": tuntas, "sisa": sisa, "rate_limited": bool(bukti), "bukti_rate_limit": bukti,
             "akun_dipakai": bool(POLA_AKUN_DIPAKAI.search(output)),
-            "stop_manusia": bool(POLA_STOP_MANUSIA.search(output))}
+            "stop_manusia": bool(POLA_STOP_MANUSIA.search(output)),
+            "audit_tidak_cocok": bool(POLA_AUDIT_TIDAK_COCOK.search(output))}
 
 
 def status_berlaku(status: dict, argumen: dict) -> tuple[dict, str]:
@@ -250,6 +255,12 @@ def main() -> int:
             print(f"\n⛔ Akun {akun_aktif} sedang dipakai proses bot lain di PC ini. Menjalankan dua "
                   "proses dgn akun sama = dokumen GANDA. Tutup proses itu dulu, lalu jalankan ulang wrapper.")
             return 2
+
+        if hasil["audit_tidak_cocok"]:
+            print("\n⛔ Bot berhenti sebelum membuka browser: audit yang dipakai tidak cocok dgn sheet "
+                  "(lihat pesan AUDIT TIDAK COCOK di atas). Diulang pun hasilnya sama — perbaiki audit-nya "
+                  "(gabungkan / --audit yang benar), lalu jalankan ulang wrapper.")
+            return 5
 
         if hasil["stop_manusia"]:
             print("\n⛔ Bot berhenti karena STOP_WILAYAH_DOKUMEN_BEDA / STOP_SUBSLS_TIDAK_BISA_DIPILIH. "

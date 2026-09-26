@@ -220,6 +220,16 @@ POLA_TANDA: tuple[Pola, ...] = (
          "digitnya. Tidak ada nomor -> 9999."),
     Pola("NIK_TIDAK_VALID_JADI_9999", r"12d NIK '.*' tidak valid", "DIGANTI", ("nik_pengusaha",),
          "Tulis NIK 16 digit sbg TEKS; >16 digit 7777, belum punya 8888, lainnya 9999."),
+    Pola("NIK_KOSONG_JADI_9999", r"12d NIK kosong -> ", "DIGANTI", ("nik_pengusaha",),
+         "Isi NIK 16 digit dari kuesioner (sbg TEKS); tidak ada/tidak bersedia = 9999."),
+    Pola("GAJI_PER_PEKERJA_DINAIKKAN", r"26a [\d.,]+ / \d+ pekerja dibayar = .*\(DINAIKKAN\)", "DIGANTI",
+         ("gaji", "tk_dibayar"),
+         "26a dibagi pekerja dibayar harus > Rp 50.000; skrip menaikkan 26a. Betulkan 26a atau 24a2 dari kuesioner."),
+    Pola("TAHUN_MASA_DEPAN_PENGGANTI", r"25 tahun operasi \d+ di masa depan -> .*\(nilai pengganti", "DIGANTI",
+         ("tahun_operasi",), "Tahun mulai beroperasi di masa depan; sekarang dikirim nilai pengganti. "
+                             "Betulkan dari kuesioner."),
+    Pola("27D_DIBATASI_100", r"27d \d+ > 100 persen -> dibatasi", "DIGANTI", ("pendapatan_online",),
+         "27d persen pendapatan online maksimal 100; betulkan dari kuesioner."),
     Pola("PENGUSAHA_PENGGANTI", r"12a kosong/'-' -> '.*' \(tidak ada nama dalam kurung", "DIGANTI", ("pengusaha",),
          "Isi nama pengusaha/penanggung jawab (12a) dari kuesioner."),
     Pola("PEKERJA_KOSONG_JADI_1", r"24 kosong semua -> ", "DIGANTI", KEY_PEKERJA,
@@ -251,6 +261,15 @@ POLA_TANDA: tuple[Pola, ...] = (
          "Isi umur di baris ini juga (disalin dari usaha lain pemilik yang sama)."),
     Pola("TAHUN_DARI_USAHA_LAIN", r"25 tahun operasi kosong -> .*\(disalin", "DIKOREKSI", ("tahun_operasi",),
          "Isi tahun mulai beroperasi di baris ini juga (disalin dari usaha lain pemilik yang sama)."),
+    Pola("TAHUN_MASA_DEPAN_DARI_USAHA_LAIN", r"25 tahun operasi \d+ di masa depan -> .*\(disalin", "DIKOREKSI",
+         ("tahun_operasi",), "Tahun mulai beroperasi di masa depan; sekarang disalin dari usaha lain pemilik "
+                             "yang sama. Betulkan dari kuesioner."),
+    Pola("PEKERJA_STATUS_DARI_JK", r"24 dibayar/tidak dibayar 0 padahal", "DIKOREKSI", KEY_PEKERJA,
+         "24a2+24b2 harus = laki+perempuan: isi jumlah pekerja dibayar/tidak dibayar dari kuesioner."),
+    Pola("UANG_RIBUAN_DIKALI_1000", r"nilai uang < 1\.000 dianggap ribuan \(dikali 1\.000\): (.+)$", "DIKOREKSI",
+         saran="Nilai uang di bawah 1.000 dianggap ditulis dalam ribuan & dikali 1.000. Tulis rupiah penuh "
+               "(mis. 50.000, bukan 50).",
+         keys_dari=lambda m, r: _keys_daftar(m.group(1))),
     Pola("PENGUSAHA_DARI_NAMA_USAHA", r"12a kosong/'-' -> '.*' \(nama dalam kurung", "DIKOREKSI", ("pengusaha",),
          "Isi nama pengusaha (12a); sekarang diambil dari nama dalam kurung di nama usaha."),
     Pola("KOORDINAT_DIPULIHKAN", r"koordinat sheet '.*' \(format rusak Excel\)", "DIKOREKSI",
@@ -312,6 +331,9 @@ POLA_TANDA: tuple[Pola, ...] = (
          "Pemilik ikut dihitung di 24: pekerja berjenis kelamin sama dgn pemilik (12b) tidak boleh 0."),
     Pola("KODEPOS_MINORITAS", r"kodepos \d+ beda dgn mayoritas desa", "TINJAU", ("kodepos",),
          "Kodepos beda dgn baris lain di desa yang sama: samakan kalau salah."),
+    Pola("KODEPOS_DARI_KECAMATAN", r"kodepos desa \d+ tidak ada di daftar -> ", "TINJAU", ("kodepos",),
+         "Kodepos desa ini belum ada di daftar -> dipakai kodepos yang seragam di kecamatannya. Pastikan benar "
+         "(tambahkan desanya di inti/config_lokal.py atau beri kolom kodepos kalau beda)."),
     Pola("WILAYAH_PILIH_BEDA", r"wilayah tujuan ubah alokasi ambigu", "TINJAU", ("idsubsls", *_PILIH_WILAYAH),
          "Kolom Pilih PROVINSI..SUBSLS beda dgn idsubsls: samakan (menentukan wilayah tujuan pindah wilayah)."),
     Pola("VARIAN_BULANAN_DARI_KOLOM", r"varian bulanan \(mulai beroperasi", "TINJAU", ("tahun_operasi",),
@@ -348,6 +370,10 @@ POLA_TANDA: tuple[Pola, ...] = (
          keys_dari=lambda m, r: ("nama",) if m.group(1) == "nama dokumen" else ("nama_komersial",)),
     Pola("NAMA_DIBEDAKAN", r"(?:usaha pecahan bernama sama|nama kembar persis) .* -> nama dibedakan", "INFO",
          ("nama_komersial",), "Usaha bernama sama dibedakan otomatis (13f/13a/wilayah)."),
+    Pola("NAMA_TERMUAT_DIBEDAKAN", r"nama dokumen '.*' termuat di nama dokumen baris \d+ .* -> nama dibedakan",
+         "INFO", ("nama_komersial",),
+         "Nama dokumen termuat di nama baris lain (pencarian bisa salah buka) -> dibedakan otomatis (12a tetap "
+         "ikut, atau ditambah 13f/13a)."),
 )
 _POLA_RE = tuple((p, re.compile(p.regex)) for p in POLA_TANDA)
 JENIS_TANDA_LAIN = "TANDA_LAIN"

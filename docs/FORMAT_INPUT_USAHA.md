@@ -75,11 +75,17 @@ lokal kalau kebijakan Anda berbeda) dan tercatat di `review_disarankan`.
 | Keadaan di sheet | Perlakuan | Saklar |
 | --- | --- | --- |
 | umur / tahun operasi kosong | disalin dari usaha lain pemilik sama, sisanya `45` / `2019` | `TAHAP2_UMUR_KOSONG_JADI`, `TAHAP2_TAHUN_OPERASI_KOSONG_JADI` |
+| tahun operasi di masa depan | disalin dari usaha lain pemilik sama (terdekat, baris sebelumnya didahulukan), sisanya `2025` | `TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI` |
 | HP / NIK tidak valid | `9999` | `TAHAP2_HP_TIDAK_VALID_JADI`, `TAHAP2_NIK_TIDAK_VALID_JADI` |
+| NIK kosong | `9999` | `TAHAP2_NIK_KOSONG_JADI` |
+| 27d > 100 | `100` | `TAHAP2_27D_LEBIH_100_JADI_100` |
 | 16b1-b6 satu kode `1` | Ya hanya utk b1, b4, b5 | `TAHAP2_16B_YA_TUNGGAL` |
 | 16b 5 nilai / 16a Ya tanpa 16b Ya | b6 = Tidak / b6 = Ya | `TAHAP2_16B_LIMA_NILAI_B6`, `TAHAP2_16B_TANPA_YA_JADI_B6` |
 | pekerja 24 tidak konsisten / kosong | ikut jenis kelamin pemilik / 1 pekerja | `TAHAP2_PEKERJA_IKUT_JK_PEMILIK`, `TAHAP2_PEKERJA_KOSONG_JADI_MINIMAL` |
+| 24 dibayar + tidak dibayar = 0, laki + perempuan > 0 | jumlahnya dari laki + perempuan; dibayar kalau 26a > 0, selain itu tidak dibayar | `TAHAP2_PEKERJA_STATUS_NOL_DARI_JK` |
 | 26a > 0 tapi tidak ada pekerja dibayar | pekerja jadi dibayar | `TAHAP2_UPAH_ADA_PEKERJA_JADI_DIBAYAR` |
+| 26a / pekerja dibayar ≤ Rp50.000 | 26a = 100.000 × pekerja dibayar | `TAHAP2_GAJI_PER_PEKERJA_DINAIKKAN`, `TAHAP2_GAJI_JIKA_DIBAYAR` |
+| nilai uang 1–999 (26a–26e, 27a–27b, 28a–28b) | dianggap ditulis dalam ribuan, dikali 1.000 | `TAHAP2_UANG_KECIL_JADI_RIBUAN` |
 | total 26f / 27c = 0 atau di bawah minimal (100.000; bulanan 10.000) | dinaikkan ke minimal | `TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL`, `TAHAP2_PENJUALAN_NOL_JADI_MINIMAL`, `TAHAP2_NAIKKAN_KE_MINIMAL` |
 | KBLI B–F / 56 dengan 26c > 0, atau 26b = 0 | 26c → 26b; 26d → 26b | `TAHAP2_26C_KE_26B`, `TAHAP2_26B_NOL_AMBIL_DARI_26D` |
 | usaha mulai tahun ini | 30–33 dari kolom 26–29, 31e AGUSTUS | `TAHAP2_ISI_VARIAN_BULANAN`, `TAHAP2_BULAN_OPERASI` |
@@ -89,6 +95,7 @@ lokal kalau kebijakan Anda berbeda) dan tercatat di `review_disarankan`.
 | 8c / 13a kosong | nama wilayah / judul KBLI | `TAHAP2_JALAN_KOSONG_DARI_WILAYAH`, `TAHAP2_13A_KOSONG_DARI_KBLI` |
 | nama BUMDes | 11a `6. BUM Desa`, 11d Ya, modal pemerintah | `TAHAP2_KOREKSI_BUMDES` |
 | usaha pecahan (8b & 12a sama, 13f beda) | nama `<8b> <13f> (<12a>)` | `TAHAP2_PEMBEDA_13F_UTK_GANDA` |
+| nama dokumen termuat di nama baris lain | nama baris itu diringkas dgn tetap memuat 12a, atau + 13f/13a (kunci tetap) | `TAHAP2_PISAHKAN_NAMA_TERMUAT` |
 | KBLI kategori P/U (ditolak form) | rekomendasi KBLI GenAI pertama | `KBLI_DITOLAK_PAKAI_GENAI` |
 | keputusan per baris | ditulis di config lokal, dicocokkan idsubsls+8b+12a | `TAHAP2_KOREKSI_BARIS` |
 
@@ -99,8 +106,17 @@ diketahui, nama > 50 karakter.
 ## Kodepos
 
 Urutan sumber: kolom `kodepos` sheet → `KODEPOS_BY_IDSUBSLS` → `KODEPOS_BY_DESA` (10 digit
-pertama idsubsls) → `--kodepos`. Semua kosong → `SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI`. Isi
-`KODEPOS_BY_DESA` di `inti/config_lokal.py` (atau `input_usaha/kodepos_desa.py`).
+pertama idsubsls) → kodepos kecamatan, HANYA kalau semua desa lain sekecamatan yang dikenal (min. 3)
+berkodepos sama (`TAHAP2_KODEPOS_DARI_KECAMATAN`) → `--kodepos`. Semua kosong →
+`SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI`. Isi `KODEPOS_BY_DESA` di `inti/config_lokal.py` (atau
+`input_usaha/kodepos_desa.py`).
+
+## Angka uang
+
+`Rp10.500.000` / `10.500.000,00` / `10500000` (titik = ribuan, koma = desimal). Sel yang
+diformat Excel berbahasa Inggris juga dikenali dari bentuknya: `16,800,000` (koma ribuan,
+tepat 3 digit per kelompok) dan `900000.04` (hasil rumus, titik desimal). Bentuk ambigu seperti
+`300.00` atau `10.500.00` tetap dibaca titik = ribuan — tulis ulang sel seperti itu.
 
 ## Nama dokumen & identitas baris
 

@@ -305,8 +305,12 @@ t2.TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN = False
 cek("saklar mati: bulanan kategori G + 26c 0 -> 30C_HARUS_LEBIH_0", periksa_semua_tahap2(tulis([baris(**{
     "25": _th, "26c": "Rp0", "26d": "Rp200.000", "Rp26": ""})]))[2].status, "SKIP_DATA_30C_HARUS_LEBIH_0")
 t2.TAHAP2_30C_NOL_AMBIL_DARI_POS_LAIN = True
-cek("tahun operasi di masa depan -> ditolak",
+# Sejak 2026-09-26 tahun di masa depan diganti (TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI, uji di bawah);
+# pemeriksaannya sendiri tetap menolak kalau saklarnya dimatikan.
+t2.TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI = ""
+cek("tahun operasi di masa depan -> ditolak (saklar pengganti mati)",
     periksa_semua_tahap2(tulis([baris(**{"25": str(int(_th) + 1)})]))[2].status, "SKIP_DATA_ANGKA_TIDAK_VALID")
+t2.TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI = "2025"
 t2.TAHAP2_ISI_VARIAN_BULANAN = False
 cek("TAHAP2_ISI_VARIAN_BULANAN=False -> di-skip (perilaku lama)",
     periksa_semua_tahap2(tulis([baris(**{"25": _th})]))[2].status, "SKIP_DATA_VARIAN_BULANAN")
@@ -766,6 +770,142 @@ try:
         cek("koreksi per baris: kunci config salah ketik ditolak", "ValueError", "ValueError")
 finally:
     _t2.TAHAP2_KOREKSI_BARIS = _lama_koreksi
+
+
+def _dgn_saklar(nama: str, nilai, fungsi):
+    """Jalankan fungsi dgn satu saklar config tahap 2 diganti sementara."""
+    lama = getattr(_t2, nama)
+    setattr(_t2, nama, nilai)
+    try:
+        return fungsi()
+    finally:
+        setattr(_t2, nama, lama)
+
+
+def _status(rows):
+    return [h.status for h in periksa_semua_tahap2(rows, izinkan_tanpa_koordinat=True).values()]
+
+
+def _masalah(rows):
+    return [[m[0] for m in h.masalah] for h in periksa_semua_tahap2(rows, izinkan_tanpa_koordinat=True).values()]
+
+
+print("\n== input_tahap2_23 (2026-09-26): uang format Inggris ==")
+# Sel teks "16,800,000" dulu terpotong di koma pertama -> 16 (lalu "dinaikkan ke minimal" / ditolak
+# 26A_PER_PEKERJA_DI_BAWAH_MINIMAL); "900000.04" (hasil rumus) dulu 90000004.
+cek("koma pemisah ribuan", rupiah_ke_angka("16,800,000"), "16800000")
+cek("koma ribuan + Rp", rupiah_ke_angka("Rp 1,500,000"), "1500000")
+cek("koma ribuan + titik desimal", rupiah_ke_angka("16,800,000.00"), "16800000")
+cek("koma ribuan kecil", rupiah_ke_angka("30,000"), "30000")
+cek("titik desimal hasil rumus", rupiah_ke_angka("900000.04"), "900000")
+cek("titik desimal half-up", rupiah_ke_angka("26666.67"), "26667")
+cek("titik ribuan tetap", rupiah_ke_angka("1.500.000"), "1500000")
+cek("koma desimal tetap dipotong", rupiah_ke_angka("Rp 10.500.000,75"), "10500000")
+cek("koma 1 digit = desimal (tetap)", rupiah_ke_angka("1,5"), "1")
+cek("'300.00' ambigu -> perilaku lama", rupiah_ke_angka("RP. 300.00"), "30000")
+(rw,) = tulis([baris(**{"26a": "0", "26b": "16,800,000", "26c": "0", "26d": "1,500,000", "26e": "0",
+                        "27a": "60,480,000", "27b": "0", "Rp26": "18,300,000", "27c": "60,480,000"})])
+cek("baris berformat koma dibaca utuh", (rw["biaya_produksi"], rw["operasional"], rw["nilai_pendapatan"]),
+    ("16800000", "1500000", "60480000"))
+cek("... tanpa dinaikkan ke minimal", any("DINAIKKAN" in k for k in rw.koreksi), False)
+
+print("\n== input_tahap2_23: nilai uang 1-999 = ribuan (ketetapan user) ==")
+_ribuan = {"26a": "0", "26b": "0", "26c": "950", "26d": "50", "26e": "0", "Rp26": "1,000,000",
+           "27a": "1,500,000", "27b": "0", "27c": "1,500,000"}
+(rw,) = tulis([baris(**_ribuan)])
+cek("950 & 50 -> 950.000 & 50.000", (rw["biaya_pembelian"], rw["operasional"]), ("950000", "50000"))
+cek("... cocok dgn kolom Rp26 (tanpa tanda total beda)", periksa_total(rw), [])
+cek("... tidak lagi dinaikkan ke minimal", any("DINAIKKAN" in k for k in rw.koreksi), False)
+cek("nilai >= 1.000 tidak diubah", tulis([baris(**{"26d": "Rp1.000"})])[0]["operasional"], "1000")
+cek("nol tetap nol", tulis([baris(**{"26d": "0"})])[0]["operasional"], "0")
+cek("saklar mati -> apa adanya",
+    _dgn_saklar("TAHAP2_UANG_KECIL_JADI_RIBUAN", False, lambda: tulis([baris(**_ribuan)])[0]["operasional"]), "50")
+
+print("\n== input_tahap2_23: kodepos dari kecamatan yang seragam ==")
+cek("desa baru di kecamatan seragam (4 desa 81172)", kodepos_untuk("5108080099000101", "", ""), "81172")
+cek("... menang atas cadangan --kodepos", kodepos_untuk("5108080099000101", "", "81160"), "81172")
+cek("kecamatan kodeposnya beragam -> tidak ditebak", kodepos_untuk("5108060099000101", "", ""), "")
+cek("kecamatan < 3 desa dikenal -> tidak ditebak", kodepos_untuk("5108010099000101", "", ""), "")
+cek("saklar mati -> kosong spt dulu",
+    _dgn_saklar("TAHAP2_KODEPOS_DARI_KECAMATAN", False, lambda: kodepos_untuk("5108080099000101", "", "")), "")
+(rw,) = tulis([baris(**{"5": "5108080099000101"})])
+cek("baris: kodepos dari kecamatan", rw["kodepos"], "81172")
+cek_benar("... dicatat", any("berkodepos sama" in k for k in rw.koreksi))
+
+print("\n== input_tahap2_23: NIK kosong -> 9999 ==")
+(rw,) = tulis([baris(**{"12d": ""})])
+cek("NIK kosong -> 9999", rw["nik_pengusaha"], "9999")
+cek("... dan diproses", _status([rw]), ["SIAP"])
+cek("saklar mati -> WAJIB_KOSONG",
+    _dgn_saklar("TAHAP2_NIK_KOSONG_JADI", "", lambda: _status(tulis([baris(**{"12d": ""})]))),
+    ["SKIP_DATA_WAJIB_KOSONG"])
+
+print("\n== input_tahap2_23: 24 dibayar/tidak dibayar 0, laki+perempuan terisi ==")
+_nol = {"24.L": "1", "24.P": "1", "24.Total": "2", "24.Dibayar": "0", "24.Tidak dibayar": "0"}
+(rw,) = tulis([baris(**_nol)])
+cek("26a 0 -> semua tidak dibayar", [rw[k] for k in ("tk_laki", "tk_pr", "tk_dibayar", "tk_tdk_dibayar")],
+    ["1", "1", "0", "2"])
+cek("... dan diproses", _status([rw]), ["SIAP"])
+(rw,) = tulis([baris(**{**_nol, "26a": "Rp500.000"})])
+cek("26a terisi -> semua dibayar", [rw[k] for k in ("tk_dibayar", "tk_tdk_dibayar")], ["2", "0"])
+cek("saklar mati -> PEKERJA_24_TIDAK_KONSISTEN",
+    _dgn_saklar("TAHAP2_PEKERJA_STATUS_NOL_DARI_JK", False, lambda: _masalah(tulis([baris(**_nol)]))),
+    [["PEKERJA_24_TIDAK_KONSISTEN"]])
+
+print("\n== input_tahap2_23: 26a/24a2 <= Rp50.000 -> 26a dinaikkan (ketetapan user) ==")
+_upah = {"24.Dibayar": "3", "24.Tidak dibayar": "0", "26a": "Rp100.000"}
+(rw,) = tulis([baris(**_upah)])
+cek("100.000 / 3 pekerja -> 26a 300.000", rw["gaji"], "300000")
+cek_benar("... ditandai DINAIKKAN", any("DINAIKKAN" in k and k.startswith("26a") for k in rw.koreksi))
+cek("... dan diproses", _status([rw]), ["SIAP"])
+cek("26a per pekerja > 50.000 tidak diubah", tulis([baris(**{**_upah, "26a": "Rp300.000"})])[0]["gaji"], "300000")
+cek("saklar mati -> 26A_PER_PEKERJA_DI_BAWAH_MINIMAL",
+    _dgn_saklar("TAHAP2_GAJI_PER_PEKERJA_DINAIKKAN", False, lambda: _masalah(tulis([baris(**_upah)]))),
+    [["26A_PER_PEKERJA_DI_BAWAH_MINIMAL"]])
+
+print("\n== input_tahap2_23: tahun operasi di masa depan (ketetapan user) ==")
+_pemilik = {"12a": "I KETUT CONTOH"}
+rows = tulis([baris(**{**_pemilik, "8b.": "WARUNG A", "25": "2010"}),
+              baris(**{**_pemilik, "8b.": "WARUNG B", "25": "2099"}),
+              baris(**{**_pemilik, "8b.": "WARUNG C", "25": "2020"})])
+cek("disalin dari usaha lain pemilik sama, baris sebelumnya didahulukan", [r["tahun_operasi"] for r in rows],
+    ["2010", "2010", "2020"])
+cek("... dan diproses", _status(rows), ["SIAP"] * 3)
+(rw,) = tulis([baris(**{"25": "2099"})])
+cek("tanpa usaha lain pemilik sama -> 2025", rw["tahun_operasi"], "2025")
+cek("saklar mati -> ANGKA_TIDAK_VALID",
+    _dgn_saklar("TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI", "", lambda: _masalah(tulis([baris(**{"25": "2099"})]))),
+    [["ANGKA_TIDAK_VALID"]])
+
+print("\n== input_tahap2_23: 27d > 100 -> 100 (ketetapan user) ==")
+(rw,) = tulis([baris(**{"27d": "150"})])
+cek("27d 150 -> 100", rw["pendapatan_online"], "100")
+cek("... tidak lagi ANGKA_TIDAK_VALID", _masalah([rw]), [[]])
+cek("saklar mati -> ANGKA_TIDAK_VALID",
+    _dgn_saklar("TAHAP2_27D_LEBIH_100_JADI_100", False, lambda: _masalah(tulis([baris(**{"27d": "150"})]))),
+    [["ANGKA_TIDAK_VALID"]])
+
+print("\n== input_tahap2_23: nama dokumen termuat di nama baris lain ==")
+# a. "<8b> (<12a>)" > 50 karakter jatuh ke nama TANPA pemilik -> termuat di nama responden lain.
+_warung = "WARUNG ECERAN MINUMAN KEMASAN CONTOH"
+termuat = [baris(**{"8b.": _warung, "12a": "I KETUT CONTOH"}), baris(**{"8b.": _warung, "12a": "BU MADE"})]
+sendiri = tulis(termuat[:1])[0]
+cek("dulu: nama tanpa pemilik", sendiri.nama_dokumen, _warung)
+rows = tulis(termuat)
+cek("nama ringkas yang tetap memuat 12a", [r.nama_dokumen for r in rows],
+    ["WARUNG ECERAN MINUMAN KEMASAN (I KETUT CONTOH)", f"{_warung} (BU MADE)"])
+cek("... 8b ikut", rows[0].nama_komersial, rows[0].nama_dokumen)
+cek("... kunci TIDAK berubah", rows[0].kunci, sendiri.kunci)
+cek("... keduanya diproses", _status(rows), ["SIAP", "SIAP"])
+# b. nama sudah bermemuat pemilik tapi termuat -> + 13f.
+rows = tulis([baris(**{"8b.": "SARI", "12a": "I KETUT CONTOH", "13f": "PULSA ELEKTRIK"}),
+              baris(**{"8b.": "TOKO SARI", "12a": "I KETUT CONTOH"})])
+cek("nama termuat bernama pemilik -> ditambah 13f", [r.nama_dokumen for r in rows],
+    ["SARI PULSA ELEKTRIK (I KETUT CONTOH)", "TOKO SARI (I KETUT CONTOH)"])
+cek("... keduanya diproses", _status(rows), ["SIAP", "SIAP"])
+cek("saklar mati -> NAMA_TUMPANG_TINDIH",
+    _dgn_saklar("TAHAP2_PISAHKAN_NAMA_TERMUAT", False, lambda: _masalah(tulis(termuat))),
+    [["NAMA_TUMPANG_TINDIH"], ["NAMA_TUMPANG_TINDIH"]])
 
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)

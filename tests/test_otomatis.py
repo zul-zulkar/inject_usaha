@@ -42,6 +42,13 @@ tengah = "HTTP 429 sesaat\n" + "\n".join(f"baris {i}: TERKIRIM" for i in range(2
 cek("limit di tengah lalu run jalan terus -> bukan limit", evaluasi_hasil(tengah)["rate_limited"], False)
 cek("limit di akhir -> limit + bukti", evaluasi_hasil(tengah + "\nstatus: 429")["bukti_rate_limit"], "status: 429")
 
+print("\n== audit tidak cocok = berhenti, tidak diulang ==")
+from input_usaha.mesin import PENANDA_AUDIT_TIDAK_COCOK  # noqa: E402
+cek("penanda mesin dikenali wrapper",
+    evaluasi_hasil(f"{PENANDA_AUDIT_TIDAK_COCOK}: 369 baris x.xlsx menyimpan ID ...")["audit_tidak_cocok"], True)
+cek("run biasa bukan audit tidak cocok",
+    evaluasi_hasil("Selesai. Audit: audit/audit_log_gabungan.csv")["audit_tidak_cocok"], False)
+
 print("\n== status tersimpan ==")
 from input_usaha.otomatis import status_berlaku  # noqa: E402
 

@@ -309,6 +309,10 @@ def opsi_audit(ap) -> None:
                          "juga lewat variabel lingkungan FASIH_AUDIT)")
 
 
+# Awal pesan kedua pengaman audit di bawah; dikenali otomatis.py (berhenti, tidak diulang).
+PENANDA_AUDIT_TIDAK_COCOK = "⛔ AUDIT TIDAK COCOK"
+
+
 def audit_lain_yang_mengenal(rows) -> tuple[int, list[tuple[Path, int]]]:
     """Apakah audit aktif SALAH utk sheet ini? -> (jumlah kunci baris yang dikenal audit aktif,
     [(audit lain, jumlah dikenal)] yang jauh lebih mengenal sheet ini; terbanyak dulu).
@@ -337,6 +341,37 @@ def audit_lain_yang_mengenal(rows) -> tuple[int, list[tuple[Path, int]]]:
         if n and (n_aktif == 0 or (n >= 20 and n >= 5 * n_aktif)):
             temuan.append((f, n))
     return n_aktif, sorted(temuan, key=lambda t: -t[1])
+
+
+def id_sheet_belum_digabung(rows) -> tuple[list[int], list[tuple[Path, int]]]:
+    """Kolom "ID Dokumen FASIH" sheet mengenal dokumen yang TIDAK dikenal audit aktif tapi dikenal
+    audit lain di audit/** -> ([nomor baris], [(audit lain, jumlah ID itu yang dikenalnya)]).
+    Daftar kedua kosong = aman (ID asing yang tak dikenal audit mana pun tetap dibuka lewat ID).
+
+    Kejadian 2026-09-26: sheet hasil gabung_id_sumber sudah dipasang di bahan/, audit gabungannya
+    belum (tertinggal di audit/pc/hasil). Baris milik PC lain dibuka lewat ID sheet dgn akun run
+    ini, padahal dokumennya milik akun lain -> form tidak mount -> ERROR_FIELD_NOT_FOUND + login
+    ulang di SETIAP baris (369 baris). Audit aktif yang benar mengenal ID itu -> barisnya dilewati."""
+    per_id: dict[str, list[int]] = defaultdict(list)
+    for r in rows:
+        if getattr(r, "id_dokumen", ""):
+            per_id[r.id_dokumen].append(r.baris)
+    asing = set(per_id) - id_dokumen_tercatat()
+    if not asing:
+        return [], []
+    aktif = AUDIT_LOG_PATH.resolve()
+    temuan = []
+    for f in lokasi.cari(lokasi.AUDIT / "**" / "audit_log_gabungan*.csv"):
+        if f.resolve() == aktif:
+            continue
+        try:
+            with f.open(newline="", encoding="utf-8-sig") as fh:
+                n = len(id_dokumen_tercatat(list(csv_module.DictReader(fh))) & asing)
+        except (OSError, UnicodeDecodeError, csv_module.Error):
+            continue
+        if n:
+            temuan.append((f, n))
+    return sorted(b for i in asing for b in per_id[i]), sorted(temuan, key=lambda t: -t[1])
 
 
 def cetak_lokasi_audit() -> None:
@@ -1370,14 +1405,31 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
     semua = rows
     n_dikenal, lain = audit_lain_yang_mengenal(semua)
     if lain:
-        print(f"⛔ Audit {AUDIT_LOG_PATH} hanya mengenal {n_dikenal} dari {len(semua)} baris {args.sumber}, "
-              "padahal audit lain jauh lebih mengenalnya:")
+        print(f"{PENANDA_AUDIT_TIDAK_COCOK}: {AUDIT_LOG_PATH} hanya mengenal {n_dikenal} dari {len(semua)} "
+              f"baris {args.sumber}, padahal audit lain jauh lebih mengenalnya:")
         for f, n in lain[:5]:
             print(f"     {f}  ({n} baris)")
         print("   Kemungkinan besar --audit lupa/salah -> semua baris akan dianggap belum punya dokumen (GANDA).")
         print("   Ulangi dgn --audit <berkas di atas>. Kalau memang batch baru dgn audit baru: tambah --audit-baru.")
         if not args.cek and not args.audit_baru:
             return 2
+    baris_id_asing, kenal_id = id_sheet_belum_digabung(semua)
+    if kenal_id:
+        print(f"{PENANDA_AUDIT_TIDAK_COCOK}: {len(baris_id_asing)} baris {args.sumber} menyimpan ID dokumen yang "
+              f"TIDAK dikenal {AUDIT_LOG_PATH}, padahal dikenal audit lain:")
+        for f, n in kenal_id[:5]:
+            print(f"     {f}  ({n} ID)")
+        print(f"   Contoh baris: {', '.join(map(str, baris_id_asing[:10]))}"
+              + (" …" if len(baris_id_asing) > 10 else ""))
+        print("   Sheet sudah digabung, audit belum. Dokumen itu akan dibuka lewat ID padahal bisa milik akun lain")
+        print("   (form tidak mount, login ulang tiap baris). Gabungkan audit dulu (antar_pc/README.md bagian 2):")
+        print(f"     python antar_pc/gabung_audit.py --sumber audit/pc --sumber {AUDIT_LOG_PATH} "
+              f"--keluaran {AUDIT_LOG_PATH} --tulis")
+        if not args.cek:
+            return 2
+    elif baris_id_asing:
+        print(f"ℹ️ {len(baris_id_asing)} baris punya ID dokumen di sheet yang belum tercatat di audit — "
+              "dibuka lewat ID itu, tidak dibuat baru.")
     if args.baris:
         ingin = parse_pilihan_baris(args.baris)
         rows = [r for r in rows if r.baris in ingin]

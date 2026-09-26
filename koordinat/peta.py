@@ -2,7 +2,7 @@
 peta.py — Peta batas SUBSLS (GeoJSON) + titik-dalam-poligon, murni Python (tanpa shapely).
 
 Dipakai koordinat/koordinat_pengganti.py utk memeriksa apakah titik koordinat jatuh di
-subsls baris. Lokasi berkas peta: config PETA_SLS_PATH (inti/config_lokal.py) atau --peta.
+subsls baris (atau, --subsls-dari-koordinat, subsls mana yang memuatnya). Lokasi berkas peta: config PETA_SLS_PATH (inti/config_lokal.py) atau --peta.
 (Dulu bagian dari input_gabungan/rencana_ubah_wilayah.py — laporan itu dihapus 2026-09-25,
 digantikan fasih_sm/pindah_wilayah.)
 """
@@ -77,7 +77,8 @@ def peta_dari_fitur(features: list[dict]) -> PetaSls:
         i = p["idsubsls"]
         nama = (f"[{i[4:7]}] {p.get('nmkec', '')} | [{i[7:10]}] {p.get('nmdesa', '')} | "
                 f"[{i[10:14]}] {p.get('nmsls', '')} | sub [{i[14:16]}]")
-        sls[i] = {"nama": nama, "bbox": (min(xs), min(ys), max(xs), max(ys)), "poligon": poligon}
+        sls[i] = {"nama": nama, "bbox": (min(xs), min(ys), max(xs), max(ys)), "poligon": poligon,
+                  "nmkec": p.get("nmkec") or "", "nmdesa": p.get("nmdesa") or ""}
     return PetaSls(sls)
 
 

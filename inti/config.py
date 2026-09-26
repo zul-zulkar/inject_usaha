@@ -89,6 +89,10 @@ TAHAP2_UANG_KOSONG_JADI_NOL = True
 # supaya tidak memicu varian bulanan). "" = baris tetap skip WAJIB_KOSONG.
 TAHAP2_UMUR_KOSONG_JADI = "45"
 TAHAP2_TAHUN_OPERASI_KOSONG_JADI = "2019"
+# 25 tahun operasi DI MASA DEPAN (> tahun berjalan; input_tahap2_23 baris 1134: 2028) —
+# ketetapan user 2026-09-26: disalin dari usaha lain pemilik yang sama (baris terdekat,
+# yang sebelumnya didahulukan), kalau tidak ada diisi nilai ini. "" = skip ANGKA_TIDAK_VALID.
+TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI = "2025"
 # Nama Jalan (8c) KOSONG -> nama wilayah baris lewat lengkapi_alamat ("DESA …",
 # "KECAMATAN …", "KABUPATEN …") — ketetapan user 2026-09-24 (kontrol_kualitas
 # input_tahap2_22: 10 baris). False = skip WAJIB_KOSONG (perilaku lama).
@@ -126,6 +130,32 @@ TAHAP2_PEKERJA_KOSONG_JADI_MINIMAL = True
 # <= Rp50.000/orang -> ditolak lagi oleh aturan kedua `gaji` (baris 285/828/1680
 # ter-skip 26A_PER_PEKERJA_DI_BAWAH_MINIMAL padahal sheetnya 26a = 0 apa adanya).
 TAHAP2_GAJI_JIKA_DIBAYAR = 100_000
+# 26a TERISI tapi 26a/24a2 <= Rp50.000 (form menolak) -> 26a dinaikkan jadi
+# TAHAP2_GAJI_JIKA_DIBAYAR x 24a2, ditandai DINAIKKAN — ketetapan user 2026-09-26
+# (input_tahap2_23 baris 438/439: 28 pekerja dibayar, 26a 50.000; 501-503: 8 pekerja,
+# 26a 300.000). False = skip 26A_PER_PEKERJA_DI_BAWAH_MINIMAL (perilaku lama).
+TAHAP2_GAJI_PER_PEKERJA_DINAIKKAN = True
+# Nilai uang 26a-26e / 27a-27b / 28a-28b yang 1-999 = ditulis PPL dalam RIBUAN -> dikali 1.000
+# — ketetapan user 2026-09-26 ("tambahkan 000 agar setara"; input_tahap2_23 baris 2851 26c 950
+# + 26d 50 dgn kolom Rp26 1.000.000). False = dipakai apa adanya (lalu dinaikkan ke minimal).
+TAHAP2_UANG_KECIL_JADI_RIBUAN = True
+# 24a2 & 24b2 (dibayar/tidak dibayar) nol atau kosong padahal 24a1/24b1 terisi (input_tahap2_23
+# baris 1218/1223/3172/3173: laki 1, perempuan 1, dibayar 0, tidak 0) -> jumlahnya dari
+# laki+perempuan, semuanya dibayar kalau 26a > 0, selain itu tidak dibayar (kebalikan
+# TAHAP2_PEKERJA_IKUT_JK_PEMILIK). False = skip PEKERJA_24_TIDAK_KONSISTEN.
+TAHAP2_PEKERJA_STATUS_NOL_DARI_JK = True
+# 27d (persen pendapatan online) > 100 -> 100 — ketetapan user 2026-09-26 (baris 1948: 150).
+# False = skip ANGKA_TIDAK_VALID.
+TAHAP2_27D_LEBIH_100_JADI_100 = True
+# Nama dokumen yang TERMUAT di nama dokumen baris lain (NAMA_TUMPANG_TINDIH; umumnya
+# "<8b> (<12a>)" > 50 karakter yang jatuh ke nama tanpa pemilik) -> nama baris itu saja
+# dibedakan: bentuk ringkas yang tetap memuat 12a, lalu + 13f / 13a. Kunci tidak berubah.
+TAHAP2_PISAHKAN_NAMA_TERMUAT = True
+# Kodepos desa yang tidak ada di KODEPOS_BY_DESA/KODEPOS_BY_IDSUBSLS -> kodepos kecamatannya,
+# HANYA kalau semua desa lain sekecamatan yang dikenal (minimal N desa) berkodepos sama
+# (input_tahap2_23: desa Panji Anom 5108050012, 14 desa Sukasada lain = 81161).
+TAHAP2_KODEPOS_DARI_KECAMATAN = True
+TAHAP2_KODEPOS_KECAMATAN_MIN_DESA = 3
 # Koordinat yang formatnya dirusak Excel (2026-09-24, 114 baris "tanpa koordinat"
 # yang sebenarnya berisi titik): "-8.148.438" (titik jadi pemisah ribuan),
 # bujur negatif "-115,142881", lat & long dalam satu sel "-8.142753,115.059837",
@@ -501,6 +531,10 @@ TAHAP2_PEKERJA_IKUT_JK_PEMILIK = True
 # kode ini ("9999 untuk lainnya", pesan GALAT form; sama dgn NIK_OVERRIDE backlog
 # lama). "" = baris di-skip NIK_TIDAK_VALID.
 TAHAP2_NIK_TIDAK_VALID_JADI = "9999"
+# 12d NIK KOSONG diganti kode ini — sama dgn HP kosong (input_tahap2_23 baris 3115-3130:
+# satu PPL mengosongkan kolomnya, PPL lain menulis 9999 utk kasus yang sama).
+# "" = skip WAJIB_KOSONG (perilaku lama).
+TAHAP2_NIK_KOSONG_JADI = "9999"
 # Nomor HP/WA kosong atau tidak valid (bukan 08 + 10-13 digit — mis. "8,13E+10" hasil
 # Excel; 11 baris rusak + 86 kosong di data asli 2026-09-22) diganti kode ini: pesan
 # GALAT form sendiri "jika tidak ada/tidak bersedia ... diisi angka 9 sebanyak 4 kali".
