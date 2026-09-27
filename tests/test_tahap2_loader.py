@@ -904,8 +904,67 @@ cek("nama termuat bernama pemilik -> ditambah 13f", [r.nama_dokumen for r in row
     ["SARI PULSA ELEKTRIK (I KETUT CONTOH)", "TOKO SARI (I KETUT CONTOH)"])
 cek("... keduanya diproses", _status(rows), ["SIAP", "SIAP"])
 cek("saklar mati -> NAMA_TUMPANG_TINDIH",
-    _dgn_saklar("TAHAP2_PISAHKAN_NAMA_TERMUAT", False, lambda: _masalah(tulis(termuat))),
+    _dgn_saklar("TAHAP2_PISAHKAN_NAMA_TERMUAT", False,
+                lambda: _dgn_saklar("TAHAP2_BEDAKAN_NAMA_BENTROK", False, lambda: _masalah(tulis(termuat)))),
     [["NAMA_TUMPANG_TINDIH"], ["NAMA_TUMPANG_TINDIH"]])
+
+print("\n== input_tahap2_24 (2026-09-27): nama bentrok / nama cuma penanda ==")
+# "<8b> (<12a>)" > 50 -> nama tanpa pemilik -> kembar -> dinomori -> dulu "1 (I KETUT CONTOH)".
+_mandi = "Warung eceran perlengkapan mandi (Contoh)"
+_dua_pemilik = [baris(**{"8b.": _mandi, "12a": "I Ketut Contoh"}),
+                baris(**{"8b.": _mandi, "12a": "Ni Made Contoh", "12c": "40"})]
+lama = _dgn_saklar("TAHAP2_BEDAKAN_NAMA_BENTROK", False, lambda: tulis(_dua_pemilik))
+cek("dulu: nama cuma nomor + pemilik", [r.nama_dokumen for r in lama],
+    ["1 (I Ketut Contoh)", "2 (Ni Made Contoh)"])
+rows = tulis(_dua_pemilik)
+cek("usaha + pemilik, tanpa nomor", [r.nama_dokumen for r in rows],
+    ["Warung eceran perlengkapan mandi (I Ketut Contoh)", "Warung eceran perlengkapan mandi (Ni Made Contoh)"])
+cek("... kunci TIDAK berubah", [r.kunci for r in rows], [r.kunci for r in lama])
+cek("... keduanya diproses", _status(rows), ["SIAP", "SIAP"])
+
+# Pemilik & usaha sama, subsls beda -> kata pembeda nama SLS (atau nomor kalau peta tidak ada).
+_beda_sls = [baris(**{"8b.": _mandi, "12a": "I Ketut Contoh"}),
+             baris(**{"8b.": _mandi, "12a": "I Ketut Contoh", "5": "5108010008000102", "12c": "40"})]
+_lama_sls = _t2._NAMA_SLS
+try:
+    _t2._NAMA_SLS = {"5108010008000101": "LINGKUNGAN CONTOH TENGAH", "5108010008000102": "LINGKUNGAN CONTOH BARAT"}
+    cek("penanda SLS, 'Warung eceran' dibuang supaya <= 50",
+        [r.nama_dokumen for r in tulis(_beda_sls)],
+        ["Perlengkapan mandi Contoh TENGAH (I Ketut Contoh)", "Perlengkapan mandi Contoh BARAT (I Ketut Contoh)"])
+    _t2._NAMA_SLS = {}
+    cek("tanpa nama SLS -> nomor", [r.nama_dokumen for r in tulis(_beda_sls)],
+        ["Perlengkapan mandi Contoh 1 (I Ketut Contoh)", "Perlengkapan mandi Contoh 2 (I Ketut Contoh)"])
+finally:
+    _t2._NAMA_SLS = _lama_sls
+cek("nama pendek tetap utuh ('Warung' tidak dibuang kalau muat)",
+    _t2._susun_nama("Warung Kaori roti kering".split(), "1", "Luh Contoh"), "Warung Kaori roti kering 1 (Luh Contoh)")
+
+# Baris IDENTIK: bawaan tetap BARIS_GANDA; TAHAP2_KOREKSI_BARIS {"nomori": True} -> dinomori & diinput.
+_identik = [baris(**{"8b.": "WARUNG CONTOH", "12a": "I KETUT CONTOH"})] * 2
+cek("baris identik bawaan: BARIS_GANDA", _masalah(tulis(_identik)), [["BARIS_GANDA"], ["BARIS_GANDA"]])
+_lama_koreksi = _t2.TAHAP2_KOREKSI_BARIS
+try:
+    _t2.TAHAP2_KOREKSI_BARIS = {("5108010008000101", "WARUNG CONTOH", "I KETUT CONTOH"): {"nomori": True}}
+    rows = tulis(_identik)
+    cek("nomori: nama bernomor", [r.nama_dokumen for r in rows],
+        ["WARUNG CONTOH 1 (I KETUT CONTOH)", "WARUNG CONTOH 2 (I KETUT CONTOH)"])
+    cek("nomori: kunci berbeda & keduanya diproses", (rows[0].kunci != rows[1].kunci, _status(rows)),
+        (True, ["SIAP", "SIAP"]))
+finally:
+    _t2.TAHAP2_KOREKSI_BARIS = _lama_koreksi
+
+print("\n== 13a/13f/13e maks 100 karakter (ketetapan user 2026-09-27) ==")
+from inti.gabungan_loader import ringkas_rincian, lengkapi_13a  # noqa: E402
+_panjang = ("Perdagangan eceran berbagai macam barang yang bukan utamanya makanan minuman dan tembakau "
+            "dengan selain sistem swalayan(47192)")
+cek("kode KBLI dibuang, dipotong per kata, kata sambung di ujung dibuang", ringkas_rincian(_panjang, 100),
+    "Perdagangan eceran berbagai macam barang yang bukan utamanya makanan minuman dan tembakau")
+cek("sudah muat -> apa adanya (kode KBLI pendek tetap)", ringkas_rincian("Jual rokok (47230)", 100), "Jual rokok (47230)")
+cek("maks 0 = tidak dibatasi", ringkas_rincian(_panjang, 0), _panjang)
+(rw,) = tulis([baris(**{"13a": _panjang, "13f": "jasa " + "contoh " * 20})])
+cek("loader: 13a & 13f <= 100", (len(rw["keg_utama"]) <= 100, len(rw.produk_utama) <= 100), (True, True))
+cek("... dicatat sbg koreksi", sorted(k.split()[0] for k in rw.koreksi if "diringkas" in k), ["13a", "13f"])
+cek("lengkapi_13a juga menjaga batas", len(lengkapi_13a(_panjang, "")) <= 100, True)
 
 print(f"\n{'SEMUA UJI LULUS' if not gagal else f'{gagal} UJI GAGAL'}")
 _sys.exit(1 if gagal else 0)

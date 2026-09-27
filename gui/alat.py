@@ -338,16 +338,20 @@ ALAT: list[dict] = [
     {
         "id": "approve", "grup": "approve", "judul": "Approve PML",
         "skrip": "approve_pml/approve_pml.py", "petunjuk": "approve_pml/README.md",
-        "keterangan": "Approve dokumen yang sudah dikirim PPL, oleh akun PML. Dokumen hanya di-approve kalau API "
-                      "menyatakan SUBMITTED oleh PPL yang benar. Mulai dgn Batas = 1. Approve tidak bisa dibatalkan; "
-                      "skrip meminta Anda mengetik YA.",
+        "keterangan": "Approve dokumen yang sudah dikirim PPL, oleh akun PML. Cara termudah: cukup email PML — "
+                      "skrip membaca list di server dan meng-approve SEMUA dokumen PAPI 'SUBMITTED BY Pencacah' "
+                      "yang dipegang PML itu (PPL mana pun). Status tiap dokumen dicek API tepat sebelum diklik. "
+                      "Mulai dgn 'Lihat daftar', lalu Batas = 1. Approve tidak bisa dibatalkan; sesudah daftar "
+                      "server terbaca, skrip menampilkan jumlahnya lalu meminta Anda mengetik YA (per PML).",
         "isian": [
-            isian("target", "pilihan", "Sumber target", None, bawaan="audit",
-                  opsi=[["audit", "Audit input (satu PML & satu PPL)"],
+            isian("target", "pilihan", "Sumber target", None, bawaan="server",
+                  opsi=[["server", "Daftar di server — cukup email PML (semua yang SUBMITTED)"],
+                        ["audit", "Audit input (satu PML & satu PPL)"],
                         ["rencana", "File SQL Lab (banyak PML)"],
                         ["daftar", "Salinan tabel Data fasih-sm (banyak PML)"]]),
-            isian("akun_pml", "teks", "Akun PML", "--akun-pml", wajib_jika={"target": ["audit"]},
-                  bantuan="Mode file: kosong = semua PML di file; boleh beberapa dipisah koma."),
+            isian("akun_pml", "teks", "Akun PML", "--akun-pml", wajib_jika={"target": ["server", "audit"]},
+                  bantuan="Mode server: boleh beberapa PML dipisah koma (login bergiliran). Mode file: kosong = "
+                          "semua PML di file."),
             isian("akun_ppl", "email", "Akun PPL (akun_login di audit)", "--akun-ppl",
                   tampil_jika={"target": ["audit"]}, wajib_jika={"target": ["audit"]}),
             isian("rencana", "berkas", "File SQL Lab", "--rencana", filter=XLSX_CSV,
@@ -355,8 +359,9 @@ ALAT: list[dict] = [
             isian("daftar", "berkas", "Salinan tabel Data fasih-sm", "--daftar", filter=XLSX_CSV,
                   tampil_jika={"target": ["daftar"]}, wajib_jika={"target": ["daftar"]}),
             isian("limit", "angka", "Batas dokumen PER PML", "--limit", bantuan="Mulai dgn 1."),
-            isian("abaikan_audit_approve", "centang", "Cek ulang juga yang di audit sudah APPROVED",
-                  "--abaikan-audit-approve", tampil_jika={"target": ["rencana", "daftar"]}),
+            isian("abaikan_audit_approve", "centang", "Abaikan catatan approve (status diputuskan server)",
+                  "--abaikan-audit-approve", tampil_jika={"target": ["rencana", "daftar"]}, bawaan=True,
+                  bantuan="Dicentang = semua baris file dicek ke server, termasuk yang pernah tercatat approved."),
             isian("termasuk_di_luar_audit", "centang", "Ikut proses dokumen list yang tidak tercatat di audit",
                   "--termasuk-di-luar-audit", tampil_jika={"target": ["audit"]}, lanjutan=True),
             _audit(),
@@ -366,7 +371,8 @@ ALAT: list[dict] = [
             _assignment(),
         ],
         "aksi": [
-            aksi("cek", "Rencana saja (tanpa browser)", tambah=["--cek"]),
+            aksi("cek", "Lihat daftar / rencana (tanpa approve)", tambah=["--cek"],
+                 password={"jika": {"target": ["server"]}}),      # mode server: login utk membaca list
             aksi("dryrun", "Dry-run (periksa, TIDAK approve)", password=True),
             aksi("approve", "APPROVE (tidak bisa dibatalkan)", tambah=["--eksekusi"], jenis="bahaya", password=True),
         ],
@@ -736,9 +742,13 @@ def nilai_isian(i: dict, nilai: dict):
 
 
 def butuh_password(alat: dict, aksi_: dict, nilai: dict) -> bool:
+    """password: True | "kecuali:<isian>" (tidak perlu kalau isian itu terisi) |
+    {"jika": {syarat spt tampil_jika}} (perlu hanya kalau syaratnya cocok)."""
     p = aksi_.get("password")
     if isinstance(p, str) and p.startswith("kecuali:"):
         return _kosong(nilai.get(p.split(":", 1)[1]))
+    if isinstance(p, dict):
+        return _cocok(p.get("jika"), nilai, alat["isian"])
     return bool(p)
 
 

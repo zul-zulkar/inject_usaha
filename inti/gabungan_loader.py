@@ -39,7 +39,8 @@ from pathlib import Path
 from inti.config import (
     GABUNGAN_13F_DARI_13A, GABUNGAN_IZINKAN_JALAN_KOSONG, GABUNGAN_MODE_MURNI, KBLI_DITOLAK_PAKAI_GENAI,
     LENGKAPI_13A_DGN_KBLI,
-    LENGKAPI_13F_DGN, MIN_KARAKTER_13A, MIN_KARAKTER_13F, MINIMAL_TOTAL_RUPIAH,
+    LENGKAPI_13F_DGN, MAKS_KARAKTER_13A, MAKS_KARAKTER_13F, MIN_KARAKTER_13A, MIN_KARAKTER_13F,
+    MINIMAL_TOTAL_RUPIAH,
     MINIMAL_TOTAL_RUPIAH_BULANAN, WILAYAH_BY_IDSUBSLS,
 )
 
@@ -480,30 +481,62 @@ def judul_dari_opsi_kbli(teks: str) -> str:
     return m.group(1).strip() if m else t
 
 
+def ringkas_rincian(teks: str, maks: int) -> str:
+    """Isian 13a/13f/13e > `maks` karakter (ketetapan user 2026-09-27, MAKS_KARAKTER_13*):
+    kode KBLI di akhir ("…swalayan(47192)", "… ( 47521 )") dibuang dulu; masih panjang ->
+    dipotong per KATA (tidak di tengah kata), kurung yang tertinggal terbuka & tanda baca
+    di ujung dibuang. maks 0 / teks sudah muat -> apa adanya (spasi dirapikan)."""
+    teks = " ".join(str(teks or "").split())
+    if not maks or len(teks) <= maks:
+        return teks
+    tanpa_kode = re.sub(r"\s*\(\s*\d{5}\s*\)\s*$", "", teks)
+    if len(tanpa_kode) <= maks:
+        return tanpa_kode
+    hasil = ""
+    for kata in tanpa_kode.split():
+        calon = f"{hasil} {kata}".strip()
+        if len(calon) > maks:
+            break
+        hasil = calon
+    if hasil.count("(") > hasil.count(")"):
+        hasil = hasil[:hasil.rfind("(")]
+    kata = hasil.rstrip(" ,;:-/&(").split()
+    while len(kata) > 1 and kata[-1].lower().strip(",;:") in _KATA_SAMBUNG:
+        kata.pop()
+    hasil = " ".join(kata).rstrip(" ,;:-/&(")
+    return hasil or tanpa_kode[:maks]
+
+
+# Kata sambung yang tidak boleh jadi kata terakhir potongan ringkas_rincian.
+_KATA_SAMBUNG = frozenset({"dan", "atau", "dengan", "yang", "untuk", "serta", "di", "ke", "dari", "pada",
+                           "berupa", "seperti", "sperti", "&"})
+
+
 def lengkapi_13f(produk: str, judul_kbli: str) -> str:
     """13f < MIN_KARAKTER_13F -> tambahkan LENGKAPI_13F_DGN ("GAS" -> "GAS ECERAN";
     huruf mengikuti isian asli). Masih kurang / kata itu dikosongkan -> pakai judul
     KBLI spt 13a. Judul juga tidak ada -> kembalikan apa adanya (pemanggil menolak)."""
     nilai = " ".join((produk or "").split())
     if not nilai or len(nilai) >= MIN_KARAKTER_13F:
-        return nilai
+        return ringkas_rincian(nilai, MAKS_KARAKTER_13F)
     if LENGKAPI_13F_DGN:
         kata = LENGKAPI_13F_DGN if nilai == nilai.upper() else LENGKAPI_13F_DGN.title()
         if len(f"{nilai} {kata}") >= MIN_KARAKTER_13F:
             return f"{nilai} {kata}"
-    return lengkapi_13a(nilai, judul_kbli, minimal=MIN_KARAKTER_13F)
+    return lengkapi_13a(nilai, judul_kbli, minimal=MIN_KARAKTER_13F, maks=MAKS_KARAKTER_13F)
 
 
 def lengkapi_13a(keg: str, judul_kbli: str, minimal: int = MIN_KARAKTER_13A,
-                 cara: str = LENGKAPI_13A_DGN_KBLI) -> str:
+                 cara: str = LENGKAPI_13A_DGN_KBLI, maks: int = MAKS_KARAKTER_13A) -> str:
     """13a < `minimal` karakter -> "<13a> (<kata judul KBLI>)" (lihat
     LENGKAPI_13A_DGN_KBLI di config). 13a yang sudah cukup, judul kosong, atau
     `cara` kosong -> 13a apa adanya (pemanggil yang memutuskan berhenti).
-    Judul ikut HURUF BESAR kalau 13a ditulis huruf besar."""
+    Judul ikut HURUF BESAR kalau 13a ditulis huruf besar. Hasil selalu <= `maks`
+    (ringkas_rincian)."""
     keg = " ".join((keg or "").split())
     judul = judul_dari_opsi_kbli(judul_kbli)
     if len(keg) >= minimal or not judul or cara not in ("sedikit", "penuh"):
-        return keg
+        return ringkas_rincian(keg, maks)
     if keg and keg == keg.upper():
         judul = judul.upper()
     elif judul == judul.upper():
@@ -515,7 +548,7 @@ def lengkapi_13a(keg: str, judul_kbli: str, minimal: int = MIN_KARAKTER_13A,
             ambil.append(k)
             if len(f"{keg} ({' '.join(ambil)})") >= minimal:
                 break
-    return f"{keg} ({' '.join(ambil)})" if keg else " ".join(ambil)
+    return ringkas_rincian(f"{keg} ({' '.join(ambil)})" if keg else " ".join(ambil), maks)
 
 
 # Nama Jalan (SE2026-P): isi selain kosong/"-" wajib memuat >= 10 huruf a-z

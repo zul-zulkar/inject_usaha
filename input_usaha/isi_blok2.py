@@ -20,13 +20,13 @@ from playwright.sync_api import Page
 from inti.config import (
     L, NAMA_PEMBERI_INFORMASI,
     DEFAULT_19A, DEFAULT_19C, DEFAULT_20B_VARIAN_SUDAH_BPOM, DEFAULT_20C_VARIAN_BELUM_BPOM,
-    ISI_PILIH_UMKM_SLS, MIN_KARAKTER_13A, OPSI_13B4_JASA, OPSI_13B4_PERTANIAN, TAHAP2_BULAN_OPERASI,
+    ISI_PILIH_UMKM_SLS, MAKS_KARAKTER_13E, MIN_KARAKTER_13A, OPSI_13B4_JASA, OPSI_13B4_PERTANIAN, TAHAP2_BULAN_OPERASI,
     UMKM_SATU_SLS_KANDIDAT,
 )
 from inti.fasih_web import FasihWebSession, FieldNotFound
 from inti.gabungan_loader import (
     KEY_16B, KEY_26, KEY_29, KEY_PEKERJA, OPSI_FORM, GabunganRow, judul_dari_opsi_kbli, kbli_kategori_ditolak,
-    lengkapi_13a,
+    lengkapi_13a, ringkas_rincian,
 )
 
 
@@ -97,6 +97,8 @@ def isi_13de(sess: FasihWebSession, row: GabunganRow, judul_kbli: str = "") -> N
             from inti.tahap2_loader import isian_13de_dari_kbli
             if TAHAP2_13DE_DARI_KBLI:
                 nilai = isian_13de_dari_kbli(judul_kbli, row["keg_utama"])[0 if key == "input_produksi" else 1]
+                if key == "proses_produksi":
+                    nilai = ringkas_rincian(nilai, MAKS_KARAKTER_13E)
         if not nilai:
             raise BarisPerluManual("13DE_KOSONG", f"{nama} dirender tapi kolom '{nama}' di sheet kosong.")
         sess.isi_bersyarat_by_label(pola, nilai, nama)

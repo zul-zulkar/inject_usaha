@@ -151,6 +151,14 @@ TAHAP2_27D_LEBIH_100_JADI_100 = True
 # "<8b> (<12a>)" > 50 karakter yang jatuh ke nama tanpa pemilik) -> nama baris itu saja
 # dibedakan: bentuk ringkas yang tetap memuat 12a, lalu + 13f / 13a. Kunci tidak berubah.
 TAHAP2_PISAHKAN_NAMA_TERMUAT = True
+# Nama dokumen yang MASIH bentrok (sama persis / termuat) sesudah semua putaran pembeda —
+# input_tahap2_24: "<8b> (<12a>)" > 50 -> nama tanpa pemilik -> kembar -> dinomori ->
+# nama jadi "1 (Ketut X)" & bentrok antar produk. Ketetapan user 2026-09-27: nama baris
+# yang bentrok saja dibuat ulang = usaha + pemilik (12a) diringkas; masih kembar -> +
+# kata pembeda NAMA SLS kalau SLS-nya beda ("Air mineral TENGAH (…)" vs "… BARAT (…)"),
+# kalau SLS sama -> nomor ("BAN MOTOR 1 (…)"). Nama tetap <= 50 karakter; kunci tidak
+# berubah. False = baris itu tetap ditolak NAMA_TUMPANG_TINDIH.
+TAHAP2_BEDAKAN_NAMA_BENTROK = True
 # Kodepos desa yang tidak ada di KODEPOS_BY_DESA/KODEPOS_BY_IDSUBSLS -> kodepos kecamatannya,
 # HANYA kalau semua desa lain sekecamatan yang dikenal (minimal N desa) berkodepos sama
 # (input_tahap2_23: desa Panji Anom 5108050012, 14 desa Sukasada lain = 81161).
@@ -359,6 +367,14 @@ LENGKAPI_13A_DGN_KBLI = "sedikit"
 # baris berhenti 13F_KURANG_4_KARAKTER. "" = langsung pakai judul KBLI.
 MIN_KARAKTER_13F = 4
 LENGKAPI_13F_DGN = "ECERAN"
+# Panjang MAKSIMAL isian 13a/13f/13e — ketetapan user 2026-09-27 ("jangan sampai
+# kepanjangan"). 13f & 13e = lengthInput maxlength 100 template; 13a tidak dibatasi
+# template (13a 126 karakter pernah lolos) tapi user memilih batas yang sama. Lebih
+# panjang -> kode KBLI "(47192)" di akhir dibuang, lalu dipotong per kata (ringkas_rincian).
+# 0 = tidak dibatasi.
+MAKS_KARAKTER_13A = 100
+MAKS_KARAKTER_13F = 100
+MAKS_KARAKTER_13E = 100
 
 # "Nama Jalan/Gang/Komplek" kosong di 242 baris gabungan. Label field di dump
 # DOM TIDAK bertanda wajib (*), berbeda dgn field wajib lain — tapi belum

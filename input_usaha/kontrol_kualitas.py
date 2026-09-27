@@ -370,6 +370,16 @@ POLA_TANDA: tuple[Pola, ...] = (
          keys_dari=lambda m, r: ("nama",) if m.group(1) == "nama dokumen" else ("nama_komersial",)),
     Pola("NAMA_DIBEDAKAN", r"(?:usaha pecahan bernama sama|nama kembar persis) .* -> nama dibedakan", "INFO",
          ("nama_komersial",), "Usaha bernama sama dibedakan otomatis (13f/13a/wilayah)."),
+    Pola("RINCIAN_13_DIRINGKAS", r"(13[aef]) \d+ karakter > \d+ -> diringkas", "DIKOREKSI",
+         saran="Tulis 13a/13f/13e lebih ringkas (maks 100 karakter); sekarang kode KBLI di akhir dibuang & "
+               "dipotong per kata.",
+         keys_dari=lambda m, r: ({"13a": "keg_utama", "13f": "produk", "13e": "proses_produksi"}[m.group(1)],)),
+    Pola("NAMA_BENTROK_DIBEDAKAN", r"nama dokumen '.*' bentrok dgn nama dokumen baris \S+ -> nama dibedakan",
+         "INFO", ("nama_komersial",),
+         "Nama dokumen bentrok dgn nama baris lain -> dibuat ulang otomatis (usaha + 12a, lalu kata SLS / nomor)."),
+    Pola("NAMA_PENANDA_DIRAPIKAN", r"nama dokumen '.*' hanya berisi penanda \+ 12a -> nama dirapikan", "INFO",
+         ("nama_komersial",),
+         "Nama dokumen yang cuma '<nomor/desa> (<12a>)' dibuat ulang otomatis = usaha + 12a (+ nomor kalau kembar)."),
     Pola("NAMA_TERMUAT_DIBEDAKAN", r"nama dokumen '.*' termuat di nama dokumen baris \d+ .* -> nama dibedakan",
          "INFO", ("nama_komersial",),
          "Nama dokumen termuat di nama baris lain (pencarian bisa salah buka) -> dibedakan otomatis (12a tetap "

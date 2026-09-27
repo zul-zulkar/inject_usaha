@@ -29,7 +29,7 @@ Pemetaan & pemeriksaannya di [`inti/tahap2_loader.py`](../inti/tahap2_loader.py)
 | `8c.` | alamat | Nama Jalan SE2026-P (≥ 10 huruf; pendek dilengkapi nama wilayah) |
 | `no WA` | 12e HP | `08…` 10–13 digit; tidak ada → `9999` |
 | `12a`, `12b`, `12c`, `12d` | pengusaha | nama; `1` L / `2` P; umur 10–99; NIK 16 digit atau `7777`/`8888`/`9999` |
-| `13a`, `13f` | kegiatan & produk utama | 13a ≥ 15 karakter, 13f ≥ 4 (pendek dilengkapi judul KBLI) |
+| `13a`, `13f` | kegiatan & produk utama | 13a ≥ 15 karakter, 13f ≥ 4 (pendek dilengkapi judul KBLI); 13a, 13f & 13e maks 100 karakter (lebih panjang: kode KBLI di akhir dibuang, lalu dipotong per kata — `MAKS_KARAKTER_13A/13F/13E`) |
 | `14a` | jaringan usaha | `1` Tunggal … `6` Unit pembantu |
 | `16a`, `16b1-b6` | internet | 16a `1`/`2`; 16b: 6 nilai `1,2,2,1,2,2`, atau `B1,B3`, kosong kalau 16a = 2 |
 | `17b`, `21`, `22` | lingkungan, KDKMP, MBG | `1`/`2`; 22 = `1`–`5` (`5` tidak terlibat) |
@@ -96,8 +96,9 @@ lokal kalau kebijakan Anda berbeda) dan tercatat di `review_disarankan`.
 | nama BUMDes | 11a `6. BUM Desa`, 11d Ya, modal pemerintah | `TAHAP2_KOREKSI_BUMDES` |
 | usaha pecahan (8b & 12a sama, 13f beda) | nama `<8b> <13f> (<12a>)` | `TAHAP2_PEMBEDA_13F_UTK_GANDA` |
 | nama dokumen termuat di nama baris lain | nama baris itu diringkas dgn tetap memuat 12a, atau + 13f/13a (kunci tetap) | `TAHAP2_PISAHKAN_NAMA_TERMUAT` |
+| nama dokumen masih bentrok, atau cuma `<nomor/desa> (<12a>)` | dibuat ulang = usaha + 12a (≤ 50 karakter); masih kembar → + kata pembeda nama SLS kalau SLS beda (`Air mineral TENGAH (…)`), selain itu nomor (`BAN MOTOR 1 (…)`); kunci tetap | `TAHAP2_BEDAKAN_NAMA_BENTROK` |
 | KBLI kategori P/U (ditolak form) | rekomendasi KBLI GenAI pertama | `KBLI_DITOLAK_PAKAI_GENAI` |
-| keputusan per baris | ditulis di config lokal, dicocokkan idsubsls+8b+12a | `TAHAP2_KOREKSI_BARIS` |
+| keputusan per baris | ditulis di config lokal, dicocokkan idsubsls+8b+12a: `nama`, `umur`, `nomori` (baris yang isinya identik tetap diinput, dinomori) | `TAHAP2_KOREKSI_BARIS` |
 
 Yang **tidak pernah** ditebak (baris ditolak `SKIP_DATA_*`): kode opsi tak dikenal, kolom wajib
 hilang, total bukan-nol yang tidak cocok, baris identik (`BARIS_GANDA`), kodepos desa tak

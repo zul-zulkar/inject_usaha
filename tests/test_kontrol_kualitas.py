@@ -206,6 +206,13 @@ CONTOH_TANDA = [
      "DIKOREKSI", "UANG_RIBUAN_DIKALI_1000", ("biaya_pembelian", "operasional")),
     ("kodepos desa 5108080099 tidak ada di daftar -> 81172 (semua desa lain di kecamatan 080 berkodepos sama)",
      "TINJAU", "KODEPOS_DARI_KECAMATAN", ("kodepos",)),
+    ("13a 126 karakter > 100 -> diringkas: 'Perdagangan eceran contoh'", "DIKOREKSI", "RINCIAN_13_DIRINGKAS",
+     ("keg_utama",)),
+    ("13f 110 karakter > 100 -> diringkas: 'jasa contoh'", "DIKOREKSI", "RINCIAN_13_DIRINGKAS", ("produk",)),
+    ("nama dokumen '2 (I KETUT CONTOH)' hanya berisi penanda + 12a -> nama dirapikan dgn tetap memuat 12a: "
+     "Warung eceran bahan bakar (I KETUT CONTOH)", "INFO", "NAMA_PENANDA_DIRAPIKAN", ("nama_komersial",)),
+    ("nama dokumen '1 (I KETUT CONTOH)' bentrok dgn nama dokumen baris 12 -> nama dibedakan SLS 'TENGAH': "
+     "Air mineral TENGAH (I KETUT CONTOH)", "INFO", "NAMA_BENTROK_DIBEDAKAN", ("nama_komersial",)),
     ("nama dokumen 'WARUNG CONTOH' termuat di nama dokumen baris 12 'WARUNG CONTOH (BU MADE)' -> nama dibedakan "
      "dgn tetap memuat 12a: WARUNG CONTOH (I KETUT CONTOH)", "INFO", "NAMA_TERMUAT_DIBEDAKAN", ("nama_komersial",)),
 ]

@@ -140,9 +140,21 @@ cek("berkas banyak: koma di path TIDAK memecah",
     A.susun_argumen(ga, "laporan", {"sumber": ["audit/pc/pc 1, lama", "audit/pc/pc2"]}),
     ["--sumber", "audit/pc/pc 1, lama", "--sumber", "audit/pc/pc2"])
 ap_ = A.ALAT_PER_ID["approve"]
-cek("approve mode daftar", A.susun_argumen(ap_, "approve", {"target": "daftar", "daftar": "bahan/submit.xlsx", "limit": "1"}),
-    ["--daftar", "bahan/submit.xlsx", "--limit", "1", "--eksekusi"])
+cek("approve mode daftar: catatan approve diabaikan (bawaan)",
+    A.susun_argumen(ap_, "approve", {"target": "daftar", "daftar": "bahan/submit.xlsx", "limit": "1"}),
+    ["--daftar", "bahan/submit.xlsx", "--limit", "1", "--abaikan-audit-approve", "--eksekusi"])
 cek("approve mode audit wajib akun PPL", "Akun PPL" in galat(lambda: A.susun_argumen(ap_, "cek", {"target": "audit", "akun_pml": "pml.satu@mail.com"})), True)
+cek("approve bawaan = mode server (cukup email PML)",
+    A.susun_argumen(ap_, "approve", {"akun_pml": "pml.satu@mail.com", "limit": "1"}),
+    ["--akun-pml", "pml.satu@mail.com", "--limit", "1", "--eksekusi"])
+cek("mode server tanpa akun PML ditolak", galat(lambda: A.susun_argumen(ap_, "approve", {"target": "server"})),
+    "Akun PML: wajib diisi.")
+cek("mode server: isian PPL/file tidak diteruskan",
+    A.susun_argumen(ap_, "cek", {"target": "server", "akun_pml": "a@x.co", "akun_ppl": "p@x.co", "daftar": "f.xlsx"}),
+    ["--akun-pml", "a@x.co", "--cek"])
+cek_ap = A.cari_aksi(ap_, "cek")
+cek("lihat daftar mode server butuh login", A.butuh_password(ap_, cek_ap, {"target": "server"}), True)
+cek("rencana mode file tanpa login", A.butuh_password(ap_, cek_ap, {"target": "daftar"}), False)
 kb = A.ALAT_PER_ID["kbli"]
 cek("KBLI: berkas = argumen posisi pertama", A.susun_argumen(kb, "jalan", {"berkas": "s.xlsx", "model": "kecil"}),
     ["s.xlsx", "--model", "kecil"])

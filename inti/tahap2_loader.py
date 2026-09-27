@@ -61,13 +61,15 @@ from inti.config import (
     TAHAP2_JALAN_KOSONG_DARI_WILAYAH, TAHAP2_13A_KOSONG_DARI_KBLI, TAHAP2_KOREKSI_BARIS, WILAYAH_BY_IDSUBSLS,
     TAHAP2_27D_LEBIH_100_JADI_100, TAHAP2_GAJI_PER_PEKERJA_DINAIKKAN, TAHAP2_KODEPOS_DARI_KECAMATAN,
     TAHAP2_KODEPOS_KECAMATAN_MIN_DESA, TAHAP2_NIK_KOSONG_JADI, TAHAP2_PEKERJA_STATUS_NOL_DARI_JK,
-    TAHAP2_PISAHKAN_NAMA_TERMUAT, TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI, TAHAP2_UANG_KECIL_JADI_RIBUAN,
+    TAHAP2_PISAHKAN_NAMA_TERMUAT, TAHAP2_BEDAKAN_NAMA_BENTROK, PETA_SLS_PATH, MAKS_KARAKTER_13A,
+    MAKS_KARAKTER_13F, MAKS_KARAKTER_13E, TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI, TAHAP2_UANG_KECIL_JADI_RIBUAN,
 )
 from inti.gabungan_loader import (
     GAJI_MIN_PER_PEKERJA_DIBAYAR, KEY_16B, KEY_26, KEY_27, KEY_28, KEY_29, KEY_PEKERJA, MAKS_8B, OPSI_FORM,
     YA_TIDAK, GabunganRow, Pemeriksaan, _norm_judul, _pasangan_termuat, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, koreksi_bumdes, kbli_26b_wajib_positif,
     kbli_kategori_ditolak, kbli_makan_minum, kbli_punya_30c, kbli_tanpa_26c,
     koordinat_kosong, koordinat_valid, lengkapi_alamat, nama_muat, nama_tampil, nik_valid, periksa_semua,
+    ringkas_rincian,
 )
 
 # Nama tab yang diterima. File contoh dari user bertab "Sheet1"; tab yang
@@ -580,6 +582,15 @@ class Tahap2Row(GabunganRow):
     # Nama dokumen & 8b pengganti dari pisahkan_nama_termuat (nama termuat di nama baris
     # lain). HANYA nama — beda dgn `pembeda`, TIDAK ikut `kunci`.
     nama_pisah: str = ""
+    # Pembeda 13f dari putaran 1/2 (isi produk, tanpa tambahan wilayah/nomor putaran 3) —
+    # bahan nama baru di bedakan_nama_bentrok.
+    pembeda_isi: str = ""
+    # TAHAP2_KOREKSI_BARIS {"nomori": True}: baris yang isinya IDENTIK tetap diinput,
+    # dibedakan nomor urut (ketetapan user per kelompok baris).
+    nomori_identik: bool = False
+    # Penanda yang ditambahkan putaran 3 (desa / kecamatan / nomor). Kalau pembeda HANYA
+    # berisi ini, nama dokumen jatuh ke "<penanda> (<12a>)" -> dirapikan putaran 5.
+    penanda_kembar: str = ""
 
     def _nama_dgn_pembeda(self, nama: str) -> str:
         """"<8b> (<12a>)"; usaha pecahan bernama sama: "<8b> <13f> (<12a>)". Yang
@@ -717,6 +728,8 @@ def beri_pembeda_ganda(rows: list[Tahap2Row]) -> None:
     bedakan_nama_kembar(rows)
     # Putaran 4 (2026-09-26): nama dokumen yang TERMUAT di nama baris lain -> nama saja.
     pisahkan_nama_termuat(rows)
+    # Putaran 5 (2026-09-27): nama yang MASIH bentrok -> usaha + pemilik (+ SLS / nomor).
+    bedakan_nama_bentrok(rows)
 
 
 def _beri_pembeda(anggota: list[Tahap2Row], key: str, rincian: str, hanya_kosong: bool = False) -> None:
@@ -736,6 +749,8 @@ def _beri_pembeda(anggota: list[Tahap2Row], key: str, rincian: str, hanya_kosong
             continue
         if p and jumlah[p.upper()] == 1:
             r.pembeda = p
+            if rincian == "13f":
+                r.pembeda_isi = p
             r.koreksi.append(f"usaha pecahan bernama sama (baris {daftar}) -> nama dibedakan {rincian} "
                              f"'{p}': {r.nama_dokumen}")
 
@@ -775,7 +790,9 @@ def bedakan_nama_kembar(rows: list[Tahap2Row]) -> None:
         if len(anggota) < 2:
             continue
         sidik = [tuple(sorted(r.v.items())) for r in anggota]
-        if len(set(sidik)) != len(anggota):
+        kembar_isi = [r for r, sd in zip(anggota, sidik) if sidik.count(sd) > 1]
+        identik = bool(kembar_isi)
+        if identik and not all(r.nomori_identik for r in kembar_isi):
             continue    # ada baris yang isinya sama persis -> duplikat, tidak ditebak
         anggota.sort(key=lambda r: r.baris)
         daftar = [r.baris for r in anggota]
@@ -784,6 +801,7 @@ def bedakan_nama_kembar(rows: list[Tahap2Row]) -> None:
             if all(nilai) and len(set(nilai)) == len(anggota):
                 for r, n in zip(anggota, nilai):
                     r.pembeda = f"{r.pembeda} {n}".strip()
+                    r.penanda_kembar = n
                     r.koreksi.append(f"nama kembar persis (baris {daftar}) -> nama dibedakan {bagian} "
                                      f"'{n}': {r.nama_dokumen}")
                 break
@@ -792,8 +810,10 @@ def bedakan_nama_kembar(rows: list[Tahap2Row]) -> None:
             # ikut diberi nomor supaya tidak ada yang bernama ambigu "tanpa nomor".
             for ke, r in enumerate(anggota, start=1):
                 r.pembeda = f"{r.pembeda} {ke}".strip()
+                r.penanda_kembar = str(ke)
                 r.koreksi.append(f"nama kembar persis (baris {daftar}) & wilayahnya sama -> "
-                                 f"nama dibedakan penomoran '{ke}': {r.nama_dokumen}")
+                                 f"nama dibedakan penomoran '{ke}': {r.nama_dokumen}"
+                                 + (" (isi baris identik; ketetapan user: tetap diinput)" if identik else ""))
 
 
 def pisahkan_nama_termuat(rows: list[Tahap2Row]) -> None:
@@ -835,6 +855,172 @@ def pisahkan_nama_termuat(rows: list[Tahap2Row]) -> None:
                 r.koreksi.append(f"nama dokumen '{lama}' termuat di nama dokumen baris {rows[bentrok[0]].baris} "
                                  f"'{rows[bentrok[0]].nama_dokumen}' -> nama dibedakan {cara}: {calon}")
                 break
+
+
+# Kata umum di depan nama usaha yang BOLEH dibuang kalau nama dgn penanda > MAKS_8B (di
+# atas KATA_UMUM_NAMA yang selalu dibuang). "Warung Kaori" yang muat tetap utuh.
+KATA_UMUM_NAMA_PANJANG = KATA_UMUM_NAMA | {"WARUNG", "TOKO", "KIOS"}
+_AWALAN_SLS = re.compile(r"^(LINGKUNGAN|LINGK\.?|BANJAR|BR\.?|DUSUN|DSN\.?)\s+", re.I)
+_NAMA_SLS: dict[str, str] | None = None
+
+
+def _nama_sls(idsubsls: str) -> str:
+    """Nama SLS (properti `nmsls` peta PETA_SLS_PATH) — dimuat sekali, hanya kalau ada
+    nama bentrok beda subsls. Peta tidak ada/rusak -> "" (pemanggil memakai nomor)."""
+    global _NAMA_SLS
+    if _NAMA_SLS is None:
+        _NAMA_SLS = {}
+        try:
+            import json
+            fitur = json.loads(Path(PETA_SLS_PATH).read_text(encoding="utf-8"))["features"]
+            for f in fitur:
+                pr = f.get("properties") or {}
+                if pr.get("idsubsls"):
+                    _NAMA_SLS[str(pr["idsubsls"])] = " ".join(str(pr.get("nmsls") or "").split()).upper()
+        except Exception:  # noqa: BLE001 — penanda wilayah hanya pelengkap
+            _NAMA_SLS = {}
+    return _NAMA_SLS.get(idsubsls, "")
+
+
+def _penanda_sls(anggota: list[Tahap2Row]) -> list[str] | None:
+    """Kata pembeda SLS tiap anggota ("LINGKUNGAN BANYUNING TENGAH"/"… BARAT" -> "TENGAH"/
+    "BARAT"): awalan jenis SLS & kata yang dimiliki SEMUA anggota dibuang. None kalau ada
+    yang tanpa nama SLS atau hasilnya tidak membedakan semua anggota."""
+    kata = []
+    for r in anggota:
+        nama = _AWALAN_SLS.sub("", _nama_sls(r["idsubsls"]))
+        if not nama:
+            return None
+        kata.append(nama.split())
+    sama = set(kata[0]).intersection(*kata[1:])
+    penanda = [" ".join(k for k in ks if k not in sama) for ks in kata]
+    if not all(penanda) or len(set(penanda)) != len(penanda):
+        return None
+    return penanda
+
+
+def _usaha_tanpa_pemilik(r: Tahap2Row) -> tuple[list[str], str]:
+    """(kata nama usaha tanpa pemilik, pemilik) utk bedakan_nama_bentrok. Pembeda 13f
+    (putaran 1/2) ikut kalau belum tertulis di nama; nomor/wilayah putaran 3 tidak."""
+    dasar = r.nama
+    if r.pembeda_isi and r.pembeda_isi.upper() not in dasar.upper():
+        dasar = f"{dasar} {r.pembeda_isi}"
+    pemilik = " ".join(re.sub(r"[()]", " ", r["pengusaha"]).split())
+    lengkap = format_nama_usaha(nama_tampil(" ".join(dasar.split()), r.akhiran_badan), r["pengusaha"])
+    akhir = f" ({pemilik})"
+    usaha = lengkap[: -len(akhir)] if pemilik and lengkap.endswith(akhir) else re.sub(r"[()]", " ", lengkap)
+    return usaha.split(), pemilik
+
+
+def _susun_nama(kata: list[str], penanda: str, pemilik: str) -> str:
+    """"<usaha> <penanda> (<pemilik>)" <= MAKS_8B: kata umum depan (KATA_UMUM_NAMA) selalu
+    dibuang spt _nama_ringkas; masih panjang -> (HANYA kalau ada penanda) "Warung/Toko/
+    Kios" depan juga, supaya produk tidak habis terpotong; lalu kata usaha paling belakang
+    (penanda & pemilik tidak pernah dipotong). "" kalau tidak muat."""
+    kata = list(kata)
+    akhir = f" ({pemilik})" if pemilik else ""
+    tanda = f" {penanda}" if penanda else ""
+
+    def susun() -> str:
+        return " ".join(kata).strip(" ,;:-/&") + tanda + akhir
+
+    dibuang = False
+    while len(kata) > 1 and kata[0].upper().strip(".,") in KATA_UMUM_NAMA:
+        kata.pop(0)
+        dibuang = True
+    while (penanda and len(kata) > 1 and len(susun()) > MAKS_8B
+           and kata[0].upper().strip(".,") in KATA_UMUM_NAMA_PANJANG):
+        kata.pop(0)
+        dibuang = True
+        while len(kata) > 1 and kata[0].upper().strip(".,") in KATA_UMUM_NAMA:
+            kata.pop(0)   # "Warung eceran …" -> "eceran" ikut dibuang
+    while len(kata) > 1 and len(susun()) > MAKS_8B:
+        kata.pop()
+    if dibuang and kata and kata[0][:1].islower():
+        kata[0] = kata[0][:1].upper() + kata[0][1:]
+    hasil = susun()
+    if len(hasil) > MAKS_8B or len(re.sub(r"[^A-Za-z]", "", " ".join(kata))) < 3:
+        return ""
+    return hasil
+
+
+def _nama_penanda_saja(r: Tahap2Row) -> bool:
+    """Nama dokumen yang cuma "<penanda putaran 3> (<12a>)" ("1 (Ketut Yastrini)",
+    "TEJAKULA (Nengah Sumerdiasa)"): pembeda HANYA penanda desa/kecamatan/nomor dan
+    "<8b> <pembeda> (<12a>)" > 50 -> _nama_dgn_pembeda jatuh ke "<pembeda> (<12a>)"."""
+    return (bool(r.penanda_kembar) and r.pembeda.strip() == r.penanda_kembar
+            and not r.nama_pisah and not r.nama_tetap
+            and r.nama_dokumen == format_nama_usaha(r.pembeda, r["pengusaha"]))
+
+
+def _bentrok(nama: list[str], rows: list[Tahap2Row]) -> set[int]:
+    """Indeks baris yang namanya sama persis dgn / termuat di / memuat nama baris lain
+    ber-kunci beda (= yang ditolak NAMA_TUMPANG_TINDIH)."""
+    return {k for i, j in _pasangan_termuat(nama, nama)
+            if i != j and rows[i].kunci != rows[j].kunci for k in (i, j)}
+
+
+def bedakan_nama_bentrok(rows: list[Tahap2Row]) -> None:
+    """Putaran 5 (TAHAP2_BEDAKAN_NAMA_BENTROK, ketetapan user 2026-09-27). Nama dokumen
+    yang MASIH bentrok sesudah putaran 1-4 dibuat ulang lewat `nama_pisah` (kunci tetap):
+      1. usaha + pemilik diringkas ("Warung eceran sabun, shampo (Ketut Yastrini)") —
+         input_tahap2_24: 8b "(Yastrini)" tersalin ke usaha pemilik lain, "<8b> (<12a>)"
+         > 50 -> nama tanpa pemilik -> kembar -> dinomori -> "1 (Ketut Yastrini)";
+      2. masih kembar -> + penanda: kata pembeda NAMA SLS kalau SLS-nya beda ("Air mineral
+         TENGAH (…)"/"… BARAT (…)"), selain itu nomor urut baris ("BAN MOTOR 1 (…)").
+    Yang diubah: baris yang bentrok + baris yang namanya cuma "<penanda> (<12a>)"
+    (_nama_penanda_saja; ketetapan user: ikut dirapikan walau 8 dokumen sheet 23 sudah
+    terkirim dgn nama itu — dokumen dicocokkan lewat ID/URL audit, bukan nama). Nama baris
+    lain tidak pernah berubah. Calon yang masih bentrok dibatalkan (baris tetap ditolak
+    NAMA_TUMPANG_TINDIH, tidak ditebak lebih jauh)."""
+    if not TAHAP2_BEDAKAN_NAMA_BENTROK:
+        return
+    nama = [r.nama_dokumen.upper() for r in rows]
+    ubah = sorted({i for i in _bentrok(nama, rows) if not rows[i].nama_tetap}
+                  | {i for i, r in enumerate(rows) if _nama_penanda_saja(r)})
+    if not ubah:
+        return
+    lama = {i: rows[i].nama_dokumen for i in ubah}
+    lawan: dict[int, int] = {}
+    for i, j in _pasangan_termuat(nama, nama):
+        if i != j and rows[i].kunci != rows[j].kunci:
+            lawan.setdefault(i, rows[j].baris)
+            lawan.setdefault(j, rows[i].baris)
+    baru: dict[int, tuple[str, str]] = {}
+    for i in ubah:
+        kata, pemilik = _usaha_tanpa_pemilik(rows[i])
+        calon = _susun_nama(kata, "", pemilik)
+        if calon:
+            baru[i] = (calon, "dgn tetap memuat 12a")
+            nama[i] = calon.upper()
+    # Calon yang masih kembar satu sama lain -> penanda SLS / nomor per kelompok nama.
+    kelompok: dict[str, list[int]] = defaultdict(list)
+    sisa = _bentrok(nama, rows)
+    for i in ubah:
+        if i in sisa:
+            kelompok[nama[i]].append(i)
+    for anggota in kelompok.values():
+        anggota.sort(key=lambda i: rows[i].baris)
+        sls = _penanda_sls([rows[i] for i in anggota]) if len(anggota) > 1 else None
+        for ke, i in enumerate(anggota, start=1):
+            penanda, cara = (sls[ke - 1], f"SLS '{sls[ke - 1]}'") if sls else (str(ke), f"nomor '{ke}'")
+            kata, pemilik = _usaha_tanpa_pemilik(rows[i])
+            calon = _susun_nama(kata, penanda, pemilik)
+            if calon:
+                baru[i] = (calon, cara)
+                nama[i] = calon.upper()
+    # Yang masih bentrok dibatalkan -> tetap ditolak NAMA_TUMPANG_TINDIH.
+    gagal = _bentrok(nama, rows)
+    for i in ubah:
+        if i in baru and i not in gagal:
+            r = rows[i]
+            r.nama_pisah, cara = baru[i]
+            if i in lawan:
+                r.koreksi.append(f"nama dokumen '{lama[i]}' bentrok dgn nama dokumen baris {lawan[i]} "
+                                 f"-> nama dibedakan {cara}: {r.nama_pisah}")
+            else:
+                r.koreksi.append(f"nama dokumen '{lama[i]}' hanya berisi penanda + 12a -> nama dirapikan "
+                                 f"{cara}: {r.nama_pisah}")
 
 
 def _calon_nama_pisah(r: Tahap2Row) -> list[tuple[str, str]]:
@@ -1324,6 +1510,16 @@ def load_tahap2(path: str | Path, kodepos: str = "") -> list[Tahap2Row]:
                 row.koreksi.append(f"Nama Jalan kosong -> nama wilayah '{isi}' (ketetapan user)")
         out.append(row)
     beri_pembeda_ganda(out)
+    # Sesudah pembeda (pembeda 13f/13a & sidik baris identik memakai isian ASLI -> kunci
+    # tidak berubah): isian 13a/13f/13e yang kepanjangan diringkas (MAKS_KARAKTER_13*).
+    for row in out:
+        for key, rincian, maks in (("keg_utama", "13a", MAKS_KARAKTER_13A), ("produk", "13f", MAKS_KARAKTER_13F),
+                                   ("proses_produksi", "13e", MAKS_KARAKTER_13E)):
+            lama = " ".join(row.v.get(key, "").split())
+            baru = ringkas_rincian(lama, maks)
+            if baru != lama:
+                row.v[key] = baru
+                row.koreksi.append(f"{rincian} {len(lama)} karakter > {maks} -> diringkas: '{baru}'")
     return out
 
 
@@ -1352,18 +1548,21 @@ def _kunci_teks(teks) -> str:
 def terapkan_koreksi_baris(row: "Tahap2Row") -> None:
     """TAHAP2_KOREKSI_BARIS: koreksi yang diputuskan user utk baris tertentu,
     dicocokkan lewat (idsubsls, 8b, 12a) — bukan nomor baris, supaya tetap kena
-    kalau sheet disisipi baris. Hanya "nama" & "umur" yang dikenal; kunci lain
-    ditolak (salah ketik config jangan diam-diam diabaikan)."""
+    kalau sheet disisipi baris. Yang dikenal: "nama", "umur", "nomori" (baris identik
+    tetap diinput, dinomori — lihat bedakan_nama_kembar); kunci lain ditolak (salah
+    ketik config jangan diam-diam diabaikan)."""
     cari = (row["idsubsls"], _kunci_teks(row["nama_komersial"]), _kunci_teks(row["pengusaha"]))
     for (ids, nama, pemilik), isi in TAHAP2_KOREKSI_BARIS.items():
         if (ids, _kunci_teks(nama), _kunci_teks(pemilik)) != cari:
             continue
-        asing = set(isi) - {"nama", "umur"}
+        asing = set(isi) - {"nama", "umur", "nomori"}
         if asing:
             raise ValueError(f"TAHAP2_KOREKSI_BARIS {ids}/{nama}: kunci tidak dikenal {sorted(asing)}")
         if isi.get("nama"):
             row.nama_tetap = " ".join(isi["nama"].split())
             row.koreksi.append(f"nama usaha diganti -> '{row.nama_tetap}' (ketetapan user)")
+        if isi.get("nomori"):
+            row.nomori_identik = True
         if isi.get("umur"):
             lama = row["umur"]
             row.v["umur"] = str(isi["umur"])

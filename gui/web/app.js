@@ -787,7 +787,10 @@ function formAlat(a) {
 async function klikAksi(a, ak, pesan) {
   pesan.hidden = true;
   const isian = salinObjek(S.nilai[a.id]);
-  const butuhPw = ak.password === true || (typeof ak.password === "string" && ak.password.startsWith("kecuali:") && !isian[ak.password.split(":")[1]]);
+  // sama dgn gui/alat.py butuh_password: true | "kecuali:<isian>" | {jika: {syarat}}
+  const butuhPw = ak.password === true
+    || (typeof ak.password === "string" && ak.password.startsWith("kecuali:") && !isian[ak.password.split(":")[1]])
+    || (ak.password && typeof ak.password === "object" && cocok(ak.password.jika, isian, a));
   if (butuhPw && !S.password.tersedia) {
     const ok = await dialogPassword(false);
     if (!ok) return;

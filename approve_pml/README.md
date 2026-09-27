@@ -4,11 +4,35 @@ Sebagai **PML**, meng-approve dokumen yang sudah dikirim PPL — biasanya hasil 
 dengan klik **Approve** di bar bawah dokumen → **Approve** di dialog "Konfirmasi Approve".
 Playwright, login otomatis dengan `FIXED_PASSWORD`. Butuh VPN.
 
-Per dokumen: status dibaca lewat API (harus `SUBMITTED BY Pencacah` & dibuat akun PPL yang diminta)
-→ dokumen dibuka → Approve → **status server dibaca ulang sampai `APPROVED BY Pengawas`** (toast
-bukan bukti). Ada yang janggal → seluruh run berhenti. ⚠️ Anggap approve tidak bisa dibatalkan.
+Per dokumen: status dibaca lewat API (harus `SUBMITTED BY Pencacah`) → dokumen dibuka → Approve →
+**status server dibaca ulang sampai `APPROVED BY Pengawas`** (toast bukan bukti). Ada yang janggal →
+seluruh run berhenti. ⚠️ Anggap approve tidak bisa dibatalkan.
 
-## Pakai — dokumen satu PPL dari audit input (alur utama)
+## Pakai — cukup email PML (alur utama)
+
+Target dibaca **langsung dari list PENDATAAN PML di server**: semua dokumen **PAPI** berstatus
+`SUBMITTED BY Pencacah` yang dipegang PML itu, dari PPL mana pun. Email PPL dan audit tidak diperlukan.
+
+```bash
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML --cek                      # login & lihat daftar saja
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML                            # dry-run (dokumen dibuka, tidak diklik)
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML --eksekusi --limit 1
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML --eksekusi
+```
+
+- Setelah list terbaca, skrip mencetak jumlah per status & per subsls, **lalu** meminta `YA` (satu kali
+  per PML). Beberapa PML: `--akun-pml a@x.com --akun-pml b@y.com` (login bergiliran).
+- Dokumen CAPI dilewati (web-entry fasih-web hanya membuka PAPI), begitu juga dokumen yang dipegang
+  PML lain. Menjalankan ulang aman: dokumen yang sudah APPROVED tidak lagi `SUBMITTED` di server.
+- List PML bisa ribuan dokumen. Kalau server membalas galat, list dibaca per 50 → 25 → 10; kalau
+  tetap gagal, PML itu dilewati (`ERROR_LIST_PML`) tanpa ada dokumen yang dibuka.
+- Audit input hanya dipakai untuk mengisi kolom `kunci`/`baris` di catatan approve, supaya
+  `fasih_sm/pindah_wilayah --dari-approve` tetap bisa memindahkan dokumennya. Audit input tidak ikut
+  memilih target.
+
+Di GUI: **Approve PML** → Sumber target *Daftar di server* (bawaan) → isi Akun PML.
+
+## Mode lain — dokumen satu PPL dari audit input
 
 ```bash
 python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --cek              # rencana, tanpa browser
@@ -17,19 +41,27 @@ python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --ek
 python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --eksekusi
 ```
 
-Hanya sumber ini yang hasilnya bisa dipakai `fasih_sm/pindah_wilayah --dari-approve`. Batch dengan
-audit sendiri: tambah `--audit audit/<batch>`.
+Hasil mode ini dan mode server (dokumen yang tercatat di audit input) bisa dipakai
+`fasih_sm/pindah_wilayah --dari-approve`. Batch dengan audit sendiri: tambah `--audit audit/<batch>`.
 
 **Banyak PML sekaligus:** `--rencana <csv/xlsx berkolom Email PML, Email PPL, assignment_id>`
 (contoh: [`templates/rencana_approve.contoh.csv`](../templates/rencana_approve.contoh.csv)) atau
 `--daftar <salinan tabel Data fasih-sm>` (dicari lewat kode identitas). Urutannya sama: `--cek` →
-dry-run → `--eksekusi --limit 1` (per PML) → `--eksekusi`.
+dry-run → `--eksekusi --limit 1` (per PML) → `--eksekusi`. Tambahkan `--abaikan-audit-approve` supaya
+catatan approve tidak dibaca.
+
+`--daftar` mencari dokumen di list PML per subsls (16 digit awal kode identitas). Dokumen yang **sudah
+dipindah wilayah** (kode identitas masih `…0224`, dokumennya di `…0116`) tidak muncul di pencarian itu,
+jadi otomatis dicari ulang **lewat namanya**. Dokumen tetap hanya dipakai kalau kode identitasnya sama
+persis dengan tabel. Yang tetap tidak ketemu (`SKIP_KODE_TIDAK_DI_LIST`) bisa dibereskan dengan mode
+server `--akun-pml` untuk PML-nya.
 
 ## Opsi
 
 | Opsi | Guna |
 | --- | --- |
 | `--eksekusi` / `--ya` | sungguhan klik Approve (minta `YA`) / lewati pertanyaan `YA` |
+| `--cek` | mode file: rencana tanpa browser; mode server: login & baca list saja (dokumen tidak dibuka) |
 | `--limit N` | maks dokumen per PML (yang dilewati tidak dihitung) |
 | `--termasuk-di-luar-audit` | ikut dokumen list subsls PPL yang tidak tercatat di audit |
 | `--abaikan-audit-approve` | cek ulang dokumen yang di audit approve sudah APPROVED |
@@ -46,6 +78,7 @@ dry-run → `--eksekusi --limit 1` (per PML) → `--eksekusi`.
 | `SKIP_BUKAN_PPL` | dokumen milik PPL lain — tidak disentuh |
 | `SKIP_TIDAK_ADA_AKSES` | server menolak (biasanya dokumen **CAPI**) — approve lewat aplikasi FASIH |
 | `ERROR_FORM_TIDAK_MOUNT` / `ERROR_LOGIN_PML` | 504 / login gagal — jalankan lagi / cek password |
+| `ERROR_LIST_PML` | mode server: list PML gagal dibaca — PML itu dilewati, jalankan lagi |
 | ⛔ `STOP_DIALOG_TIDAK_MUNCUL`, `STOP_TOMBOL_AMBIGU`, `APPROVE_TIDAK_TERVERIFIKASI` | run berhenti — cek dokumen itu manual |
 
 ## Berkas
@@ -54,7 +87,7 @@ dry-run → `--eksekusi --limit 1` (per PML) → `--eksekusi`.
 | --- | --- |
 | `audit/audit_approve_pml.csv` | catatan approve (ditambah tiap run; dibaca `pindah_wilayah --dari-approve`) |
 | `approve_pml/hasil/` | screenshot kegagalan, sesi login `.sesi_fasih_web_<akun>.json` (berisi cookie) |
-| `approve_pml.py` | seluruh alur: target dari audit/rencana/daftar, login per PML, `approve_satu` + verifikasi API |
+| `approve_pml.py` | seluruh alur: target dari server (`target_dari_server`) / audit / rencana / daftar, login per PML, `approve_satu` + verifikasi API |
 | [`../inti/fasih_web.py`](../inti/fasih_web.py) | login SSO, verifikasi akun aktif |
 
 Uji: `python tests/test_approve_pml.py`.

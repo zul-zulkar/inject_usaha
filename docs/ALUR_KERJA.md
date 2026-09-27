@@ -70,9 +70,13 @@ gabungkan audit ([`antar_pc/`](../antar_pc/README.md)).
 
 ## 5. Approve — [`approve_pml/`](../approve_pml/README.md)
 
+Cukup email PML: target = semua dokumen PAPI `SUBMITTED BY Pencacah` di list PML itu (dibaca dari
+server, tanpa email PPL & audit).
+
 ```bash
-python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --eksekusi --limit 1
-python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --eksekusi
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML --cek
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML --eksekusi --limit 1
+python approve_pml/approve_pml.py --akun-pml EMAIL_PML --eksekusi
 ```
 
 ## 6–8. Kembalikan dokumen ke wilayah aslinya — [`fasih_sm/`](../fasih_sm/README.md)
