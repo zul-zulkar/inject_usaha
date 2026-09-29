@@ -18,7 +18,7 @@ python antar_pc/bungkus_pc.py                # PC baru / sesudah audit digabung:
 
 Hasilnya `antar_pc/hasil/split_usaha_pc_<waktu>.zip`. ⚠️ Berisi data responden & password — pindahkan
 lewat flashdisk/drive kantor. ⚠️ Zip **tanpa** `--kode-saja` membawa `audit/` PC utama: extract di PC
-yang auditnya belum digabung akan **menimpa** audit PC itu (dokumennya lalu dibuat ganda).
+yang auditnya belum digabung akan **menimpa** audit PC itu (dokumennya lalu dibuat ganda).python antar_pc/gabung_audit.py --sumber audit/pc --sumber audit/audit_log_gabungan.csv --sheet bahan/input_usaha.xlsx --keluaran audit/audit_log_gabungan.csv --tulis
 
 Di PC tujuan: extract ke folder proyek (mis. `D:\split_usaha`), lalu:
 

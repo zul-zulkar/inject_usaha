@@ -207,7 +207,8 @@ def test_cocokkan_list():
     assert h["8"]["id"] == "d8" and "status" not in h["8"]
     assert h["9"]["status"] == "SKIP_KODE_GANDA"
     assert h["10"]["status"] == "SKIP_BUKAN_PML_SAAT_INI" and "ppl@gmail.com" in h["10"]["pesan"]
-    assert h["11"]["status"] == "SKIP_MODE_BUKAN_PAPI"
+    # Label CAPI di list tidak menyaring (2026-09-27: salah label; fasih-sm PAPI) -> server yang memutuskan.
+    assert h["11"]["id"] == "d11" and "status" not in h["11"]
     assert h["12"]["id"] == "d12" and "status" not in h["12"]   # sudah APPROVED: diputuskan API detail
     assert h["13"]["status"] == "SKIP_KODE_TIDAK_DI_LIST"
     assert "status" not in target[0]                             # target asli tidak diubah
@@ -396,16 +397,18 @@ def test_target_dari_server():
         {**item_list("d8", "5108010010000107 - H"), "mode": "PAPI"},                    # mode string
     ]
     target, lewat = target_dari_server(items, " PML.satu@gmail.com ")
-    assert [t["id"] for t in target] == ["d1", "d2", "d7", "d8"], target               # urut kode identitas
+    # Label CAPI (d5) TIDAK menyaring: list erlinaw26 2026-09-27 salah label; server memutuskan per dokumen.
+    assert [t["id"] for t in target] == ["d1", "d2", "d5", "d7", "d8"], target         # urut kode identitas
     t = target[0]
     assert (t["sumber"], t["akun_pml"], t["akun_ppl"], t["nama"], t["kunci"]) == \
         ("server", "pml.satu@gmail.com", None, "USAHA X", "")                           # PPL TIDAK dicek (None)
+    assert {t["id"]: t["mode_list"] for t in target}["d5"] == "CAPI"
     assert lewat == {"status APPROVED BY Pengawas": 1, "status DRAFT": 1,
-                     "SUBMITTED tapi mode CAPI (web-entry hanya membuka PAPI)": 1,
                      "SUBMITTED tapi dipegang pml.lain@gmail.com": 1}, lewat
     laporan = "\n".join(ringkas_server(items, target, lewat, "pml.satu@gmail.com"))
-    assert "TARGET approve: 4 dokumen" in laporan and "5108010010000105 (2)" in laporan
-    assert "dilewati: SUBMITTED tapi mode CAPI" in laporan and "dilewati: status" not in laporan
+    assert "TARGET approve: 5 dokumen" in laporan and "5108010010000105 (2)" in laporan
+    assert "1 target berlabel bukan-PAPI" in laporan
+    assert "dilewati: SUBMITTED tapi dipegang" in laporan and "dilewati: status" not in laporan
 
 
 def test_rekap_masalah():
@@ -525,14 +528,6 @@ def test_catatan_per_id():
     assert catatan_per_id(audit) == {"d1": {"kunci": "k1", "baris": "2"}}
 
 
-def test_mode_server_catatan_dibaca_pindah_wilayah():
-    """Baris catatan approve mode server (sumber server + kunci dari audit) dikenali pindah_wilayah."""
-    from fasih_sm.pindah_wilayah.pindah_wilayah import approved_per_kunci
-    per_kunci, _ = approved_per_kunci([{"id": "d1", "kunci": "k1", "nama": "USAHA A", "status": ST_OK,
-                                        "sumber": "server"}])
-    assert per_kunci == {"k1": {"d1": "USAHA A"}}
-
-
 def test_siapkan_target_server():
     import builtins
     import types
@@ -545,8 +540,17 @@ def test_siapkan_target_server():
     try:
         dasar = dict(assignment_id="p", cek=False, eksekusi=False, ya=False, limit=0)
         catatan = {"d2": {"kunci": "k2", "baris": "7"}}
-        # --cek: daftar dicetak, tidak ada dokumen diproses
-        assert m.siapkan_target_server(None, "pml.satu@gmail.com", types.SimpleNamespace(**{**dasar, "cek": True}), catatan) == []
+        # --cek: daftar dicetak (termasuk SUBMITTED yang dilewati + mode-nya), tidak ada dokumen diproses
+        import contextlib
+        import io
+        items.append(item_list("c1", "5108010010000106 - PML LAIN X", mode=("CAPI",), pemegang="pml.lain@gmail.com"))
+        keluar = io.StringIO()
+        with contextlib.redirect_stdout(keluar):
+            assert m.siapkan_target_server(None, "pml.satu@gmail.com",
+                                           types.SimpleNamespace(**{**dasar, "cek": True}), catatan) == []
+        assert "SUBMITTED yang dilewati (1)" in keluar.getvalue() and "PML LAIN X" in keluar.getvalue()
+        assert "mode CAPI  pemegang pml.lain@gmail.com" in keluar.getvalue()
+        items.pop()
         # dry-run: tanpa pertanyaan YA; kunci/baris dari catatan
         tg = m.siapkan_target_server(None, "pml.satu@gmail.com", types.SimpleNamespace(**dasar), catatan)
         assert [(t["id"], t["kunci"], t["baris"]) for t in tg] == [("d1", "", ""), ("d2", "k2", "7")]
@@ -617,6 +621,178 @@ def test_jalankan_semua_pml_mode_server():
     finally:
         for n, f in asli.items():
             setattr(m, n, f)
+
+
+def test_saringan_terbukti():
+    from approve_pml.approve_pml import saringan_terbukti
+    sub = item_list("s1", "K - A")
+    sub_capi = item_list("s2", "K - B", mode=("CAPI",))
+    apv = item_list("a1", "K - C", status="APPROVED BY Pengawas")
+    polos = [sub, apv]
+    assert saringan_terbukti([sub, item_list("s3", "K - D")], 2, polos)[0] is True
+    assert saringan_terbukti([sub, sub_capi], 2, polos)[0] is True               # mode disaring lokal
+    boleh, ket = saringan_terbukti([sub, apv], 2, polos)
+    assert not boleh and "mengabaikan" in ket                                   # server abaikan saringan
+    boleh, ket = saringan_terbukti([], 0, polos)
+    assert not boleh and "tidak ada di hasil saringan" in ket                   # nilai saringan salah -> kosong
+    assert saringan_terbukti([item_list("s9", "K - Z")], 5, polos)[0] is True   # saringan sendiri terpotong
+    assert "belum bisa dicek silang" in saringan_terbukti([], 0, [apv])[1]
+
+
+def test_baca_daftar_server_list_terpotong():
+    """Kasus erlinaw26 2026-09-27: list terbaca 1.000 dari ribuan (server berhenti membalas) -> hanya 9
+    target. Sekarang: terpotong -> baca ulang bersaring SUBMITTED+PAPI di server, dipakai HANYA kalau
+    terbukti; tidak terbukti -> yang terbaca saja + jumlah yang tak terbaca dicetak."""
+    import contextlib
+    import io
+    import approve_pml.approve_pml as m
+    batas = 4                                              # tiruan batas 1.000 server
+    semua = [item_list(f"d{i}", f"5108060006000224 - U{i}",
+                       status="SUBMITTED BY Pencacah" if i in (1, 5, 6) else "APPROVED BY Pengawas") for i in range(8)]
+
+    class Req:
+        url, method = "https://x/api/datatable-all-user-survey-periode", "POST"
+        post_data = json.dumps({"draw": 1, "order": [{"column": 0, "dir": "asc"}],
+                                "assignmentExtraParam": {"surveyPeriodId": "p", "assignmentStatusAlias": None}})
+        headers = {"content-type": "application/json"}
+
+    class Page:
+        def __init__(self, server, total_terbatas=False):
+            self.server, self.handler, self.body, self.total_terbatas = server, None, [], total_terbatas
+
+        def on(self, ev, f):
+            self.handler = f
+
+        def remove_listener(self, ev, f):
+            self.handler = None
+
+        def wait_for_timeout(self, ms):
+            pass
+
+        def evaluate(self, script, arg):
+            body = arg[1]
+            self.body.append(json.loads(json.dumps(body)))
+            alias = (body.get("assignmentExtraParam") or {}).get("assignmentStatusAlias")
+            data = semua
+            if alias and self.server == "patuh":
+                data = [it for it in semua if it["assignmentStatusAlias"] == alias]
+            elif alias and self.server == "kosong":
+                data = []
+            if (body.get("order") or [{}])[0].get("dir") == "desc":
+                data = data[::-1]
+            s = body["start"]
+            total = min(len(data), batas) if self.total_terbatas else len(data)
+            return {"status": 200, "text": json.dumps({"searchData": data[s:min(s + body["length"], batas)],
+                                                       "totalHit": total})}
+
+    class Sesi:
+        def __init__(self, server, total_terbatas):
+            self.page = Page(server, total_terbatas)
+
+        def goto_pendataan(self, aid):
+            self.page.handler(Req())
+
+        def _log(self, pesan):
+            pass
+
+    def baca(server, total_terbatas=False):
+        s, keluar = Sesi(server, total_terbatas), io.StringIO()
+        with contextlib.redirect_stdout(keluar):
+            items = m.baca_daftar_server(s, "p")
+        return s, sorted(it["id"] for it in items), keluar.getvalue()
+
+    asli_batas = m.BATAS_PAGING_SERVER
+    m.BATAS_PAGING_SERVER = batas
+    try:
+        s, ids, teks = baca("patuh")
+        assert ids == ["d0", "d1", "d2", "d3", "d5", "d6"], ids
+        assert s.page.body[-1]["assignmentExtraParam"] == {"surveyPeriodId": "p", **m.SARING_SERVER}  # isi lama tetap
+        assert [t["id"] for t in target_dari_server([semua[i] for i in range(8) if f"d{i}" in ids],
+                                                    "pml.satu@gmail.com")[0]] == ["d1", "d5", "d6"]
+        assert "terpotong: terbaca 4 dokumen" in teks and "(totalHit 8)" in teks and "terbaca semua" in teks
+        assert "order=" in teks and "assignmentExtraParam=" in teks                 # bentuk request dicetak
+        # totalHit ikut dibatasi server (kasus erlinaw26): tepat di batas tetap dianggap terpotong.
+        s, ids, teks = baca("patuh", total_terbatas=True)
+        assert ids == ["d0", "d1", "d2", "d3", "d5", "d6"] and "jumlah sebenarnya tidak diketahui" in teks, teks
+        # Saringan diabaikan / nilainya salah -> tidak dipakai; cadangan urutan dibalik membaca ujung lain.
+        for server in ("abai", "kosong"):
+            s, ids, teks = baca(server)
+            assert ids == [f"d{i}" for i in range(8)], (server, ids)
+            assert "Saringan server tidak dipakai" in teks and "Urutan dibalik: 4 dokumen baru" in teks, teks
+            assert s.page.body[-1]["order"] == [{"column": 0, "dir": "desc"}]
+        # Tanpa 'order' yang bisa dibalik -> berhenti di yang terbaca, jumlah tak terbaca dicetak.
+        Req.post_data = json.dumps({"draw": 1})
+        s, ids, teks = baca("abai")
+        assert ids == ["d0", "d1", "d2", "d3"] and "tidak bisa dibalik" in teks and "4 dokumen lain TIDAK terbaca" in teks
+    finally:
+        m.BATAS_PAGING_SERVER = asli_batas
+
+
+def test_klaim_akun_pml():
+    """Beberapa bot di satu PC (2026-09-27): PML yang dipegang proses lain yang HIDUP menolak seluruh
+    run, dan kunci PML lain yang sempat diambil dilepas lagi. Kuncinya sama dgn kunci akun input_usaha."""
+    import subprocess
+    import approve_pml.approve_pml as m
+    from inti import kunci, lokasi
+    asli = lokasi.HASIL_INPUT
+    with tempfile.TemporaryDirectory() as d:
+        lokasi.HASIL_INPUT = Path(d)          # jangan menyentuh input_usaha/hasil/ asli
+        hidup = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            kunci.jalur_kunci_akun("b@x.com").write_text(f"{hidup.pid} 2026-09-27 bot lain\n", encoding="utf-8")
+            assert m.klaim_akun_pml(["a@x.com", "B@x.com"]) is None
+            assert not kunci.jalur_kunci_akun("a@x.com").exists()      # yang sempat diambil dilepas
+            assert kunci.jalur_kunci_akun("b@x.com").exists()          # milik bot lain tidak disentuh
+            assert hidup.poll() is None
+            # Kunci akun input_usaha (PPL) juga berlaku utk approval & sebaliknya: berkasnya satu.
+            assert kunci.kunci_proses_akun("b@x.com") is None
+            p = m.klaim_akun_pml(["a@x.com", "c@x.com"])
+            assert p is not None and all(q.exists() for q in p) and len(p) == 2
+            for q in p:
+                q.unlink()
+        finally:
+            hidup.kill()
+            hidup.wait()
+            lokasi.HASIL_INPUT = asli
+
+
+def test_audit_approve_ditulis_bergantian():
+    """append_audit menunggu kunci <audit>.lock yang dipegang bot lain, dan dua proses yang menulis
+    bersamaan menghasilkan baris utuh semuanya."""
+    import csv
+    import subprocess
+    import threading
+    import time
+    import approve_pml.approve_pml as m
+    asli = m.AUDIT_APPROVE
+    with tempfile.TemporaryDirectory() as d:
+        m.AUDIT_APPROVE = Path(d) / "audit_approve_pml.csv"
+        try:
+            kunci = Path(d) / "audit_approve_pml.csv.lock"
+            kunci.write_text("")                                   # "bot lain" sedang menulis
+            t = threading.Thread(target=m.append_audit, args=({"id": "d1", "status": "X"},))
+            t.start()
+            time.sleep(0.5)
+            assert not m.AUDIT_APPROVE.exists()                    # menunggu, tidak menulis tanpa kunci
+            kunci.unlink()
+            t.join(5)
+            assert [b["id"] for b in m.baca_audit_approve()] == ["d1"] and not kunci.exists()
+
+            akar = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            kode = ("import sys; sys.path.insert(0, sys.argv[1]); from pathlib import Path; "
+                    "import approve_pml.approve_pml as m; m.AUDIT_APPROVE = Path(sys.argv[2]); "
+                    "[m.append_audit({'id': f'{sys.argv[3]}-{i}', 'nama': 'USAHA ' * 30, 'status': 'X'}) "
+                    "for i in range(150)]")
+            bot = [subprocess.Popen([sys.executable, "-c", kode, akar, str(m.AUDIT_APPROVE), tag])
+                   for tag in ("p1", "p2")]
+            assert all(b.wait(120) == 0 for b in bot)
+            with m.AUDIT_APPROVE.open(newline="", encoding="utf-8") as f:
+                baris = list(csv.DictReader(f))
+            assert len(baris) == 301 and all(b["status"] == "X" for b in baris)
+            assert all(b["nama"] == "USAHA " * 30 for b in baris if b["id"] != "d1")   # tidak ada baris terpotong
+            assert {b["id"] for b in baris} == {"d1"} | {f"{t}-{i}" for t in ("p1", "p2") for i in range(150)}
+        finally:
+            m.AUDIT_APPROVE = asli
 
 
 if __name__ == "__main__":

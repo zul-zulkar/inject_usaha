@@ -22,15 +22,25 @@ python approve_pml/approve_pml.py --akun-pml EMAIL_PML --eksekusi
 
 - Setelah list terbaca, skrip mencetak jumlah per status & per subsls, **lalu** meminta `YA` (satu kali
   per PML). Beberapa PML: `--akun-pml a@x.com --akun-pml b@y.com` (login bergiliran).
-- Dokumen CAPI dilewati (web-entry fasih-web hanya membuka PAPI), begitu juga dokumen yang dipegang
-  PML lain. Menjalankan ulang aman: dokumen yang sudah APPROVED tidak lagi `SUBMITTED` di server.
+- Dokumen yang dipegang PML lain dilewati. Dokumen CAPI ditolak server saat statusnya dibaca
+  (`SKIP_TIDAK_ADA_AKSES`, dokumennya tidak dibuka). Label mode di list server **tidak** dipakai
+  menyaring karena pernah salah (dokumen PAPI di fasih-sm berlabel CAPI). Menjalankan ulang aman:
+  dokumen yang sudah APPROVED tidak lagi `SUBMITTED` di server.
+- Server hanya membalas **1.000 dokumen pertama** list. Kalau list terpotong, skrip membaca ulang
+  dengan saringan `SUBMITTED` + PAPI di server — dipakai hanya kalau hasilnya terbukti — dan mencetak
+  jumlah yang tak terbaca kalau tetap tidak utuh. Lebih dari 1.000 SUBMITTED: jalankan lagi sesudahnya.
 - List PML bisa ribuan dokumen. Kalau server membalas galat, list dibaca per 50 → 25 → 10; kalau
   tetap gagal, PML itu dilewati (`ERROR_LIST_PML`) tanpa ada dokumen yang dibuka.
-- Audit input hanya dipakai untuk mengisi kolom `kunci`/`baris` di catatan approve, supaya
-  `fasih_sm/pindah_wilayah --dari-approve` tetap bisa memindahkan dokumennya. Audit input tidak ikut
-  memilih target.
+- Audit input hanya dipakai untuk mengisi kolom `kunci`/`baris` di catatan approve. Audit input tidak
+  ikut memilih target.
 
 Di GUI: **Approve PML** → Sumber target *Daftar di server* (bawaan) → isi Akun PML.
+
+**Beberapa bot sekaligus** (juga bersama bot `input_usaha`): boleh, asal **satu akun = satu bot**.
+Sebelum browser dibuka, skrip mengunci semua PML yang diminta; PML yang sedang dipakai bot lain di PC
+ini membuat run ditolak ("sedang dipakai proses lain"). Audit approve ditulis bergantian, jadi aman
+dipakai beberapa bot. Tiap bot membuka satu Chromium (±1,5 GB RAM bersama Python-nya) — sisakan RAM
+kosong secukupnya, kalau tidak Chromium bisa crash. Kunci ini hanya berlaku di satu PC.
 
 ## Mode lain — dokumen satu PPL dari audit input
 
@@ -41,8 +51,9 @@ python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --ek
 python approve_pml/approve_pml.py --akun-pml EMAIL_PML --akun-ppl EMAIL_PPL --eksekusi
 ```
 
-Hasil mode ini dan mode server (dokumen yang tercatat di audit input) bisa dipakai
-`fasih_sm/pindah_wilayah --dari-approve`. Batch dengan audit sendiri: tambah `--audit audit/<batch>`.
+Batch dengan audit sendiri: tambah `--audit audit/<batch>`. Sesudah di-approve, dokumen dipindah ke
+wilayah aslinya dengan [`fasih_sm/pindah_wilayah`](../fasih_sm/pindah_wilayah/) (status APPROVED dibaca
+langsung dari server, tidak dari catatan approve).
 
 **Banyak PML sekaligus:** `--rencana <csv/xlsx berkolom Email PML, Email PPL, assignment_id>`
 (contoh: [`templates/rencana_approve.contoh.csv`](../templates/rencana_approve.contoh.csv)) atau
@@ -85,9 +96,10 @@ server `--akun-pml` untuk PML-nya.
 
 | Berkas | Isi |
 | --- | --- |
-| `audit/audit_approve_pml.csv` | catatan approve (ditambah tiap run; dibaca `pindah_wilayah --dari-approve`) |
+| `audit/audit_approve_pml.csv` | catatan approve (ditambah tiap run) |
 | `approve_pml/hasil/` | screenshot kegagalan, sesi login `.sesi_fasih_web_<akun>.json` (berisi cookie) |
 | `approve_pml.py` | seluruh alur: target dari server (`target_dari_server`) / audit / rencana / daftar, login per PML, `approve_satu` + verifikasi API |
 | [`../inti/fasih_web.py`](../inti/fasih_web.py) | login SSO, verifikasi akun aktif |
+| [`../inti/kunci.py`](../inti/kunci.py) | kunci satu-akun-satu-bot & kunci tulis audit (sama dengan `input_usaha`) |
 
 Uji: `python tests/test_approve_pml.py`.

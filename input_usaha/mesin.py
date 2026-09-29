@@ -58,6 +58,9 @@ from inti.gabungan_loader import (
 )
 from inti.tahap2_loader import load_tahap2, periksa_semua_tahap2
 from inti.id_dokumen import PencatatIdSumber, baca_kolom_id, pasang_id, url_entry
+# Kunci antar-proses dipakai bersama approve_pml & sinkron_list; nama lama tetap (mg.kunci_proses_akun,
+# mg._pid_hidup dipakai alat lain & uji).
+from inti.kunci import KunciBerkas, kunci_proses_akun, pid_hidup as _pid_hidup  # noqa: F401
 
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
@@ -88,7 +91,12 @@ MENIT_PER_BARIS = 1.7  # ukuran nyata batch backlog lama, termasuk ganti akun
 # Dokumen yang ternyata sudah terkunci (dikirim di luar skrip) ikut dianggap
 # tuntas oleh --lewati-selesai: mengisinya ulang pasti gagal.
 STATUS_TERKUNCI = "DOKUMEN_TERKUNCI"
-STATUS_TERKIRIM = {"TERKIRIM_TERVERIFIKASI", "TERKIRIM_BELUM_TERVERIFIKASI", STATUS_TERKUNCI}
+# Dokumen sudah dipindah ke subsls aslinya (fasih_sm/pindah_wilayah --catat): akun_login = PPL tujuan
+# (atau ""), idsubsls_input = subsls tujuan. Dihitung tuntas, dan karena akunnya bukan akun input,
+# baris itu dilewati sbg "dokumen di akun lain" & sinkron akun input tidak menulis DOKUMEN_DIHAPUS
+# (dokumennya memang tidak ada lagi di list akun itu -> tanpa catatan ini dibuat ULANG = ganda).
+STATUS_DIPINDAH = "DIPINDAH_WILAYAH"
+STATUS_TERKIRIM = {"TERKIRIM_TERVERIFIKASI", "TERKIRIM_BELUM_TERVERIFIKASI", STATUS_TERKUNCI, STATUS_DIPINDAH}
 STATUS_SELESAI_DRY_RUN = STATUS_TERKIRIM | {"DRY_RUN_SIAP_KIRIM"}
 # Ditulis SEGERA setelah dokumen baru terbuat (sebelum diisi), supaya proses
 # yang mati di tengah tidak berujung dokumen duplikat pada run berikutnya.
@@ -144,88 +152,21 @@ def _pastikan_header_audit():
             w.writerow({k: b.get(k, "") for k in AUDIT_FIELDS})
 
 
-class _KunciAudit:
-    """Kunci antar-PROSES (file .lock, O_EXCL) supaya beberapa batch paralel tidak
-    menulis audit bersamaan. Kunci basi (> 60 dtk, proses mati) dibuang."""
+class _KunciAudit(KunciBerkas):
+    """Kunci tulis audit input — beberapa batch paralel tidak menulis bersamaan. Path dibaca
+    SAAT dipakai (AUDIT_LOG_PATH bisa diganti --audit)."""
 
-    def __enter__(self):
-        self.path = AUDIT_LOG_PATH.with_name(AUDIT_LOG_PATH.name + ".lock")
-        batas = time.time() + 60
-        while True:
-            try:
-                self.fd = _os.open(str(self.path), _os.O_CREAT | _os.O_EXCL | _os.O_WRONLY)
-                return self
-            except FileExistsError:
-                try:
-                    if time.time() - self.path.stat().st_mtime > 60:
-                        self.path.unlink()
-                        continue
-                except OSError:
-                    pass
-                if time.time() > batas:
-                    raise RuntimeError(f"Audit terkunci > 60 dtk: {self.path}")
-                time.sleep(0.1)
-
-    def __exit__(self, *exc):
-        _os.close(self.fd)
-        try:
-            self.path.unlink()
-        except OSError:
-            pass
-
-
-def _pid_hidup(pid: int) -> bool:
-    """Proses `pid` masih berjalan? (os.kill(pid, 0) di Windows justru MEMBUNUH
-    proses, jadi pakai OpenProcess/GetExitCodeProcess.)"""
-    if pid <= 0:
-        return False
-    if _os.name == "nt":
-        import ctypes
-        k32 = ctypes.windll.kernel32
-        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return False
-        try:
-            kode = ctypes.c_ulong()
-            return bool(k32.GetExitCodeProcess(h, ctypes.byref(kode))) and kode.value == 259  # STILL_ACTIVE
-        finally:
-            k32.CloseHandle(h)
-    try:
-        _os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
-def kunci_proses_akun(akun: str) -> Path | None:
-    """Klaim akun ini utk proses sekarang. None = sudah dipakai proses lain yang MASIH hidup.
-    Run 2026-09-14: dua proses (Agenda.xlsx & Agenda1-1.xlsx) memakai akun ppl.kedua
-    bersamaan -> logout proses satu memutus sesi proses lain (halaman login di tengah
-    'Buat Dokumen') & jumlah dokumen yang dinaikkan proses lain memicu
-    DOKUMEN_TANPA_URL_PERLU_CEK palsu. Paralel = akun BERBEDA per proses."""
-    path = lokasi.siapkan(lokasi.HASIL_INPUT / (".proses_" + re.sub(r"[^a-z0-9]+", "_", akun.lower()) + ".lock"))
-    for _ in range(2):
-        try:
-            fd = _os.open(str(path), _os.O_CREAT | _os.O_EXCL | _os.O_WRONLY)
-        except FileExistsError:
-            try:
-                pid = int(path.read_text(encoding="utf-8").split()[0])
-            except (OSError, ValueError, IndexError):
-                pid = 0
-            if pid != _os.getpid() and _pid_hidup(pid):
-                return None
-            try:
-                path.unlink()  # basi: prosesnya sudah mati
-            except OSError:
-                pass
-            continue
-        with _os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(f"{_os.getpid()} {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(sys.argv)}\n")
-        return path
-    return None
+    def __init__(self):
+        super().__init__(AUDIT_LOG_PATH)
 
 
 def append_audit(row: dict):
+    append_audit_banyak([row])
+
+
+def append_audit_banyak(rows: list[dict]):
+    """Beberapa baris sekaligus di bawah SATU kunci tulis (alat yang menulis ribuan baris,
+    mis. fasih_sm/pindah_wilayah --catat)."""
     with _KunciAudit():
         _pastikan_header_audit()
         is_new = not AUDIT_LOG_PATH.exists()
@@ -247,7 +188,8 @@ def append_audit(row: dict):
             w = csv_module.DictWriter(f, fieldnames=AUDIT_FIELDS)
             if is_new:
                 w.writeheader()
-            w.writerow({k: row.get(k, "") for k in AUDIT_FIELDS})
+            for row in rows:
+                w.writerow({k: row.get(k, "") for k in AUDIT_FIELDS})
 
 
 def dokumen_lain_dibuat_sejak(sejak_epoch: float, kunci_sendiri: str, akun: str = "") -> int:

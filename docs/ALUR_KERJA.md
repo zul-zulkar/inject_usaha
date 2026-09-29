@@ -82,13 +82,16 @@ python approve_pml/approve_pml.py --akun-pml EMAIL_PML --eksekusi
 ## 6–8. Kembalikan dokumen ke wilayah aslinya — [`fasih_sm/`](../fasih_sm/README.md)
 
 ```bash
-python fasih_sm/pindah_wilayah/pindah_wilayah.py --sumber bahan/input_usaha.xlsx --dari-approve --daftar-tujuan bahan/daftar_tujuan.txt --console
+python fasih_sm/pindah_wilayah/pindah_wilayah.py --sumber bahan/input_usaha.xlsx --bagi 2 --daftar-tujuan bahan/daftar_tujuan.txt --console
 python fasih_sm/buka_wilayah/buka_wilayah.py --daftar bahan/daftar_tujuan.txt --console      # tujuan yang sudah Listing Selesai
 python fasih_sm/tandai_selesai/tandai_selesai.py --daftar bahan/daftar_tujuan.txt --console  # sesudah semua dipindah
 ```
 
 Tiap perintah menulis `fasih_sm/<alat>/hasil/*.siap.js` untuk ditempel di Console Chrome
 (halaman Data survei fasih-sm, akun admin kabupaten): buka wilayah → pindah → tandai selesai.
+`--bagi N` membagi dokumen ke N akun admin (satu berkas per akun). Sesudah dipindah, simpan
+unduhan `pindahWilayah.unduh()` di `audit/` lalu `pindah_wilayah.py --catat --tulis` supaya audit tahu
+dokumennya sudah di wilayah asli (lihat [README-nya](../fasih_sm/pindah_wilayah/README.md)).
 
 ## Kalau ada yang janggal
 
