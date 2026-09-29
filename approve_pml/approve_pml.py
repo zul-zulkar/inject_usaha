@@ -82,7 +82,7 @@ akun_ppl audit. Kode yang terakhir APPROVED_TERVERIFIKASI/SUDAH_APPROVED di audi
    --akun-pml / --limit / --abaikan-audit-approve sama dgn --rencana.
 
 Login (sama dgn input_usaha): tiap PML = browser context BARU (cookie SSO kosong), login
-otomatis dgn FIXED_PASSWORD (inti/config_lokal.py) — diulang maks 3x utk gangguan
+otomatis dgn FIXED_PASSWORD / PASSWORD_PEGAWAI (inti/config_lokal.py; jalur SSO --sso) — diulang maks 3x utk gangguan
 transien, akun salah tidak diulang — lalu akun aktif WAJIB terbaca = PML itu. Selesai satu PML:
 logout + tutup context. Satu PML saja / --login-manual: sesi disimpan di
 approve_pml/hasil/.sesi_fasih_web_<akun>.json & dipakai ulang tanpa logout, supaya run berikutnya
@@ -106,7 +106,7 @@ from pathlib import Path
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from inti import lokasi
-from inti.config import (ASSIGNMENT_ID_GABUNGAN, FASIH_WEB_BASE, FASIH_WEB_LOGIN_URL, FIXED_PASSWORD, L,
+from inti.config import (ASSIGNMENT_ID_GABUNGAN, FASIH_WEB_BASE, FASIH_WEB_LOGIN_URL, L,
                          SEL, SURVEY_ID)
 from inti.kunci import KunciBerkas, kunci_proses_akun, pemegang_kunci_akun
 
@@ -700,11 +700,13 @@ def pastikan_login(sess, akun: str, manual: bool, file_sesi: Path | None):
             sess._log(f"Sesi tersimpan milik akun LAIN ({aktif}) — diputus.")
             sess.logout()
     if not manual:
-        sess.login(akun, FIXED_PASSWORD)
+        sess.login(akun)
     else:
         sess.page.goto(FASIH_WEB_LOGIN_URL, wait_until="domcontentloaded", timeout=45_000)
         try:
-            sess.page.get_by_text(L["sso_eksternal_btn"], exact=False).first.click(timeout=15_000)
+            from inti.fasih_web import jenis_sso_akun
+            tombol = L["sso_pegawai_btn"] if jenis_sso_akun(akun) == "pegawai" else L["sso_eksternal_btn"]
+            sess.page.get_by_text(tombol, exact=False).first.click(timeout=15_000)
         except Exception:
             pass
         print(f"\n>>> LOGIN MANUAL di jendela browser sbg {akun} (menunggu maks 15 menit) ...", flush=True)
@@ -739,7 +741,7 @@ def simpan_sesi(sess, file_sesi: Path | None):
 
 def mulai_sesi_pml(browser, akun: str, manual: bool, file_sesi: Path | None):
     """Seperti input_usaha: context BARU (cookie SSO kosong -> tidak mungkin tembus sbg PML
-    sebelumnya), login dgn FIXED_PASSWORD & verifikasi akun. Gangguan transien (goto timeout,
+    sebelumnya), login (password sesuai jalur SSO) & verifikasi akun. Gangguan transien (goto timeout,
     "Execution context was destroyed") diulang maks LOGIN_PERCOBAAN x dgn jeda LOGIN_JEDA_DTK;
     akun salah & login manual TIDAK diulang. -> (ctx, sess); context sudah ditutup kalau melempar."""
     from inti.fasih_web import FasihWebSession
@@ -1274,6 +1276,7 @@ def _proses_kelompok(sess, akun_pml: str, target: list[dict], args, hitung: Coun
 
 
 def main() -> int:
+    from inti import fasih_web as _fw
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--akun-pml", action="append", default=[],
                     help="TANPA --akun-ppl/--rencana/--daftar = MODE SERVER: approve semua dokumen PAPI "
@@ -1298,12 +1301,13 @@ def main() -> int:
     ap.add_argument("--maks-error-beruntun", type=int, default=3)
     ap.add_argument("--audit", default="", metavar="BERKAS",
                     help="audit input (default audit/audit_log_gabungan.csv; folder -> <folder>/audit_log_gabungan.csv)")
+    _fw.opsi_sso(ap)
     args = ap.parse_args()
     lokasi.cek_struktur_lama()
+    _fw.pakai_opsi_sso(args)
     global AUDIT_GABUNGAN
     if args.audit:
         AUDIT_GABUNGAN = lokasi.jalur_audit(args.audit)
-    from inti import fasih_web as _fw
     _fw.SCREENSHOT_DIR = HASIL / "log_screenshots"
     pml_dipilih = [a.strip().lower() for s in args.akun_pml for a in s.split(",") if a.strip()]
     akun_ppl = (args.akun_ppl or "").strip().lower()
@@ -1433,7 +1437,7 @@ def jalankan_semua_pml(browser, kelompok: list[tuple[str, list[dict]]], args, au
     hitung: Counter = Counter()
     kode = 0
     # Satu PML / login manual: sesi disimpan & dipakai ulang (tanpa logout). Multi PML: seperti
-    # input_usaha — login FIXED_PASSWORD di context baru, logout + tutup context di akhir tiap PML.
+    # input_usaha — login di context baru, logout + tutup context di akhir tiap PML.
     pakai_sesi = len(kelompok) == 1 or args.login_manual
     for k, (akun_pml, target) in enumerate(kelompok, start=1):
         jumlah = "target dibaca dari list server" if getattr(args, "server", False) else f"{len(target)} dokumen"

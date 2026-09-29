@@ -97,6 +97,16 @@ def _koordinat(opsi=("otomatis", "wajib", "kirim"), **kw) -> dict:
                          "kirim = tetap dikirim tanpa geotag.", **kw)
 
 
+def _sso(**kw) -> dict:
+    return isian("sso", "pilihan", "Jalur login SSO", "--sso",
+                 opsi=[["", "bawaan (Pengaturan > Dasar: JENIS_SSO)"],
+                       ["otomatis", "otomatis: email @bps.go.id → SSO Pegawai, lainnya → SSO Eksternal"],
+                       ["eksternal", "SSO Eksternal (akun mitra)"],
+                       ["pegawai", "SSO Pegawai (akun BPS)"]],
+                 bantuan="Akun pegawai memakai 'Password SSO pegawai' (tombol Password, kanan atas), "
+                         "akun mitra memakai password mitra.", **kw)
+
+
 def _dari_sampai(bantuan_dari="") -> list[dict]:
     return [isian("dari", "angka", "Dari baris", "--dari", bantuan=bantuan_dari or "Nomor baris sheet (judul = 1)."),
             isian("sampai", "angka", "Sampai baris", "--sampai")]
@@ -137,6 +147,7 @@ ALAT: list[dict] = [
             _sumber(), _audit(),
             _akun(aksi=["dryrun", "kirim"], wajib_jika={"@aksi": ["dryrun", "kirim"], "per_baris": ["0"]}),
             _subsls(aksi=["dryrun", "kirim"], wajib_jika={"@aksi": ["dryrun", "kirim"], "per_baris": ["0"]}),
+            _sso(aksi=["dryrun", "kirim"]),
             isian("baris", "teks", "Nomor baris", "--baris", pola=POLA_BARIS, contoh="2,5,10-20",
                   bantuan="Kosong = semua baris (atau pakai Dari/Sampai)."),
             *_dari_sampai("Membagi pekerjaan antar-PC, mis. 2 sampai 500."),
@@ -198,6 +209,7 @@ ALAT: list[dict] = [
             isian("subsls", "subsls", "Subsls akun utama", "--subsls", wajib=True),
             isian("akun_cadangan", "email", "Akun cadangan (kalau kena limit)", "--akun-cadangan"),
             isian("subsls_cadangan", "subsls", "Subsls akun cadangan", "--subsls-cadangan"),
+            _sso(),
             isian("label_pc", "teks", "Label PC", "--label-pc", pola=r"^[\w-]*$", contoh="_pc2",
                   bantuan="Akhiran salinan audit & log, supaya audit antar-PC tidak tertukar."),
             isian("jeda_retry", "angka", "Jeda ulang (detik)", "--jeda-retry", lanjutan=True),
@@ -216,7 +228,7 @@ ALAT: list[dict] = [
         "isian": [
             isian("sumber", "berkas_banyak", "Sheet input usaha", "--sumber", wajib=True, filter=XLSX_CSV),
             _audit(),
-            _akun(wajib=True), _subsls(wajib=True),
+            _akun(wajib=True), _subsls(wajib=True), _sso(),
             isian("dari_json", "berkas", "Pakai daftar unduhan sebelumnya (tanpa login)", "--dari-json", filter=JSON,
                   bantuan="list_api_<akun>.json di input_usaha/hasil/. Kosong = baca server (butuh password)."),
             isian("simpan_json", "simpan", "Simpan daftar server ke", "--simpan-json", lanjutan=True, filter=JSON,
@@ -250,6 +262,36 @@ ALAT: list[dict] = [
         ],
         "aksi": [aksi("jalan", "Buat rangkuman")],
         "keluaran": [keluaran("Buka rangkum_audit.csv", "input_usaha/hasil/rangkum_audit.csv", isian_="csv")],
+    },
+    {
+        "id": "monitoring", "grup": "input", "judul": "Monitoring hasil input (rekap per daerah)",
+        "skrip": "monitoring/monitoring.py", "petunjuk": "monitoring/README.md",
+        "keterangan": "Semua status usaha (approved, terkirim, draft, belum diinput, ditolak data) + dokumen ganda, "
+                      "direkap per kecamatan/desa/SLS/PPL/batch -> Excel & dasbor HTML. Offline. Status server "
+                      "akurat kalau ada snapshot fasih-sm (skrip Console monitoring_console.js).",
+        "isian": [
+            isian("sumber", "berkas_banyak", "Sheet input usaha", "--sumber", filter=XLSX_CSV,
+                  bantuan="Kosong = semua bahan/input_tahap2*.xlsx."),
+            isian("snapshot", "berkas_banyak", "Snapshot fasih-sm (snapshot_fasih_sm*.csv)", "--snapshot",
+                  filter=[["CSV / JSON", "*.csv *.json"]],
+                  bantuan="Kosong = snapshot terbaru di bahan/ atau folder Downloads."),
+            isian("tanpa_snapshot", "centang", "Abaikan snapshot (status dari audit saja)", "--tanpa-snapshot"),
+            isian("audit", "lokasi_banyak", "Audit input", "--audit", lanjutan=True,
+                  bantuan="Kosong = semua audit/**/audit_log_gabungan*.csv (tanpa .bak)."),
+            isian("peta", "berkas", "Peta SLS (GeoJSON) utk nama wilayah", "--peta", lanjutan=True, filter=GEOJSON,
+                  pengaturan="PETA_SLS_PATH"),
+            isian("keluaran", "folder", "Folder keluaran", "--keluaran", lanjutan=True,
+                  bantuan="Kosong = monitoring/hasil/."),
+            isian("tanpa_html", "centang", "Tanpa dasbor HTML", "--tanpa-html", lanjutan=True),
+            _format(),
+        ],
+        "aksi": [aksi("jalan", "Buat monitoring")],
+        "keluaran": [
+            keluaran("Buka dasbor (HTML)", "monitoring/hasil/monitoring.html"),
+            keluaran("Buka monitoring.xlsx", "monitoring/hasil/monitoring.xlsx"),
+            keluaran("Salin skrip Console snapshot", "monitoring/monitoring_console.js", jenis="salin"),
+            keluaran("Buka folder hasil", "monitoring/hasil", jenis="folder"),
+        ],
     },
     {
         "id": "kontrol", "grup": "input", "judul": "Kontrol kualitas sheet",
@@ -365,6 +407,7 @@ ALAT: list[dict] = [
             isian("termasuk_di_luar_audit", "centang", "Ikut proses dokumen list yang tidak tercatat di audit",
                   "--termasuk-di-luar-audit", tampil_jika={"target": ["audit"]}, lanjutan=True),
             _audit(),
+            _sso(),
             isian("login_manual", "centang", "Login manual di jendela browser", "--login-manual", lanjutan=True),
             isian("maks_error_beruntun", "angka", "Berhenti setelah N error beruntun", "--maks-error-beruntun",
                   lanjutan=True),

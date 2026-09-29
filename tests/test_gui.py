@@ -64,7 +64,8 @@ def galat(fungsi) -> str:
 
 # ------------------------------------------------------------------ opsi CLI ada di skrip
 print("== opsi CLI gui/alat.py ada di skrip alatnya ==")
-BERSAMA = (AKAR / "input_usaha" / "mesin.py").read_text(encoding="utf-8")   # opsi_audit / opsi_format
+BERSAMA = ((AKAR / "input_usaha" / "mesin.py").read_text(encoding="utf-8")   # opsi_audit / opsi_format
+           + (AKAR / "inti" / "fasih_web.py").read_text(encoding="utf-8"))  # opsi_sso (--sso)
 for a in A.ALAT:
     if a["skrip"].startswith("@kbli/"):
         skrip = AKAR.parent / "generate_kbli" / "generate_kbli.py"

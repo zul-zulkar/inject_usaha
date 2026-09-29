@@ -318,8 +318,10 @@ function perbaruiKepala() {
   const kab = efektif("KODE_KAB");
   $("#info-kab").textContent = kab ? `Kabupaten ${tampilNilai(kab)}` : "";
   const t = $("#tombol-password");
-  t.textContent = S.password.sesi ? "Password: terisi (sesi)" : (S.password.tersedia ? "Password: dari config_lokal" : "Password: belum diisi");
-  t.className = `tombol kecil ${S.password.tersedia ? "" : "tulis"}`;
+  const p = S.password;
+  const jenis = [p.mitra ? "mitra" : "", p.pegawai ? "pegawai" : ""].filter(Boolean).join(" + ");
+  t.textContent = p.tersedia ? `Password: ${jenis}${p.sesi || p.pegawai_sesi ? " (sesi)" : " (config_lokal)"}` : "Password: belum diisi";
+  t.className = `tombol kecil ${p.tersedia ? "" : "tulis"}`;
 }
 
 // ------------------------------------------------------------ tema
@@ -342,27 +344,44 @@ $("#tombol-password").addEventListener("click", () => dialogPassword(false));
 
 function dialogPassword(awal) {
   return new Promise((selesai) => {
-    const input = h("input", { type: "password", autocomplete: "off", placeholder: "Password SSO akun PPL/PML" });
-    const simpan = async () => {
+    const input = h("input", { type: "password", autocomplete: "off",
+      placeholder: S.password.sesi ? "(sudah terisi — kosongkan = tetap)" : "Password SSO Eksternal akun mitra PPL/PML" });
+    const inputPegawai = h("input", { type: "password", autocomplete: "off",
+      placeholder: S.password.pegawai_sesi ? "(sudah terisi — kosongkan = tetap)" : "Password SSO Pegawai akun BPS" });
+    const kirim = async (data, pesan) => {
       try {
-        S.password = await api("/api/password", { password: input.value });
+        S.password = await api("/api/password", data);
         perbaruiKepala();
         tutupDialog();
-        toast(input.value ? "Password disimpan utk sesi ini." : "Password sesi dihapus.");
+        toast(pesan);
         selesai(S.password.tersedia);
       } catch (e) { toast(e.message, 6000); }
     };
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") simpan(); });
-    const lokal = S.awal.config.password_lokal_ada && S.awal.pengaturan.pakai_config_lokal;
+    // Kotak kosong = password sesi itu TIDAK diubah (supaya mengisi satu tidak menghapus yang lain).
+    const simpan = () => {
+      const data = {};
+      if (input.value) data.password = input.value;
+      if (inputPegawai.value) data.password_pegawai = inputPegawai.value;
+      if (!Object.keys(data).length) { tutupDialog(); selesai(S.password.tersedia); return; }
+      kirim(data, "Password disimpan utk sesi ini.");
+    };
+    for (const i of [input, inputPegawai]) i.addEventListener("keydown", (e) => { if (e.key === "Enter") simpan(); });
+    const cfg = S.awal.config, pakaiLokal = S.awal.pengaturan.pakai_config_lokal;
+    const lokal = [pakaiLokal && cfg.password_lokal_ada ? "FIXED_PASSWORD (mitra)" : "",
+      pakaiLokal && cfg.password_pegawai_lokal_ada ? "PASSWORD_PEGAWAI" : ""].filter(Boolean);
     bukaDialog([
       h("h2", { text: "Password SSO" }),
-      h("p", { class: "redup", text: "Password yang SAMA utk semua akun PPL/PML yang dipakai alat (diseragamkan lewat Reset password mitra). " +
-        "Hanya disimpan di memori selama GUI terbuka — tidak pernah ditulis ke disk. Tutup GUI = ketik lagi." }),
-      lokal ? h("p", { class: "pesan biru", text: "inti/config_lokal.py di PC ini sudah berisi password. Kosongkan kotak ini = password config_lokal yang dipakai." }) : null,
-      input,
+      h("p", { class: "redup", text: "Hanya disimpan di memori selama GUI terbuka — tidak pernah ditulis ke disk. Tutup GUI = ketik lagi. " +
+        "Jalur login tiap akun: Pengaturan > Dasar (JENIS_SSO) atau isian 'Jalur login SSO' di formulir alat." }),
+      lokal.length ? h("p", { class: "pesan biru", text: `inti/config_lokal.py di PC ini sudah berisi ${lokal.join(" & ")}. Kotak yang dikosongkan = nilai config_lokal yang dipakai.` }) : null,
+      h("div", { class: "isian" }, h("label", { class: "judul", text: "Password mitra (SSO Eksternal)" }), input,
+        h("div", { class: "bantuan", text: "SAMA utk semua akun mitra PPL/PML (diseragamkan lewat Reset password mitra)." })),
+      h("div", { class: "isian" }, h("label", { class: "judul", text: "Password SSO pegawai (akun BPS)" }), inputPegawai,
+        h("div", { class: "bantuan", text: "Password pribadi akun @bps.go.id. Salah password berulang bisa mengunci akun — pastikan benar." })),
       h("div", { class: "aksi" },
         h("button", { class: "tombol", text: awal ? "Nanti saja" : "Batal", onclick: () => { tutupDialog(); selesai(S.password.tersedia); } }),
-        S.password.sesi ? h("button", { class: "tombol", text: "Hapus password sesi", onclick: () => { input.value = ""; simpan(); } }) : null,
+        S.password.sesi || S.password.pegawai_sesi ? h("button", { class: "tombol", text: "Hapus password sesi",
+          onclick: () => kirim({ password: "", password_pegawai: "" }, "Password sesi dihapus.") }) : null,
         h("button", { class: "tombol utama", text: "Simpan utk sesi ini", onclick: simpan })),
     ]);
   });
@@ -1069,6 +1088,8 @@ const DASAR = [
   ["GABUNGAN_AKUN_TUNGGAL", "Akun PPL pembuat dokumen (email)", "teks"],
   ["GABUNGAN_SUBSLS_TUNGGAL", "Subsls wadah dokumen (16 digit)", "teks"],
   ["GABUNGAN_BARIS_PER_SESI", "Login ulang tiap N baris", "int"],
+  ["JENIS_SSO", "Jalur login SSO", [["otomatis", "otomatis: email @bps.go.id → SSO Pegawai, lainnya → SSO Eksternal"],
+    ["eksternal", "SSO Eksternal (semua akun mitra)"], ["pegawai", "SSO Pegawai (semua akun BPS)"]]],
   ["SURVEY_ID", "ID survei (segmen URL pertama fasih-web)", "teks"],
   ["ASSIGNMENT_ID_GABUNGAN", "ID periode (segmen URL list PENDATAAN)", "teks"],
 ];
@@ -1143,6 +1164,14 @@ function kartuDasar() {
   const d = S.draft;
   const baris = DASAR.map(([nama, label, jenis]) => {
     const b = berlakuTanpaGui(nama);
+    if (Array.isArray(jenis)) {
+      const sel = h("select", { onchange: (e) => { if (e.target.value) d.timpa[nama] = e.target.value; else delete d.timpa[nama]; } },
+        h("option", { value: "", text: `(${tampilNilai(b.nilai)} — dari ${b.asal})` }),
+        jenis.map(([v, teks]) => h("option", { value: v, text: teks })));
+      sel.value = nama in d.timpa ? d.timpa[nama] : "";
+      return h("div", { class: "isian" }, h("label", { class: "judul", text: label }), sel,
+        h("div", { class: "bantuan mono", text: nama }));
+    }
     const inp = h("input", { type: "text", value: nama in d.timpa ? tampilNilai(d.timpa[nama]) : "",
       placeholder: b.nilai !== undefined && tampilNilai(b.nilai) !== "" ? `${tampilNilai(b.nilai)}  (dari ${b.asal})` : "(kosong)",
       oninput: (e) => {

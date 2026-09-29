@@ -43,7 +43,7 @@ from playwright.sync_api import sync_playwright
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from inti.config import (
-    ASSIGNMENT_ID_GABUNGAN, FIXED_PASSWORD, GABUNGAN_AKUN_TUNGGAL, GABUNGAN_BARIS_PER_SESI,
+    ASSIGNMENT_ID_GABUNGAN, GABUNGAN_AKUN_TUNGGAL, GABUNGAN_BARIS_PER_SESI,
     GABUNGAN_MODE_MURNI, GABUNGAN_SUBSLS_TUNGGAL, GALAT_13C_JADI, KODE_KAB, WILAYAH_BY_IDSUBSLS,
 )
 from inti import fasih_web as _fasih_web, lokasi
@@ -1320,9 +1320,11 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
     ap.add_argument("--audit-baru", action="store_true",
                     help="Izinkan audit yang TIDAK mengenal satu pun baris sheet walau audit lain di audit/ "
                          "mengenalnya (bawaan: berhenti, kemungkinan besar --audit lupa/salah).")
+    _fasih_web.opsi_sso(ap)
     opsi_audit(ap)
     args = ap.parse_args(argv)
     lokasi.cek_struktur_lama()
+    _fasih_web.pakai_opsi_sso(args)
     pakai_audit(args.audit)
     cetak_lokasi_audit()
 
@@ -1478,7 +1480,7 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
             ctx_sink = b_sink.new_context()
             s_sink = FasihWebSession(ctx_sink.new_page(), dump_dom=args.dump_dom)
             try:
-                s_sink.login(akun_tunggal or "", FIXED_PASSWORD)
+                s_sink.login(akun_tunggal or "")
                 sinkron_audit_dari_server(s_sink, semua, hasil, args.sumber, akun_tunggal or "",
                                           subsls_tunggal or "", args.assignment_id)
             except Exception as e:
@@ -1631,7 +1633,7 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
                 ctx = browser.new_context()
                 s = FasihWebSession(ctx.new_page(), dump_dom=args.dump_dom)
                 try:
-                    s.login(akun, FIXED_PASSWORD)
+                    s.login(akun)
                     aktif = (s.akun_api.get("email") or "").lower()
                     if satu_subsls and aktif != akun:
                         # Semua dokumen atas nama satu akun: "tidak terbaca" tidak

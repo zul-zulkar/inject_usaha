@@ -8,6 +8,7 @@ start; di sini dipasang pengait impor yang, SESUDAH inti/config.py selesai dijal
 
     FASIH_GUI_PENGATURAN = <berkas json>   {"timpa": {NAMA: nilai}, "tambah": {NAMA: {..}}}
     FASIH_PASSWORD       = password sesi GUI (tidak pernah ditulis ke disk oleh GUI)
+    FASIH_PASSWORD_PEGAWAI = password SSO pegawai sesi GUI (idem)
 
 "timpa" mengganti nilai; "tambah" MENGGABUNGKAN dict (kodepos/wilayah: entri GUI menang,
 entri config_lokal/config.py yang lain tetap). Nilai {"__py__": "<literal>"} dibaca dgn
@@ -40,6 +41,9 @@ def terapkan(modul, data: dict) -> None:
     password = os.environ.get("FASIH_PASSWORD", "")
     if password:
         modul.FIXED_PASSWORD = password
+    password_pegawai = os.environ.get("FASIH_PASSWORD_PEGAWAI", "")
+    if password_pegawai:
+        modul.PASSWORD_PEGAWAI = password_pegawai
 
 
 def _pasang() -> None:

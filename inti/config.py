@@ -32,6 +32,18 @@ SURVEY_ID = "a0429e96-51a5-477b-a415-485f9c153004"
 # FasihWebSession.login() berhenti dgn pesan yang jelas, tidak mencoba login.
 FIXED_PASSWORD = os.environ.get("FASIH_PASSWORD", "")
 
+# Jalur login SSO fasih-web: "otomatis" = akun ber-email @DOMAIN_SSO_PEGAWAI lewat
+# tombol "SSO Pegawai", akun lain lewat "SSO Eksternal" (mitra); "eksternal" /
+# "pegawai" = semua akun lewat jalur itu. Per run bisa diganti opsi --sso.
+JENIS_SSO = "otomatis"
+DOMAIN_SSO_PEGAWAI = "bps.go.id"
+
+# Password akun SSO PEGAWAI (pribadi, BEDA dgn password mitra di atas) — isi di
+# inti/config_lokal.py atau variabel lingkungan FASIH_PASSWORD_PEGAWAI. Kosong ->
+# login pegawai berhenti; password mitra TIDAK dicoba di SSO pegawai (salah
+# password berulang bisa mengunci akun pegawai).
+PASSWORD_PEGAWAI = os.environ.get("FASIH_PASSWORD_PEGAWAI", "")
+
 # Kode wilayah kabupaten/kota 4 digit (2 digit provinsi + 2 digit kab/kota),
 # awalan setiap idsubsls 16 digit. Dipakai memvalidasi daftar idsubsls di
 # buka_wilayah/, tandai_selesai/, pindah_wilayah/ (Python & template Console).
@@ -689,6 +701,7 @@ L = {
     "refresh_halaman_btn": "Refresh Halaman",  # EXACT (di error page 403/504)
     "entri_link": "Entri",  # EXACT (link aksi di baris dokumen list)
     "sso_eksternal_btn": "SSO Eksternal",  # EXACT
+    "sso_pegawai_btn": "SSO Pegawai",  # EXACT (tombol di atas "SSO Eksternal", dilihat 2026-09-29)
 
     # --- PENGANTAR (dikutip persis dari dump DOM asli 2026-09-02) ---
     "perbarui_waktu_btn": "Perbarui Waktu",  # EXACT (label tombol SETELAH waktu terisi)
@@ -710,6 +723,11 @@ L = {
 # Field section lain benar2 tidak ada di DOM sampai kita pindah ke sana.
 # ---------------------------------------------------------------------------
 SEL = {
+    # Form Keycloak SSO PEGAWAI (sso.bps.go.id realm pegawai-bps, dilihat langsung
+    # 2026-09-29): label "Username or email", tombol = <input type=submit value="Log In">.
+    "sso_pegawai_username": "#username",
+    "sso_pegawai_password": "#password",
+    "sso_pegawai_masuk": "#kc-login",
     # Akar form-engine — penanda paling andal bahwa kuesioner sudah mount.
     "form_root": "#fasih-form",
     # Tombol navigasi bawah. Catatan: "next" HANYA dirender kalau memang ada
@@ -1136,4 +1154,9 @@ PESAN_PASSWORD_KOSONG = (
     "STOP: password akun belum diisi. Salin templates/config_lokal.contoh.py ke "
     "inti/config_lokal.py lalu isi FIXED_PASSWORD (atau set variabel lingkungan "
     "FASIH_PASSWORD). Password TIDAK PERNAH ditulis di inti/config.py (file itu ikut git)."
+)
+PESAN_PASSWORD_PEGAWAI_KOSONG = (
+    "STOP: akun ini login lewat SSO PEGAWAI tapi password pegawai belum diisi. Isi "
+    "PASSWORD_PEGAWAI di inti/config_lokal.py (atau variabel lingkungan FASIH_PASSWORD_PEGAWAI, "
+    "atau kotak 'Password SSO pegawai' di GUI). Akun mitra: pakai --sso eksternal."
 )

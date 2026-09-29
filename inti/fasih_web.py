@@ -22,14 +22,51 @@ from typing import Optional
 from playwright.sync_api import Page, TimeoutError as PWTimeout
 
 from inti.config import (
-    DEFAULT_TIMEOUT_MS, FASIH_WEB_BASE, FASIH_WEB_LOGIN_URL, FIXED_PASSWORD,
-    DK, L, NAV_RETRY_ON_TRANSIENT_ERROR, PESAN_PASSWORD_KOSONG, SEL, SURVEY_ID, WILAYAH_BY_IDSUBSLS,
+    DEFAULT_TIMEOUT_MS, DOMAIN_SSO_PEGAWAI, FASIH_WEB_BASE, FASIH_WEB_LOGIN_URL, FIXED_PASSWORD,
+    JENIS_SSO, PASSWORD_PEGAWAI, DK, L, NAV_RETRY_ON_TRANSIENT_ERROR, PESAN_PASSWORD_KOSONG,
+    PESAN_PASSWORD_PEGAWAI_KOSONG, SEL, SURVEY_ID, WILAYAH_BY_IDSUBSLS,
 )
 
 # Folder screenshot & dump DOM. Alat yang memakai sesi ini menimpanya dgn folder hasil/-nya
 # sendiri (input_usaha/hasil/log_screenshots, approve_pml/hasil/log_screenshots) SEBELUM sesi
 # dibuat; folder baru dibuat saat pertama kali ada yang ditulis.
 SCREENSHOT_DIR = Path(__file__).resolve().parents[1] / "input_usaha" / "hasil" / "log_screenshots"
+
+PILIHAN_SSO = ("otomatis", "eksternal", "pegawai")
+
+
+def jenis_sso_akun(akun: str, pilihan: str | None = None) -> str:
+    """'pegawai' | 'eksternal' utk akun ini. `pilihan` None = JENIS_SSO (config / --sso).
+    Otomatis: email @DOMAIN_SSO_PEGAWAI (atau subdomainnya) & username tanpa '@' = pegawai."""
+    p = (pilihan if pilihan is not None else JENIS_SSO or "otomatis").strip().lower()
+    if p not in PILIHAN_SSO:
+        raise SystemExit(f"❌ Jenis SSO '{p}' tidak dikenal — pilih salah satu: {', '.join(PILIHAN_SSO)}.")
+    if p != "otomatis":
+        return p
+    akun = (akun or "").strip().lower()
+    if "@" not in akun:
+        return "pegawai"
+    domain, dasar = akun.rpartition("@")[2], DOMAIN_SSO_PEGAWAI.strip().lower()
+    return "pegawai" if dasar and (domain == dasar or domain.endswith("." + dasar)) else "eksternal"
+
+
+def atur_jenis_sso(nilai: str) -> None:
+    """Timpa JENIS_SSO utk proses ini (opsi --sso)."""
+    global JENIS_SSO
+    jenis_sso_akun("", nilai)          # validasi
+    JENIS_SSO = nilai.strip().lower()
+
+
+def opsi_sso(ap) -> None:
+    """Tambahkan `--sso` ke parser alat yang login ke fasih-web."""
+    ap.add_argument("--sso", choices=PILIHAN_SSO, default="",
+                    help=f"jalur login: otomatis (email @{DOMAIN_SSO_PEGAWAI} -> SSO Pegawai, lainnya SSO "
+                         f"Eksternal), eksternal, atau pegawai. Bawaan JENIS_SSO di config ({JENIS_SSO}).")
+
+
+def pakai_opsi_sso(args) -> None:
+    if getattr(args, "sso", ""):
+        atur_jenis_sso(args.sso)
 
 
 class FieldNotFound(RuntimeError):
@@ -432,7 +469,8 @@ class FasihWebSession:
         if not aktif:
             self._log("⚠️ Identitas akun tidak terbaca — verifikasi akun TIDAK bisa dilakukan.")
             return "TIDAK_DIKETAHUI"
-        if aktif == target:
+        # Akun pegawai boleh ditulis username saja (SSO pegawai menerima username ATAU email).
+        if aktif == target or ("@" not in target and aktif.partition("@")[0] == target):
             self._log(f"✅ Akun terverifikasi: {aktif} ({info.get('fullname', '')})")
             return "COCOK"
         self._log(f"❌ Akun AKTIF '{aktif}' ({info.get('fullname', '')}) != diminta '{target}'")
@@ -525,24 +563,30 @@ class FasihWebSession:
                           f"(percobaan {ke}/{percobaan}): {str(e).splitlines()[0]} — coba lagi 10 dtk lagi.")
                 self.page.wait_for_timeout(10_000)
 
-    def login(self, email: str, password: str = FIXED_PASSWORD, _percobaan: int = 1):
+    def login(self, email: str, password: str | None = None, _percobaan: int = 1):
         """Login sbg `email`, lalu VERIFIKASI bahwa yang benar-benar masuk
         memang akun itu (lihat catatan panjang di atas logout()).
 
+        Jalur SSO (Pegawai / Eksternal) dari jenis_sso_akun(); `password` None =
+        PASSWORD_PEGAWAI utk pegawai, FIXED_PASSWORD utk eksternal (mitra).
         Kalau sesi SSO lama ternyata masih hidup sbg akun lain, sesi itu
         diputus otomatis lalu login diulang sekali dgn kredensial penuh.
         Kalau tetap tidak cocok -> RuntimeError (BUKAN lanjut diam-diam).
         Password kosong (belum diisi di inti/config_lokal.py) -> SystemExit:
         seluruh run berhenti, bukan dicatat sbg gagal login per baris.
         """
+        jenis = jenis_sso_akun(email)
+        if password is None:
+            password = PASSWORD_PEGAWAI if jenis == "pegawai" else FIXED_PASSWORD
         if not password:
-            raise SystemExit(PESAN_PASSWORD_KOSONG)
-        self._log(f"Login sbg {email} (percobaan {_percobaan}) ...")
+            raise SystemExit(PESAN_PASSWORD_PEGAWAI_KOSONG if jenis == "pegawai" else PESAN_PASSWORD_KOSONG)
+        teks_sso = L["sso_pegawai_btn"] if jenis == "pegawai" else L["sso_eksternal_btn"]
+        self._log(f"Login sbg {email} lewat '{teks_sso}' (percobaan {_percobaan}) ...")
         self._buka_halaman_login()
-        sso_loc = self.page.get_by_text(L["sso_eksternal_btn"], exact=False)
+        sso_loc = self.page.get_by_text(teks_sso, exact=False)
         try:
             count = sso_loc.count()
-            self._log(f"Locator '{L['sso_eksternal_btn']}' ketemu {count} elemen.")
+            self._log(f"Locator '{teks_sso}' ketemu {count} elemen.")
             if count:
                 try:
                     html_snip = sso_loc.first.evaluate("el => el.outerHTML")
@@ -551,9 +595,9 @@ class FasihWebSession:
                     self._log(f"(gagal ambil outerHTML: {e})")
             sso_loc.first.click(timeout=10_000)
         except Exception:
-            self._shot(f"login_klik_sso_eksternal_gagal_{email}")
+            self._shot(f"login_klik_sso_{jenis}_gagal_{email}")
             raise
-        # Klik SSO Eksternal kadang LANGSUNG menyelesaikan login (sesi/token
+        # Klik SSO kadang LANGSUNG menyelesaikan login (sesi/token
         # sudah valid) tanpa form email/password terpisah sama sekali —
         # cek dulu apakah sudah di dashboard sebelum coba isi form kredensial,
         # supaya tidak menunggu 15 detik penuh menunggu field yg tidak ada.
@@ -565,7 +609,7 @@ class FasihWebSession:
         try:
             self.page.get_by_text(re.compile("dasbor", re.I)).first.wait_for(state="visible", timeout=5_000)
             already_in = True
-            self._log("Sudah di Dasbor setelah klik SSO Eksternal — form email/password dilewati.")
+            self._log(f"Sudah di Dasbor setelah klik '{teks_sso}' — form email/password dilewati.")
         except Exception:
             already_in = False
 
@@ -579,7 +623,16 @@ class FasihWebSession:
                 self.logout()
                 return self.login(email, password, _percobaan=2)
 
-        if not already_in:
+        if not already_in and jenis == "pegawai":
+            # Form Keycloak realm pegawai-bps: id tetap (lihat SEL), username boleh email.
+            try:
+                self.page.locator(SEL["sso_pegawai_username"]).first.fill(email, timeout=15_000)
+                self.page.locator(SEL["sso_pegawai_password"]).first.fill(password, timeout=10_000)
+                self.page.locator(SEL["sso_pegawai_masuk"]).first.click(timeout=15_000, no_wait_after=True)
+            except Exception:
+                self._shot(f"login_isi_form_sso_pegawai_gagal_{email}")
+                raise
+        elif not already_in:
             # Form SSO eksternal — coba label resmi dulu, fallback ke
             # placeholder/type kalau form-nya tidak pakai <label> semantik
             # (umum di form SSO eksternal/pihak ketiga).
@@ -633,11 +686,11 @@ class FasihWebSession:
                 break
             if (not klik_ulang_sso and ke >= 4 and "fasih-web.bps.go.id" in u and "/login" in u
                     and "sso." not in u):
-                tombol = self._visible(self.page.get_by_text(L["sso_eksternal_btn"], exact=False))
+                tombol = self._visible(self.page.get_by_text(teks_sso, exact=False))
                 if tombol.count():  # cabang opsional (aturan #6): tidak ada -> tunggu biasa
                     klik_ulang_sso = True
                     self._log("⚠️ Kembali ke halaman login fasih-web setelah form SSO — klik "
-                              f"'{L['sso_eksternal_btn']}' sekali lagi.")
+                              f"'{teks_sso}' sekali lagi.")
                     try:
                         tombol.first.click(timeout=10_000, no_wait_after=True)
                     except Exception as e:

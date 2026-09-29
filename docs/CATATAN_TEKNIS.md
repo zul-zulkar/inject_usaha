@@ -40,7 +40,9 @@ KETERANGAN PEMBERI JAWABAN → CATATAN.
 
 ## Sesi & akun
 
-Login lewat SSO Keycloak (`sso.bps.go.id`); logout fasih-web saja tidak memutus sesi. Skrip
+Login lewat SSO Keycloak (`sso.bps.go.id`): tombol **SSO Eksternal** (akun mitra, `FIXED_PASSWORD`) atau
+**SSO Pegawai** (realm `pegawai-bps`, akun @bps.go.id, `PASSWORD_PEGAWAI`) — dipilih `JENIS_SSO` / `--sso`
+(bawaan `otomatis` menurut domain email). Logout fasih-web saja tidak memutus sesi. Skrip
 menghapus cookie semua domain saat ganti akun dan **memverifikasi akun aktif** lewat respons
 `/users/check-user` sebelum mengisi (`ERROR_AKUN_SALAH` kalau beda). Satu akun = satu proses:
 proses lain yang logout memutus sesi akun yang sama.

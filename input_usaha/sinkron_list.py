@@ -45,7 +45,8 @@ from pathlib import Path
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from inti import lokasi
-from inti.config import ASSIGNMENT_ID_GABUNGAN, FASIH_WEB_BASE, FIXED_PASSWORD, SURVEY_ID
+from inti import fasih_web as _fasih_web
+from inti.config import ASSIGNMENT_ID_GABUNGAN, FASIH_WEB_BASE, SURVEY_ID
 from inti.gabungan_loader import GabunganRow
 import input_usaha.mesin as mg
 
@@ -284,7 +285,7 @@ def ambil_items(akun: str, assignment_id: str) -> list[dict]:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         sess = FasihWebSession(browser.new_context().new_page())
-        sess.login(akun, FIXED_PASSWORD)
+        sess.login(akun)
         aktif = (sess.akun_api.get("email") or "").lower()
         if aktif != akun:
             raise RuntimeError(f"AKUN TIDAK TERVERIFIKASI: diminta '{akun}', terbaca '{aktif or '-'}'")
@@ -308,9 +309,11 @@ def main() -> int:
     ap.add_argument("--dari-json", help="pakai daftar dokumen hasil unduhan sebelumnya (tanpa login)")
     ap.add_argument("--simpan-json", default="", help="default: list_api_<akun>.json")
     ap.add_argument("--tulis", action="store_true", help="tambahkan hasil sinkron ke audit_log_gabungan.csv")
+    _fasih_web.opsi_sso(ap)
     mg.opsi_audit(ap)
     args = ap.parse_args()
     lokasi.cek_struktur_lama()
+    _fasih_web.pakai_opsi_sso(args)
     mg.pakai_audit(args.audit)
     mg.cetak_lokasi_audit()
     akun = args.akun_tunggal.strip().lower()

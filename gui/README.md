@@ -13,9 +13,12 @@ Prasyarat sama dengan proyek ini: **VPN kantor**, Python 3.10+, Google Chrome. T
    `http://127.0.0.1:8765`. **Biarkan jendela hitamnya terbuka**; menutupnya menghentikan GUI dan
    semua proses yang sedang berjalan.
 2. **Persiapan**: semua baris harus hijau. Tombol *Pasang* memasang paket & Chromium Playwright.
-3. **Password** (kanan atas): password SSO akun PPL/PML. Hanya disimpan di memori, **tidak pernah ditulis
-   ke disk**, dan harus diketik lagi setiap kali GUI dibuka. Kalau `inti/config_lokal.py` di PC ini sudah
-   berisi password, kotak ini boleh dikosongkan.
+3. **Password** (kanan atas): dua kotak — password **mitra** (SSO Eksternal, sama utk semua akun mitra) dan
+   password **SSO pegawai** (akun BPS @bps.go.id). Hanya disimpan di memori, **tidak pernah ditulis ke disk**,
+   dan harus diketik lagi setiap kali GUI dibuka; kotak kosong = tidak diubah. Kalau `inti/config_lokal.py`
+   di PC ini sudah berisi `FIXED_PASSWORD` / `PASSWORD_PEGAWAI`, kotaknya boleh dikosongkan. Jalur login
+   tiap akun diatur di Pengaturan > Dasar (*Jalur login SSO*, bawaan otomatis: email @bps.go.id → SSO
+   Pegawai, lainnya → SSO Eksternal) atau isian *Jalur login SSO* di formulir alat.
 4. **Pengaturan** (sekali per kabupaten):
    - *Dasar*: kode kabupaten, akun & subsls wadah, **kotak koordinat kabupaten** (bawaannya kotak Buleleng,
      jadi kabupaten lain wajib mengganti; bisa dihitung dari peta SLS).

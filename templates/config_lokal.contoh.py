@@ -19,6 +19,13 @@ nama yang sama di inti/config.py, jadi konstanta lain dari config.py juga boleh 
 # (diseragamkan lewat reset_mitra/). Alternatif: variabel lingkungan FASIH_PASSWORD.
 FIXED_PASSWORD = ""
 
+# Akun PEGAWAI BPS (email @bps.go.id) login lewat tombol "SSO Pegawai" dgn password
+# pribadinya sendiri. Alternatif: variabel lingkungan FASIH_PASSWORD_PEGAWAI.
+PASSWORD_PEGAWAI = ""
+# Jalur login: "otomatis" (email @bps.go.id -> SSO Pegawai, lainnya SSO Eksternal),
+# "eksternal", atau "pegawai". Per run bisa diganti dgn opsi --sso.
+# JENIS_SSO = "otomatis"
+
 # ---------------------------------------------------------------------------
 # 2. Wilayah kabupaten/kota (WAJIB)
 # ---------------------------------------------------------------------------

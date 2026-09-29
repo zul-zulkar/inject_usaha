@@ -94,12 +94,14 @@ def tulis_status(label: str, data: dict) -> None:
     lokasi.siapkan(file_status(label)).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def jalankan_sekali(sumber, audit_dir, dari, sampai, akun, subsls, log_path: Path) -> tuple[int, str]:
+def jalankan_sekali(sumber, audit_dir, dari, sampai, akun, subsls, log_path: Path,
+                    sso: str = "") -> tuple[int, str]:
     """Jalankan jalankan.py sekali, kirim 'YA' otomatis, kembalikan (returncode, seluruh_output)."""
     cmd = [
         sys.executable, str(ROOT / "input_usaha" / "jalankan.py"),
         "--sumber", sumber,
         *(["--audit", audit_dir] if audit_dir else []),
+        *(["--sso", sso] if sso else []),
         "--akun-tunggal", akun,
         "--subsls-tunggal", subsls,
         "--sinkron-dulu",
@@ -207,6 +209,8 @@ def main() -> int:
                      help="Detik tunggu sebelum mencoba lagi setelah error biasa (bukan rate limit).")
     ap.add_argument("--jeda-retry-maks", type=int, default=300,
                      help="Batas atas jeda retry (detik) — jeda naik bertahap tiap gagal berturut-turut.")
+    ap.add_argument("--sso", choices=("otomatis", "eksternal", "pegawai"), default="",
+                     help="Jalur login SSO, diteruskan ke jalankan.py (bawaan JENIS_SSO di config).")
     args = ap.parse_args()
     lokasi.cek_struktur_lama()
     if bool(args.akun_cadangan) != bool(args.subsls_cadangan):
@@ -231,7 +235,7 @@ def main() -> int:
 
     while True:
         rc, output = jalankan_sekali(args.sumber, args.audit, args.dari, args.sampai,
-                                      akun_aktif, subsls_aktif, log_path)
+                                      akun_aktif, subsls_aktif, log_path, sso=args.sso)
         hasil = evaluasi_hasil(output)
         print(f"\n--- Ringkasan percobaan: returncode={rc} tuntas={hasil['tuntas']} "
               f"sisa={hasil['sisa']} rate_limited={hasil['rate_limited']} ---")

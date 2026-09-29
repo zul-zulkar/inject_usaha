@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitoring Input Usaha</title>
+<!-- Templat dasbor monitoring/monitoring.py. Data disuntik ke penanda DATA di skrip bawah saat dibangkitkan;
+     berkas hasil (monitoring/hasil/monitoring.html) berisi data usaha — JANGAN di-commit. -->
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4; --surface: #fcfcfb; --border: #e3e2dd; --grid: #ecebe7;
+  --text: #0b0b0b; --text-2: #52514e; --text-3: #7a7973;
+  --accent: #2a78d6;
+  --g-approved: #2a78d6; --g-terkirim: #1baf7a; --g-proses: #eda100; --g-belum: #d6d5cf; --g-ditolak: #e87ba4;
+  --warn-bg: #fff4dc; --bad-bg: #fde8ef;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --border: #33332f; --grid: #2a2a27;
+    --text: #ffffff; --text-2: #c3c2b7; --text-3: #8f8e86;
+    --accent: #3987e5;
+    --g-approved: #3987e5; --g-terkirim: #199e70; --g-proses: #c98500; --g-belum: #3d3d39; --g-ditolak: #d55181;
+    --warn-bg: #3a2f14; --bad-bg: #3a1a26;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --border: #33332f; --grid: #2a2a27;
+  --text: #ffffff; --text-2: #c3c2b7; --text-3: #8f8e86;
+  --accent: #3987e5;
+  --g-approved: #3987e5; --g-terkirim: #199e70; --g-proses: #c98500; --g-belum: #3d3d39; --g-ditolak: #d55181;
+  --warn-bg: #3a2f14; --bad-bg: #3a1a26;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--text-2); font-size: 13px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 16px; }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
+select, input[type=search] { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; min-width: 170px; max-width: 100%; }
+button { font: inherit; }
+.btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.tile .k { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+.tile .v { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .p { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; gap: 2px; background: var(--surface); }
+.bar > span { display: block; height: 100%; min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-2); margin: 10px 0 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart { display: grid; grid-template-columns: minmax(90px, 200px) 1fr 70px; gap: 6px 10px; align-items: center; margin-top: 8px; }
+.chart .nm { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.chart .nm:hover { color: var(--accent); text-decoration: underline; }
+.chart .n { font-size: 12px; color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
+.chart .bar { height: 18px; cursor: pointer; }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.head h2 { font-size: 16px; margin: 0; }
+.crumb { font-size: 13px; color: var(--text-2); }
+.crumb a { color: var(--accent); cursor: pointer; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-top: 16px; }
+.tab { border: 0; background: none; color: var(--text-2); padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
+.tab[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tblwrap { overflow: auto; max-height: 70vh; margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--grid); text-align: left; white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--surface); color: var(--text-2); font-weight: 600; cursor: pointer; z-index: 1; }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: var(--grid); }
+td.wrap { white-space: normal; min-width: 220px; }
+td a { color: var(--accent); }
+.pill { display: inline-flex; align-items: center; gap: 5px; }
+tr.ganda td { background: var(--bad-bg); }
+.note { font-size: 12px; color: var(--text-3); margin-top: 8px; }
+.tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.18); display: none; z-index: 10; min-width: 180px; }
+.tip b { display: block; margin-bottom: 4px; }
+.tip .r { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .chart { grid-template-columns: minmax(70px, 110px) 1fr 44px; }
+  select, input[type=search] { min-width: 0; width: 100%; }
+  .filters label { flex: 1 1 140px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>__JUDUL__</h1>
+  <div class="sub" id="info"></div>
+
+  <div class="card filters" role="group" aria-label="Filter">
+    <label>Batch <select id="fBatch"></select></label>
+    <label>Kecamatan <select id="fKec"></select></label>
+    <label>Desa <select id="fDesa"></select></label>
+    <label>Kategori <select id="fKat"></select></label>
+    <label style="flex:1 1 220px">Cari (nama usaha, PPL, idsubsls, ID dokumen) <input type="search" id="fCari" placeholder="ketik lalu Enter…"></label>
+    <button class="btn" id="reset" type="button">Reset</button>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <div class="head"><h2 id="judulGrafik">Progres per kecamatan</h2><div class="crumb" id="crumb"></div></div>
+    <div class="legend" id="legend"></div>
+    <div class="chart" id="chart"></div>
+    <div class="note">Klik nama/batang untuk turun ke desa &rarr; SLS. Persen = terkirim (approved + belum approve) dari usaha yang lolos pemeriksaan data.</div>
+  </div>
+
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div id="panel"></div>
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+const DATA = /*__DATA__*/null;
+(function () {
+  "use strict";
+  if (!DATA) { document.getElementById("info").textContent = "Templat kosong — bangkitkan lewat python monitoring/monitoring.py"; return; }
+  const $ = (id) => document.getElementById(id);
+  // Muatan dipadatkan monitoring.py (data_html): batch & kategori = indeks, nama wilayah per kode di
+  // DATA.wil, URL dari ID. Dibentangkan sekali ke kolom lengkap di bawah.
+  const KOLOM = ["batch", "baris", "nama_usaha", "ppl", "idsubsls", "kec_kode", "kecamatan", "desa_kode", "desa",
+    "sls_kode", "sls", "kategori", "keterangan", "jumlah_dokumen", "id_dokumen", "status_server", "sumber_status",
+    "subsls_dokumen", "di_wilayah", "pesan_data", "dokumen_url"];
+  const P = Object.fromEntries(DATA.kolom.map((k, i) => [k, i]));
+  const urlDok = (id) => (id ? `${DATA.meta.url_dasar}${id}/entry` : "");
+  DATA.detail = DATA.detail.map((r) => {
+    const ids = String(r[P.idsubsls] || "");
+    const sah = /^\d{16}$/.test(ids);
+    const kode = { kec_kode: sah ? ids.slice(0, 7) : "", desa_kode: sah ? ids.slice(0, 10) : "", sls_kode: sah ? ids.slice(0, 14) : "" };
+    const isi = {
+      batch: DATA.meta.batch[r[P.batch]], kategori: DATA.kategori[r[P.kategori]].kode, ...kode,
+      kecamatan: DATA.wil[kode.kec_kode] || "", desa: DATA.wil[kode.desa_kode] || "", sls: DATA.wil[kode.sls_kode] || "",
+      dokumen_url: urlDok(r[P.id_dokumen]),
+    };
+    return KOLOM.map((k) => (k in isi ? isi[k] : r[P[k]]));
+  });
+  for (const g of DATA.ganda) g.dokumen_url = urlDok(g.id_dokumen);
+  for (const g of DATA.luar) g.dokumen_url = g.dokumen_url || urlDok(g.id_dokumen);
+  const K = Object.fromEntries(KOLOM.map((k, i) => [k, i]));
+  const LABEL = Object.fromEntries(DATA.kategori.map((k) => [k.kode, k.label]));
+  const KAT = DATA.kategori.map((k) => k.kode).filter((k) => DATA.meta.ada_snapshot || k !== "TIDAK_DI_SERVER");
+  const GRUP = [
+    { k: "approved", label: "Approved", cats: ["APPROVED"] },
+    { k: "terkirim", label: "Terkirim, belum approve", cats: ["SUBMITTED"] },
+    { k: "proses", label: "Draft / proses", cats: ["DRAFT", "REJECTED", "LAIN", "PERLU_CEK"] },
+    { k: "belum", label: "Belum diinput", cats: ["BELUM_INPUT", "TIDAK_DI_SERVER"] },
+    { k: "ditolak", label: "Ditolak pemeriksaan data", cats: ["DITOLAK_DATA"] },
+  ];
+  const grupDari = Object.fromEntries(GRUP.flatMap((g) => g.cats.map((c) => [c, g.k])));
+  const warna = (g) => `var(--g-${g})`;
+  const fmt = (n) => Number(n || 0).toLocaleString("id-ID");
+  const pct = (a, b) => (b ? (100 * a / b).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + "%" : "–");
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  const f = { batch: "", kec: "", desa: "", kat: "", cari: "" };
+  let tabAktif = "rekap";
+  const urut = {};
+
+  // ---------- filter ----------
+  function opsi(sel, nilai, semua) {
+    const lama = sel.value;
+    sel.innerHTML = `<option value="">${semua}</option>` + nilai.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+    sel.value = nilai.some(([v]) => v === lama) ? lama : "";
+  }
+  function unik(rows, kode, nama) {
+    const m = new Map();
+    for (const r of rows) if (r[K[kode]]) m.set(r[K[kode]], `${r[K[nama]] || "(tanpa nama)"} [${r[K[kode]]}]`);
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }
+  function saring(abaikanWilayah) {
+    const cari = f.cari.toLowerCase();
+    return DATA.detail.filter((r) => (!f.batch || r[K.batch] === f.batch)
+      && (abaikanWilayah || !f.kec || r[K.kec_kode] === f.kec)
+      && (abaikanWilayah || !f.desa || r[K.desa_kode] === f.desa)
+      && (!f.kat || r[K.kategori] === f.kat)
+      && (!cari || [r[K.nama_usaha], r[K.ppl], r[K.idsubsls], r[K.id_dokumen]].some((x) => String(x).toLowerCase().includes(cari))));
+  }
+  function isiFilter() {
+    opsi($("fBatch"), DATA.meta.sheet.map((s) => [s, s]), "Semua batch");
+    const dasar = DATA.detail.filter((r) => !f.batch || r[K.batch] === f.batch);
+    opsi($("fKec"), unik(dasar, "kec_kode", "kecamatan"), "Semua kecamatan");
+    opsi($("fDesa"), unik(dasar.filter((r) => !f.kec || r[K.kec_kode] === f.kec), "desa_kode", "desa"), "Semua desa");
+    opsi($("fKat"), KAT.map((k) => [k, LABEL[k]]), "Semua kategori");
+  }
+
+  // ---------- agregasi ----------
+  function agregat(rows, kode, nama) {
+    const m = new Map();
+    for (const r of rows) {
+      const k = kode ? r[K[kode]] : "";
+      let a = m.get(k);
+      if (!a) { a = { kode: k, nama: nama ? r[K[nama]] : k, total: 0, ganda: 0, berlebih: 0, diWil: 0, wadah: 0 }; for (const c of KAT) a[c] = 0; m.set(k, a); }
+      a.total++; a[r[K.kategori]]++;
+      const n = Number(r[K.jumlah_dokumen]) || 0;
+      if (n > 1) { a.ganda++; a.berlebih += n - 1; }
+      if (r[K.di_wilayah] === "ya") a.diWil++; else if (r[K.di_wilayah] === "tidak") a.wadah++;
+    }
+    for (const a of m.values()) {
+      a.target = a.total - (a.DITOLAK_DATA || 0);
+      a.kirim = (a.APPROVED || 0) + (a.SUBMITTED || 0);
+      a.pKirim = a.target ? a.kirim / a.target : 0;
+      a.pAppr = a.target ? (a.APPROVED || 0) / a.target : 0;
+      for (const g of GRUP) a["g_" + g.k] = g.cats.reduce((s, c) => s + (a[c] || 0), 0);
+    }
+    return [...m.values()].sort((a, b) => String(a.kode).localeCompare(String(b.kode), "id", { numeric: true }));
+  }
+  function level() {
+    if (f.desa) return { kode: "sls_kode", nama: "sls", judul: "SLS" };
+    if (f.kec) return { kode: "desa_kode", nama: "desa", judul: "desa" };
+    return { kode: "kec_kode", nama: "kecamatan", judul: "kecamatan" };
+  }
+
+  // ---------- tampilan ----------
+  function tiles(rows) {
+    const a = agregat(rows)[0] || { total: 0, target: 0, kirim: 0, ganda: 0, berlebih: 0 };
+    const kotak = [
+      ["Total usaha", a.total, `${fmt(a.target)} lolos pemeriksaan data`, null],
+      ["Approved", a.APPROVED || 0, pct(a.APPROVED || 0, a.target), "approved"],
+      ["Terkirim, belum approve", a.SUBMITTED || 0, pct(a.SUBMITTED || 0, a.target), "terkirim"],
+      ["Draft / proses", a.g_proses || 0, pct(a.g_proses || 0, a.target), "proses"],
+      ["Belum diinput", a.g_belum || 0, pct(a.g_belum || 0, a.target), "belum"],
+      ["Ditolak pemeriksaan data", a.DITOLAK_DATA || 0, pct(a.DITOLAK_DATA || 0, a.total) + " dari total", "ditolak"],
+      ["Usaha ganda", a.ganda, `${fmt(a.berlebih)} dokumen berlebih`, null],
+    ];
+    $("tiles").innerHTML = kotak.map(([k, v, p, g]) => `<div class="tile"><div class="k">${g ? `<span class="dot" style="background:${warna(g)}"></span>` : ""}${esc(k)}</div>`
+      + `<div class="v">${fmt(v)}</div><div class="p">${esc(p)}</div></div>`).join("")
+      + `<div class="tile" style="grid-column:1/-1"><div class="k">Progres terkirim: ${pct(a.kirim, a.target)} (${fmt(a.kirim)} dari ${fmt(a.target)})</div>`
+      + `<div class="bar" style="margin-top:8px">${GRUP.map((g) => a["g_" + g.k] ? `<span style="flex:${a["g_" + g.k]};background:${warna(g.k)}"></span>` : "").join("")}</div></div>`;
+  }
+  function tipBaris(a) {
+    return `<b>${esc(a.nama || a.kode || "(kosong)")}</b>` + GRUP.map((g) => `<div class="r"><span class="pill"><span class="dot" style="background:${warna(g.k)}"></span>${g.label}</span><span>${fmt(a["g_" + g.k])}</span></div>`).join("")
+      + `<div class="r"><span>Total usaha</span><span>${fmt(a.total)}</span></div><div class="r"><span>Terkirim</span><span>${pct(a.kirim, a.target)}</span></div>`
+      + (a.ganda ? `<div class="r"><span>Usaha ganda</span><span>${fmt(a.ganda)}</span></div>` : "");
+  }
+  function grafik(rows) {
+    const lv = level();
+    const data = agregat(rows, lv.kode, lv.nama).sort((a, b) => b.total - a.total);
+    const maks = Math.max(1, ...data.map((a) => a.total));
+    $("judulGrafik").textContent = `Progres per ${lv.judul}`;
+    $("legend").innerHTML = GRUP.map((g) => `<span><span class="dot" style="background:${warna(g.k)}"></span>${g.label}</span>`).join("");
+    $("chart").innerHTML = data.map((a, i) => `<div class="nm" data-i="${i}" title="${esc(a.nama)} [${esc(a.kode)}]">${esc(a.nama || a.kode || "(kosong)")}</div>`
+      + `<div class="bar" data-i="${i}" style="width:${(100 * a.total / maks).toFixed(2)}%">${GRUP.map((g) => a["g_" + g.k] ? `<span style="flex:${a["g_" + g.k]};background:${warna(g.k)}"></span>` : "").join("")}</div>`
+      + `<div class="n">${pct(a.kirim, a.target)}</div>`).join("") || `<div class="note">Tidak ada data.</div>`;
+    const tip = $("tip");
+    $("chart").onmousemove = (e) => {
+      const el = e.target.closest("[data-i]");
+      if (!el) { tip.style.display = "none"; return; }
+      tip.innerHTML = tipBaris(data[+el.dataset.i]);
+      tip.style.display = "block";
+      const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
+      const y = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8);
+      tip.style.left = x + "px"; tip.style.top = y + "px";
+    };
+    $("chart").onmouseleave = () => { tip.style.display = "none"; };
+    $("chart").onclick = (e) => {
+      const el = e.target.closest("[data-i]");
+      if (!el) return;
+      const a = data[+el.dataset.i];
+      if (lv.kode === "kec_kode") { f.kec = a.kode; f.desa = ""; }
+      else if (lv.kode === "desa_kode") f.desa = a.kode;
+      else return;
+      render();
+    };
+    const c = [`<a data-l="0">Semua kecamatan</a>`];
+    const r0 = DATA.detail.find((r) => r[K.kec_kode] === f.kec);
+    if (f.kec && r0) c.push(`<a data-l="1">${esc(r0[K.kecamatan] || f.kec)}</a>`);
+    const r1 = DATA.detail.find((r) => r[K.desa_kode] === f.desa);
+    if (f.desa && r1) c.push(`<span>${esc(r1[K.desa] || f.desa)}</span>`);
+    $("crumb").innerHTML = c.join(" &rsaquo; ");
+    $("crumb").onclick = (e) => {
+      const l = e.target.dataset.l;
+      if (l === "0") { f.kec = ""; f.desa = ""; render(); } else if (l === "1") { f.desa = ""; render(); }
+    };
+  }
+
+  function tabel(kolom, data, id, opsiBaris) {
+    const s = urut[id];
+    if (s) data = [...data].sort((a, b) => {
+      const x = s.fn(a), y = s.fn(b);
+      return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "id", { numeric: true })) * s.arah;
+    });
+    const batas = 1500;
+    const tampil = data.slice(0, batas);
+    const html = `<div class="tblwrap"><table><thead><tr>${kolom.map((k, i) => `<th class="${k.num ? "num" : ""}" data-c="${i}" aria-sort="${s && s.c === i ? (s.arah > 0 ? "ascending" : "descending") : "none"}">${esc(k.j)}${s && s.c === i ? (s.arah > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead><tbody>`
+      + tampil.map((d) => `<tr${opsiBaris ? opsiBaris(d) : ""}>${kolom.map((k) => `<td class="${k.num ? "num" : ""}${k.wrap ? " wrap" : ""}">${k.h ? k.h(d) : esc(k.fn(d))}</td>`).join("")}</tr>`).join("")
+      + `</tbody></table></div>` + (data.length > batas ? `<div class="note">Menampilkan ${fmt(batas)} dari ${fmt(data.length)} baris — persempit filter, atau buka monitoring.xlsx untuk semuanya.</div>` : `<div class="note">${fmt(data.length)} baris.</div>`);
+    $("panel").innerHTML = html;
+    $("panel").querySelector("thead").onclick = (e) => {
+      const th = e.target.closest("th");
+      if (!th) return;
+      const c = +th.dataset.c;
+      urut[id] = { c, fn: kolom[c].fn, arah: s && s.c === c ? -s.arah : (kolom[c].num ? -1 : 1) };
+      tampilTab();
+    };
+  }
+
+  function kolomRekap(lv) {
+    const k = [];
+    if (lv) {
+      k.push({ j: "Kode", fn: (a) => a.kode }, { j: lv.judul[0].toUpperCase() + lv.judul.slice(1), fn: (a) => a.nama || "" });
+    }
+    k.push({ j: "Total usaha", fn: (a) => a.total, num: true });
+    for (const c of KAT) k.push({ j: LABEL[c], fn: (a) => a[c] || 0, num: true });
+    k.push({ j: "% terkirim", fn: (a) => a.pKirim, num: true, h: (a) => pct(a.kirim, a.target) },
+      { j: "% approved", fn: (a) => a.pAppr, num: true, h: (a) => pct(a.APPROVED || 0, a.target) },
+      { j: "Usaha ganda", fn: (a) => a.ganda, num: true }, { j: "Dok. berlebih", fn: (a) => a.berlebih, num: true },
+      { j: "Dok. di wilayah usaha", fn: (a) => a.diWil, num: true }, { j: "Dok. masih di wadah", fn: (a) => a.wadah, num: true });
+    return k;
+  }
+
+  const TAB = [
+    ["rekap", "Rekap wilayah"], ["ppl", "Per PPL"], ["batch", "Per batch"], ["ganda", "Ganda"],
+    ["detail", "Detail usaha"], ["luar", "Server di luar sheet"],
+  ];
+  function tampilTab() {
+    $("tabs").innerHTML = TAB.filter(([id]) => id !== "luar" || DATA.meta.ada_snapshot)
+      .map(([id, t]) => `<button class="tab" role="tab" aria-selected="${id === tabAktif}" data-t="${id}">${t}${id === "ganda" ? ` (${fmt(new Set(gandaTersaring().map((g) => g.grup)).size)})` : ""}</button>`).join("");
+    $("tabs").onclick = (e) => { const t = e.target.closest("[data-t]"); if (t) { tabAktif = t.dataset.t; tampilTab(); } };
+    const rows = saring(false);
+    if (tabAktif === "rekap") {
+      const lv = level();
+      tabel(kolomRekap(lv), agregat(rows, lv.kode, lv.nama), "rekap-" + lv.kode);
+    } else if (tabAktif === "ppl") {
+      tabel(kolomRekap({ judul: "PPL" }).slice(1), agregat(rows, "ppl", "ppl"), "ppl");
+    } else if (tabAktif === "batch") {
+      tabel(kolomRekap({ judul: "batch" }).slice(1), agregat(rows, "batch", "batch"), "batch");
+    } else if (tabAktif === "ganda") {
+      const g = gandaTersaring();
+      tabel([
+        { j: "Grup", fn: (d) => d.grup, num: true }, { j: "Jenis", fn: (d) => d.jenis },
+        { j: "Batch", fn: (d) => d.batch }, { j: "Baris", fn: (d) => Number(d.baris) || 0, num: true, h: (d) => esc(d.baris) },
+        { j: "Nama usaha", fn: (d) => d.nama_usaha, wrap: true }, { j: "Kecamatan", fn: (d) => d.kecamatan }, { j: "Desa", fn: (d) => d.desa },
+        { j: "Status", fn: (d) => d.status }, { j: "Sumber status", fn: (d) => d.sumber_status },
+        { j: "Subsls dokumen", fn: (d) => d.subsls_dokumen }, { j: "Petugas", fn: (d) => d.petugas },
+        { j: "Dicatat di", fn: (d) => d.dicatat_di, wrap: true },
+        { j: "Dokumen", fn: (d) => d.id_dokumen, h: (d) => `<a href="${esc(d.dokumen_url)}" target="_blank" rel="noopener">${esc(String(d.id_dokumen).slice(0, 8))}</a>` },
+      ], g, "ganda");
+      $("panel").insertAdjacentHTML("afterbegin", `<div class="note">${Object.entries(DATA.jenis_ganda).map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join("<br>")}</div>`);
+    } else if (tabAktif === "detail") {
+      tabel([
+        { j: "Batch", fn: (r) => r[K.batch] }, { j: "Baris", fn: (r) => r[K.baris], num: true },
+        { j: "Nama usaha", fn: (r) => r[K.nama_usaha], wrap: true }, { j: "PPL", fn: (r) => r[K.ppl] },
+        { j: "Kecamatan", fn: (r) => r[K.kecamatan] }, { j: "Desa", fn: (r) => r[K.desa] }, { j: "SLS", fn: (r) => r[K.sls] },
+        { j: "idsubsls", fn: (r) => r[K.idsubsls] },
+        { j: "Kategori", fn: (r) => LABEL[r[K.kategori]] || r[K.kategori], h: (r) => `<span class="pill"><span class="dot" style="background:${warna(grupDari[r[K.kategori]] || "belum")}"></span>${esc(LABEL[r[K.kategori]] || r[K.kategori])}</span>` },
+        { j: "Keterangan", fn: (r) => [r[K.keterangan], r[K.pesan_data]].filter(Boolean).join(" | "), wrap: true },
+        { j: "Dok.", fn: (r) => Number(r[K.jumlah_dokumen]) || 0, num: true },
+        { j: "Status server", fn: (r) => r[K.status_server] }, { j: "Sumber status", fn: (r) => r[K.sumber_status] },
+        { j: "Di wilayah", fn: (r) => r[K.di_wilayah] }, { j: "Subsls dokumen", fn: (r) => r[K.subsls_dokumen] },
+        { j: "Dokumen", fn: (r) => r[K.id_dokumen], h: (r) => r[K.dokumen_url] ? `<a href="${esc(r[K.dokumen_url])}" target="_blank" rel="noopener">${esc(String(r[K.id_dokumen]).slice(0, 8))}</a>` : "" },
+      ], rows, "detail", (r) => (Number(r[K.jumlah_dokumen]) > 1 ? ' class="ganda"' : ""));
+    } else if (tabAktif === "luar") {
+      tabel([
+        { j: "Nama", fn: (d) => d.nama, wrap: true }, { j: "Kode identitas", fn: (d) => d.kode_identitas, wrap: true },
+        { j: "Status", fn: (d) => d.status }, { j: "Subsls dokumen", fn: (d) => d.subsls_dokumen }, { j: "Petugas", fn: (d) => d.petugas },
+        { j: "Dibuat", fn: (d) => d.dibuat },
+        { j: "Dokumen", fn: (d) => d.id_dokumen, h: (d) => `<a href="${esc(d.dokumen_url)}" target="_blank" rel="noopener">${esc(String(d.id_dokumen).slice(0, 8))}</a>` },
+      ], DATA.luar, "luar");
+    }
+  }
+  function gandaTersaring() {
+    return DATA.ganda.filter((g) => (!f.batch || !g.batch || g.batch === f.batch)
+      && (!f.kec || String(g.idsubsls).startsWith(f.kec)) && (!f.desa || String(g.idsubsls).startsWith(f.desa)));
+  }
+
+  function render() {
+    isiFilter();
+    $("fKec").value = f.kec; $("fDesa").value = f.desa;
+    f.kec = $("fKec").value; f.desa = $("fDesa").value;
+    const rows = saring(false);
+    tiles(rows);
+    grafik(rows);
+    tampilTab();
+  }
+
+  $("info").textContent = `Dibuat ${DATA.meta.dibuat} · sheet: ${DATA.meta.sheet.join(", ")} · snapshot server: ${DATA.meta.snapshot}`;
+  $("fBatch").onchange = (e) => { f.batch = e.target.value; render(); };
+  $("fKec").onchange = (e) => { f.kec = e.target.value; f.desa = ""; render(); };
+  $("fDesa").onchange = (e) => { f.desa = e.target.value; render(); };
+  $("fKat").onchange = (e) => { f.kat = e.target.value; render(); };
+  $("fCari").onkeydown = (e) => { if (e.key === "Enter") { f.cari = e.target.value.trim(); render(); } };
+  $("fCari").onsearch = (e) => { f.cari = e.target.value.trim(); render(); };
+  $("reset").onclick = () => { Object.assign(f, { batch: "", kec: "", desa: "", kat: "", cari: "" }); $("fCari").value = ""; render(); };
+  render();
+})();
+</script>
+</body>
+</html>

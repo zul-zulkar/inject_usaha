@@ -28,8 +28,8 @@ AKAR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AKAR))
 
 # Tidak ditampilkan di Pengaturan: rahasia, URL layanan, peta selektor form (bukan pengaturan).
-DISEMBUNYIKAN = {"FIXED_PASSWORD", "FASIH_WEB_LOGIN_URL", "FASIH_WEB_BASE", "FASIH_SM_BASE",
-                 "L", "SEL", "DK", "PESAN_PASSWORD_KOSONG"}
+DISEMBUNYIKAN = {"FIXED_PASSWORD", "PASSWORD_PEGAWAI", "FASIH_WEB_LOGIN_URL", "FASIH_WEB_BASE", "FASIH_SM_BASE",
+                 "L", "SEL", "DK", "PESAN_PASSWORD_KOSONG", "PESAN_PASSWORD_PEGAWAI_KOSONG"}
 # Dict besar: hanya jumlah entrinya yang dikirim ke halaman.
 BESAR = {"KODEPOS_BY_IDSUBSLS", "WILAYAH_BY_IDSUBSLS"}
 
@@ -106,7 +106,8 @@ def daftar_config() -> dict:
                 data["lokal"] = _jsonkan(lokal[nama])
         item.append(data)
     return {"pengaturan": item, "config_lokal_ada": path_lokal.exists(), "galat_config_lokal": galat_lokal,
-            "password_lokal_ada": bool(lokal.get("FIXED_PASSWORD"))}
+            "password_lokal_ada": bool(lokal.get("FIXED_PASSWORD")),
+            "password_pegawai_lokal_ada": bool(lokal.get("PASSWORD_PEGAWAI"))}
 
 
 def kodepos(dari: list[str], kode_kab: str) -> dict:

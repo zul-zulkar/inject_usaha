@@ -67,6 +67,7 @@ VALIDASI_KHUSUS = {
     "KODE_KAB": (r"^\d{4}$", "4 digit (2 provinsi + 2 kab/kota)"),
     "GABUNGAN_SUBSLS_TUNGGAL": (r"^(\d{16})?$", "kosong atau 16 digit"),
     "GABUNGAN_AKUN_TUNGGAL": (r"^([^@\s]+@[^@\s]+\.[^@\s]+)?$", "kosong atau email"),
+    "JENIS_SSO": (r"^(otomatis|eksternal|pegawai)$", "otomatis, eksternal, atau pegawai"),
     "SURVEY_ID": (POLA_UUID, "UUID dari URL fasih-web"),
     "ASSIGNMENT_ID_GABUNGAN": (POLA_UUID, "UUID dari URL list PENDATAAN"),
 }
@@ -133,7 +134,7 @@ class Pengaturan:
 
 
 PENG = Pengaturan(PENGATURAN_PATH)
-SESI = {"password": ""}
+SESI = {"password": "", "password_pegawai": ""}
 KUNCI_SESI = threading.Lock()
 
 
@@ -437,9 +438,10 @@ def teks_perintah(perintah: list[str]) -> str:
 def siapkan_env(snapshot: Path | None, kbli: bool = False) -> dict:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
     with KUNCI_SESI:
-        password = SESI["password"]
+        password, password_pegawai = SESI["password"], SESI["password_pegawai"]
     if kbli:
         env.pop("FASIH_PASSWORD", None)
+        env.pop("FASIH_PASSWORD_PEGAWAI", None)
         return env
     env["PYTHONPATH"] = str(SISIP) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     if snapshot is None:
@@ -453,14 +455,26 @@ def siapkan_env(snapshot: Path | None, kbli: bool = False) -> dict:
         env["FASIH_ABAIKAN_CONFIG_LOKAL"] = "1"
     if password:
         env["FASIH_PASSWORD"] = password
+    if password_pegawai:
+        env["FASIH_PASSWORD_PEGAWAI"] = password_pegawai
     return env
 
 
-def password_tersedia() -> bool:
+def status_password() -> dict:
+    """Mitra (SSO Eksternal) & pegawai (SSO Pegawai) terpisah; `tersedia` = salah satunya ada.
+    Jalur mana yang dipakai akun ditentukan alatnya (JENIS_SSO / --sso) — password yang
+    dibutuhkan tapi kosong membuat alat berhenti dgn pesan jelas."""
+    lokal = PENG.data["pakai_config_lokal"]
     with KUNCI_SESI:
-        if SESI["password"]:
-            return True
-    return bool(PENG.data["pakai_config_lokal"] and CONFIG.data.get("password_lokal_ada"))
+        sesi, sesi_pegawai = bool(SESI["password"]), bool(SESI["password_pegawai"])
+    mitra = sesi or bool(lokal and CONFIG.data.get("password_lokal_ada"))
+    pegawai = sesi_pegawai or bool(lokal and CONFIG.data.get("password_pegawai_lokal_ada"))
+    return {"sesi": sesi, "pegawai_sesi": sesi_pegawai, "mitra": mitra, "pegawai": pegawai,
+            "tersedia": mitra or pegawai}
+
+
+def password_tersedia() -> bool:
+    return status_password()["tersedia"]
 
 
 def folder_kbli() -> tuple[Path, Path | None]:
@@ -561,6 +575,7 @@ def jalankan_pasang(apa: str) -> Proses:
     aksi_ = {"id": apa, "label": "pasang", "jenis": "aman"}
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
     env.pop("FASIH_PASSWORD", None)
+    env.pop("FASIH_PASSWORD_PEGAWAI", None)
     return PROSES.baru(alat=alat, aksi_=aksi_, isian={}, perintah=perintah, cwd=cwd, env=env, snapshot=None)
 
 
@@ -695,7 +710,7 @@ def data_awal() -> dict:
     with PENG.kunci:
         peng = json.loads(json.dumps(PENG.data))
     return {"alat": A.untuk_gui(), "pengaturan": peng, "isian": muat_isian(), "config": CONFIG.data, "akar": str(AKAR),
-            "password": {"sesi": bool(SESI["password"]), "tersedia": password_tersedia()},
+            "password": status_password(),
             "audit": daftar_audit(), "kbli": status_kbli(), "peringatan": PENG.peringatan}
 
 
@@ -760,8 +775,7 @@ class Penangan(BaseHTTPRequestHandler):
             if u.path == "/api/awal":
                 return self._json(data_awal())
             if u.path == "/api/proses":
-                return self._json({"proses": PROSES.daftar(), "password": {"tersedia": password_tersedia(),
-                                                                           "sesi": bool(SESI["password"])}})
+                return self._json({"proses": PROSES.daftar(), "password": status_password()})
             m = re.fullmatch(r"/api/proses/(\d+)", u.path)
             if m:
                 p = PROSES.ambil(int(m.group(1)))
@@ -838,8 +852,10 @@ class Penangan(BaseHTTPRequestHandler):
 
     def _password(self, d: dict) -> dict:
         with KUNCI_SESI:
-            SESI["password"] = str(d.get("password") or "")
-        return {"sesi": bool(SESI["password"]), "tersedia": password_tersedia()}
+            for kunci in ("password", "password_pegawai"):
+                if kunci in d:
+                    SESI[kunci] = str(d.get(kunci) or "")
+        return status_password()
 
     def _pratinjau(self, d: dict) -> dict:
         try:
