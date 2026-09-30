@@ -1,0 +1,4 @@
+# Daftar akun PML untuk approve_capi.py --daftar-pml: satu email per baris, '#' = komentar.
+# Password semua akun = FIXED_PASSWORD di inti/config_lokal.py (tidak ditulis di sini).
+pml.satu@gmail.com
+pml.dua@gmail.com

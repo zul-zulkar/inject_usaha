@@ -429,6 +429,22 @@ def target_dari_server(items: list[dict], akun_pml: str) -> tuple[list[dict], Co
     return target, lewat
 
 
+def baca_hanya_id(path: Path) -> dict[str, set[str]]:
+    """--hanya-id: CSV berkolom `id` (+ opsional `pml`, `status`) -> {pml: {id}} (pml "" = PML mana pun).
+    CSV approve_capi (unduhan Console) punya kolom `status`: hanya DIGANTI_PAPI_TERVERIFIKASI yang dipakai."""
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        baris = list(csv.DictReader(f))
+    if not baris or "id" not in baris[0]:
+        raise ValueError(f"{path}: kolom 'id' tidak ada")
+    hasil: dict[str, set[str]] = {}
+    for b in baris:
+        i = (b.get("id") or "").strip().lower()
+        if not i or ("status" in b and b["status"] != "DIGANTI_PAPI_TERVERIFIKASI"):
+            continue
+        hasil.setdefault((b.get("pml") or "").strip().lower(), set()).add(i)
+    return hasil
+
+
 def catatan_per_id(audit: list[dict]) -> dict[str, dict]:
     """id dokumen -> {kunci, baris} dari audit INPUT, HANYA utk mengisi kolom kunci/baris catatan approve
     (penelusuran dokumen -> baris sheet). Tidak pernah ikut memilih target mode server.
@@ -966,6 +982,9 @@ def siapkan_target_server(sess, akun_pml: str, args, catatan: dict[str, dict]) -
     -> laporan. --cek: cetak daftar lalu selesai (tidak ada dokumen dibuka). --eksekusi: konfirmasi
     'YA' DI SINI, sesudah jumlah dokumennya terlihat (satu konfirmasi per PML). -> target yang boleh
     diproses ([] = PML ini selesai tanpa membuka dokumen)."""
+    hanya = getattr(args, "hanya_id_set", None)
+    if hanya is not None:
+        return _konfirmasi_target(target_dari_berkas(hanya.get(akun_pml, set()), akun_pml, catatan), akun_pml, args)
     items = baca_daftar_server(sess, args.assignment_id)
     target, lewat = target_dari_server(items, akun_pml)
     for t in target:
@@ -989,6 +1008,25 @@ def siapkan_target_server(sess, akun_pml: str, args, catatan: dict[str, dict]) -
                       flush=True)
             if len(lain) > 100:
                 print(f"    … {len(lain) - 100} dokumen lain", flush=True)
+        print("(--cek: tidak ada dokumen yang dibuka)", flush=True)
+        return []
+    return _konfirmasi_target(target, akun_pml, args)
+
+
+def target_dari_berkas(ids: set[str], akun_pml: str, catatan: dict[str, dict]) -> list[dict]:
+    """--hanya-id: target LANGSUNG dari id berkas, list PENDATAAN tidak dibaca (list dibatasi 1.000 dokumen
+    oleh server & membacanya makan menit per PML). Status SUBMITTED & akses tetap dipastikan API detail per
+    dokumen tepat sebelum diklik (approve_satu); yang sudah APPROVED -> SUDAH_APPROVED tanpa dibuka."""
+    target = [{"id": i, "kode": "", "baris": "", "kunci": "", "nama": "", "sumber": "berkas", "akun_pml": akun_pml,
+               "akun_ppl": None, "mode_list": "", **catatan.get(i, {})} for i in sorted(ids)]
+    print(f"TARGET dari --hanya-id: {len(target)} dokumen utk {akun_pml} (list server tidak dibaca; status & "
+          "akses dipastikan per dokumen sebelum diklik)", flush=True)
+    return target
+
+
+def _konfirmasi_target(target: list[dict], akun_pml: str, args) -> list[dict]:
+    """--cek -> []; --eksekusi -> konfirmasi YA (satu per PML) sesudah jumlah dokumen terlihat."""
+    if args.cek:
         print("(--cek: tidak ada dokumen yang dibuka)", flush=True)
         return []
     if not target:
@@ -1286,6 +1324,9 @@ def main() -> int:
     ap.add_argument("--rencana", help="MULTI PML: file SQL Lab .xlsx/.csv (kolom Email PML, Email PPL, assignment_id)")
     ap.add_argument("--daftar", help="MULTI PML: salinan tabel Data fasih-sm .xlsx/.csv (mis. submit.xlsx: Kode "
                                      "Identitas, Status, Mode, Petugas Saat Ini); id dicari di list PENDATAAN PML")
+    ap.add_argument("--hanya-id", metavar="CSV",
+                    help="mode server: target = id di CSV (kolom id, opsional pml & status; CSV approve_capi: hanya "
+                         "DIGANTI_PAPI_TERVERIFIKASI), list server TIDAK dibaca. Tanpa --akun-pml: PML dari kolom pml")
     ap.add_argument("--cek", action="store_true", help="tampilkan rencana per PML saja, tanpa browser (mode "
                                                          "server: login & baca list saja, tanpa membuka dokumen)")
     ap.add_argument("--abaikan-audit-approve", action="store_true",
@@ -1318,6 +1359,28 @@ def main() -> int:
     audit: list[dict] = []
     audit_docs: dict[str, dict] = {}
     catatan: dict[str, dict] = {}
+    args.hanya_id_set = None
+    if args.hanya_id:
+        if not args.server:
+            ap.error("--hanya-id hanya utk mode server (tanpa --akun-ppl/--rencana/--daftar)")
+        try:
+            per_pml = baca_hanya_id(Path(args.hanya_id))
+        except (OSError, ValueError, csv.Error) as e:
+            print(f"❌ {e}", file=sys.stderr)
+            return 2
+        umum = per_pml.pop("", set())
+        if not pml_dipilih:
+            pml_dipilih = sorted(per_pml)
+        args.hanya_id_set = {p: per_pml.get(p, set()) | umum for p in pml_dipilih}
+        kosong = [p for p in pml_dipilih if not args.hanya_id_set[p]]
+        if kosong:
+            print(f"⚠️ PML tanpa ID di {args.hanya_id} (tidak login): {', '.join(kosong)}")
+            pml_dipilih = [p for p in pml_dipilih if args.hanya_id_set[p]]
+            if not pml_dipilih:
+                print("Tidak ada dokumen utk diproses.")
+                return 0
+        print(f"--hanya-id {args.hanya_id}: {sum(len(args.hanya_id_set[p]) for p in pml_dipilih)} ID, "
+              f"{len(pml_dipilih)} PML")
     if args.server:
         if not pml_dipilih:
             ap.error("isi --akun-pml (mode server), atau --akun-ppl / --rencana / --daftar utk mode lain")

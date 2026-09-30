@@ -150,6 +150,13 @@ _JS_DIALOG_TEXT = r"""
 }
 """
 
+# List PENDATAAN server: hanya ±1.000 dokumen pertama yang bisa dipaging (totalHit ikut dibatasi).
+BATAS_LIST_SERVER = 1000
+# Saringan server utk DRAFT PAPI (bentuk yang sama dgn tabel Data fasih-sm).
+SARING_DRAFT = {"assignmentStatusAlias": "DRAFT", "mode": ["PAPI"]}
+SARING_DITOLAK = {"assignmentStatusAlias": "REJECTED BY Pengawas", "mode": ["PAPI"]}
+
+
 class FasihWebSession:
     def __init__(self, page: Page, step_log: Optional[list] = None, dump_dom: bool = False):
         self.page = page
@@ -169,6 +176,7 @@ class FasihWebSession:
         self.jumlah_dokumen_awal: Optional[int] = None
         # False kalau daftar_dokumen_api() tidak berhasil membaca list yang konsisten.
         self.daftar_dokumen_lengkap = True
+        self.daftar_dokumen_terpotong = False
         # Request datatable list PENDATAAN terakhir (lihat _pasang_penyadap_akun).
         self.list_request: dict = {}
         self._pasang_penyadap_akun()
@@ -1077,34 +1085,79 @@ class FasihWebSession:
         # bergeser, satu dokumen terbaca 2x (bisa juga terlewat). Saring per id & cocokkan
         # dgn totalHit; tidak cocok -> baca ulang semua (maks 3x), lalu peringatkan.
         for percobaan in range(1, 4):
-            per_id: dict = {}
-            start, total = 0, 0
-            while True:
-                body["start"], body["length"] = start, per_halaman
-                hasil = self.page.evaluate("""async ([url, body, hdr]) => {
-                    const r = await fetch(url, {method: 'POST', credentials: 'include', headers: hdr,
-                                                body: JSON.stringify(body)});
-                    return {status: r.status, text: await r.text()};
-                }""", [tangkap["url"], body, hdr])
-                if hasil["status"] != 200:
-                    raise RuntimeError(f"API list status {hasil['status']}: {hasil['text'][:200]}")
-                data = json.loads(hasil["text"])
-                halaman = data.get("searchData") or []
-                total = int(data.get("totalHit") or 0)
-                for it in halaman:
-                    per_id[it.get("id")] = it
-                start += per_halaman
-                if not halaman or start >= total:
-                    break
+            per_id, total = self._baca_list_berhalaman(tangkap["url"], body, hdr, per_halaman)
             self.daftar_dokumen_lengkap = len(per_id) == total
             if self.daftar_dokumen_lengkap:
                 break
             self._log(f"⚠️ Daftar dokumen API: {len(per_id)} id unik != totalHit {total} "
                       f"(list berubah saat dibaca?) — baca ulang ({percobaan}/3).")
             self.page.wait_for_timeout(3_000)
+        # Server hanya melayani ±1.000 dokumen pertama per list (start >= 1000 = kosong) dan
+        # totalHit IKUT dibatasi 1.000 -> "1000 == 1000" dulu dianggap LENGKAP. Akibatnya
+        # (2026-09-29, daftar draft PAPI fasih-sm): draft akun ber-list > 1.000 tidak pernah
+        # terlihat sinkron -> audit TERKIRIM_BELUM_TERVERIFIKASI (toast palsu) tidak pernah
+        # diturunkan & baris dilewati --lewati-selesai selamanya. Terpotong = TIDAK lengkap
+        # (DOKUMEN_DIHAPUS tidak boleh ditulis) + semua DRAFT dibaca lewat saringan server.
+        self.daftar_dokumen_terpotong = len(per_id) >= BATAS_LIST_SERVER
+        if self.daftar_dokumen_terpotong:
+            self.daftar_dokumen_lengkap = False
+            self._log(f"⚠️ Daftar dokumen API TERPOTONG batas server ({len(per_id)} dok, totalHit {total}) "
+                      "— DRAFT & REJECTED dibaca ulang dgn saringan server.")
+            for it in self._draft_tersaring(tangkap["url"], body, hdr, per_halaman):
+                per_id.setdefault(it.get("id"), it)
         self._log(f"Daftar dokumen lewat API: {len(per_id)} dokumen"
                   + ("." if self.daftar_dokumen_lengkap else " — ⚠️ TIDAK LENGKAP/berubah saat dibaca."))
         return list(per_id.values())
+
+    def _baca_list_berhalaman(self, url: str, body: dict, hdr: dict, per_halaman: int) -> tuple[dict, int]:
+        """({id: item}, totalHit) semua halaman list API (body DataTables tersadap). READ-ONLY."""
+        body = dict(body)
+        per_id: dict = {}
+        start, total = 0, 0
+        while True:
+            body["start"], body["length"] = start, per_halaman
+            hasil = self.page.evaluate("""async ([url, body, hdr]) => {
+                const r = await fetch(url, {method: 'POST', credentials: 'include', headers: hdr,
+                                            body: JSON.stringify(body)});
+                return {status: r.status, text: await r.text()};
+            }""", [url, body, hdr])
+            if hasil["status"] != 200:
+                raise RuntimeError(f"API list status {hasil['status']}: {hasil['text'][:200]}")
+            data = json.loads(hasil["text"])
+            halaman = data.get("searchData") or []
+            total = int(data.get("totalHit") or 0)
+            for it in halaman:
+                per_id[it.get("id")] = it
+            start += per_halaman
+            if not halaman or start >= total or start >= BATAS_LIST_SERVER + per_halaman:
+                break
+        return per_id, total
+
+    def _draft_tersaring(self, url: str, body: dict, hdr: dict, per_halaman: int) -> list[dict]:
+        """Semua DRAFT & REJECTED PAPI akun ini lewat saringan server (bentuk assignmentExtraParam yang
+        TERBUKTI di endpoint web-entry utk SUBMITTED, approve_pml 2026-09-27). Tiap saringan dipakai
+        HANYA kalau terbukti menyaring: SEMUA item berawalan status itu; tidak -> dibuang (tidak menebak).
+        Alias REJECTED ("REJECTED BY Pengawas") mengikuti pola "SUBMITTED BY Pencacah" — BELUM terbukti;
+        salah alias = 0 item (dicatat di log), bukan salah baca."""
+        out: list[dict] = []
+        for saring, awalan in ((SARING_DRAFT, "DRAFT"), (SARING_DITOLAK, "REJECT")):
+            tersaring = dict(body)
+            tersaring["assignmentExtraParam"] = {**(body.get("assignmentExtraParam") or {}), **saring}
+            try:
+                per_id, total = self._baca_list_berhalaman(url, tersaring, hdr, per_halaman)
+            except Exception as e:  # noqa: BLE001
+                self._log(f"⚠️ List {awalan} tersaring tidak terbaca ({str(e)[:120]}) — di luar 1.000 tidak terlihat.")
+                continue
+            items = list(per_id.values())
+            bukan = [it for it in items if not str(it.get("assignmentStatusAlias") or "").upper().startswith(awalan)]
+            if bukan:
+                self._log(f"⚠️ Saringan {awalan} server TIDAK terbukti ({len(bukan)} item lain, mis. "
+                          f"{bukan[0].get('assignmentStatusAlias')!r}) — hasilnya tidak dipakai.")
+                continue
+            self._log(f"List {awalan} tersaring: {len(items)} dokumen (totalHit {total})"
+                      + (" ⚠️ masih TERPOTONG" if len(items) >= BATAS_LIST_SERVER else "") + ".")
+            out += items
+        return out
 
     def _reload_list(self):
         """Klik 'Muat Ulang' di list PENDATAAN. List bisa stale sesaat

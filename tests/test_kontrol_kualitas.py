@@ -193,6 +193,9 @@ CONTOH_TANDA = [
     ("8b tanpa (12a): format lengkap > 50 karakter", "INFO", "NAMA_TANPA_12A", ("nama_komersial",)),
     # 2026-09-26 (kontrol kualitas input_tahap2_23)
     ("12d NIK kosong -> '9999' (tidak ada/tidak bersedia)", "DIGANTI", "NIK_KOSONG_JADI_9999", ("nik_pengusaha",)),
+    # 2026-09-29 (kabupaten lain tanpa daftar kodepos)
+    ("kodepos desa 9999999999 tidak diketahui -> '99999' (petunjuk form: responden tidak tahu = 99999)", "DIGANTI",
+     "KODEPOS_TIDAK_DIKETAHUI_JADI_99999", ("kodepos",)),
     ("26a 300,000 / 8 pekerja dibayar = 37,500 <= Rp 50,000 -> 26a 800,000 (100,000 x 8) (DINAIKKAN)", "DIGANTI",
      "GAJI_PER_PEKERJA_DINAIKKAN", ("gaji", "tk_dibayar")),
     ("25 tahun operasi 2099 di masa depan -> 2025 (nilai pengganti)", "DIGANTI", "TAHUN_MASA_DEPAN_PENGGANTI",

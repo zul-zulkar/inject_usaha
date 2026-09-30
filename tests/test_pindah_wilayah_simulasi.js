@@ -74,6 +74,7 @@ const ganda = T({ t: T1 }, {});
 ganda.t.ids = [ganda.d.id, gandaB.id].sort();
 gandaB.nama = ganda.d.nama;
 const capi = T({ t: T1 }, { mode: "CAPI" });                  // tidak ada di daftar PAPI -> detail cadangan
+const yatimWadah = [tambah({}), tambah({ alias: "SUBMITTED BY Pencacah" })];   // di wadah, bukan target -> sisaWadah
 const subslsLain = T({ t: T1 }, { kode: LAIN });
 const sudah = T({ t: T2 }, { kode: T2 });
 const grupT2 = [];
@@ -206,16 +207,20 @@ const hitungStatus = () => {
     "DI_SUBSLS_LAIN", "SUDAH_DI_TUJUAN", "TUJUAN_BELUM_DIBUKA", "PETUGAS_TUJUAN_GANDA", "SIAP_PINDAH"]);
   check("periksa: daftar tujuan belum dibuka", pw.daftarTujuan("TUJUAN_BELUM_DIBUKA"), T3);
   const dtAwal = server.datatable;
+  const idTarget = new Set(pw.target.flatMap((t) => t.ids || []));
+  const sisa = pw.sisaWadah(undefined, { unduh: false });
+  const harapSisa = [...server.docs.values()].filter((d) => !d.hapus && d.mode === "PAPI" && pw.asal.includes(d.kode) && !idTarget.has(d.id)).length;
+  check("sisaWadah: dokumen wadah bukan target, tanpa request", [sisa.length, sisa.every((d) => !idTarget.has(d.id)), server.datatable],
+    [harapSisa, true, dtAwal]);
+  check("sisaWadah: memuat dokumen yatim di wadah", yatimWadah.every((y) => sisa.some((d) => d.id === y.id)), true);
 
-  // ---------------- PINDAH tanpa limit & tanpa bukti -> ditolak
+  // ---------------- PINDAH tanpa YA -> batal (tanpa gerbang "limit 1 dulu")
+  jawabPrompt = "tidak";
   await pw.jalankan({ mode: "pindah" });
-  check("pindah massal tanpa bukti ditolak", [server.put.length, log.some((l) => l.includes("butuh minimal 1 DIPINDAH_TERVERIFIKASI"))], [0, true]);
+  check("tanpa YA -> batal", [server.put.length, log.some((l) => l.includes("butuh minimal 1 DIPINDAH_TERVERIFIKASI"))], [0, false]);
   check("pindah memakai daftar yang masih segar (tanpa baca ulang)", server.datatable, dtAwal);
 
   // ---------------- PINDAH limit 1
-  jawabPrompt = "tidak";
-  await pw.jalankan({ mode: "pindah", limit: 1 });
-  check("tanpa YA -> batal", server.put.length, 0);
   jawabPrompt = "YA";
   await pw.jalankan({ mode: "pindah", limit: 1 });
   check("limit 1: satu PUT berisi 1 dokumen ke T1", server.put.map((b) => [b.smallestLevelFullCode, b.assignmentIds.length]), [[T1, 1]]);

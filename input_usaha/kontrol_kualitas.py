@@ -222,6 +222,9 @@ POLA_TANDA: tuple[Pola, ...] = (
          "Tulis NIK 16 digit sbg TEKS; >16 digit 7777, belum punya 8888, lainnya 9999."),
     Pola("NIK_KOSONG_JADI_9999", r"12d NIK kosong -> ", "DIGANTI", ("nik_pengusaha",),
          "Isi NIK 16 digit dari kuesioner (sbg TEKS); tidak ada/tidak bersedia = 9999."),
+    Pola("KODEPOS_TIDAK_DIKETAHUI_JADI_99999", r"kodepos desa \d+ tidak diketahui -> ", "DIGANTI", ("kodepos",),
+         "Kodepos desa ini tidak ada di sheet maupun daftar kodepos -> diisi 99999 (tidak tahu). Kalau "
+         "diketahui: beri kolom 'kodepos' di sheet atau lengkapi KODEPOS_BY_DESA di konfigurasi lokal."),
     Pola("GAJI_PER_PEKERJA_DINAIKKAN", r"26a [\d.,]+ / \d+ pekerja dibayar = .*\(DINAIKKAN\)", "DIGANTI",
          ("gaji", "tk_dibayar"),
          "26a dibagi pekerja dibayar harus > Rp 50.000; skrip menaikkan 26a. Betulkan 26a atau 24a2 dari kuesioner."),

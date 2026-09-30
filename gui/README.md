@@ -22,7 +22,7 @@ Prasyarat sama dengan proyek ini: **VPN kantor**, Python 3.10+, Google Chrome. T
 4. **Pengaturan** (sekali per kabupaten):
    - *Dasar*: kode kabupaten, akun & subsls wadah, **kotak koordinat kabupaten** (bawaannya kotak Buleleng,
      jadi kabupaten lain wajib mengganti; bisa dihitung dari peta SLS).
-   - *Wilayah*: **kodepos per desa** (baris dengan desa tanpa kodepos ditolak). Bisa diisi dengan impor
+   - *Wilayah*: **kodepos per desa** (desa tanpa kodepos diisi 99999 = "tidak tahu"). Bisa diisi dengan impor
      Excel/CSV, disusun dari sheet lama, atau ditambah satu per satu. Nama wilayah bisa diimpor dari
      peta SLS (GeoJSON).
    - *Aturan pengisian*: nilai pengganti untuk sel kosong/rusak. Semuanya ketetapan BPS Buleleng;

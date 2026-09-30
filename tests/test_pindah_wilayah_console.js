@@ -82,6 +82,16 @@ check("ID belum terbaca -> TIDAK_TERBACA", st({ ids: ["zz"] }), ["TIDAK_TERBACA"
 check("satu hidup + satu belum terbaca -> TIDAK_TERBACA (ganda belum bisa disingkirkan)", st({ ids: ["a", "zz"] }), ["TIDAK_TERBACA", "a"]);
 check("nama tidak cocok", st({ ids: ["c"] }), ["NAMA_TIDAK_COCOK", "c"]);
 check("nama lama audit (na) cocok", st({ ids: ["d"], na: ["NAMA LAMA (Y)"] }), ["SIAP", "d"]);
+// ketetapan user 2026-09-29: nama beda tapi PEMILIK (isi kurung terakhir) sama -> dokumen yang sama (ID sheet)
+check("pemilik: isi kurung terakhir", [m.pemilikNama("DAGANG BERAS 1 (Nyoman  Ardini)"), m.pemilikNama("TANPA KURUNG"),
+  m.pemilikNama("A (B) C (D.E)")], ["NYOMANARDINI", "", "DE"]);
+const petaPemilik = new Map([["p", dok({ id: "p", nama: ["DAGANG ECERAN BERAS (NYOMAN ARDINI)"] })],
+  ["q", dok({ id: "q", nama: ["PENJUAL ROKOK (ANDIKA P)"] })]]);
+const stp = (o, opsi) => { const r = m.nilaiTarget(tg(o), petaPemilik, asal, opsi); return [r.status, r.pesan.startsWith("nama beda, pemilik sama")]; };
+check("nama beda, pemilik sama -> SIAP bercatatan", stp({ ids: ["p"], n: "DAGANG ECERAN BERAS 1 (NYOMAN ARDINI)" }), ["SIAP", true]);
+check("nama beda, pemilik beda -> NAMA_TIDAK_COCOK", stp({ ids: ["q"], n: "BARANG NON MAKANAN (LUH SUDIANI)" }), ["NAMA_TIDAK_COCOK", false]);
+check("namaPemilikSama:false -> NAMA_TIDAK_COCOK", stp({ ids: ["p"], n: "DAGANG ECERAN BERAS 1 (NYOMAN ARDINI)" }, { namaPemilikSama: false }),
+  ["NAMA_TIDAK_COCOK", false]);
 check("tujuan tidak valid", st({ ids: ["a"], t: "5108" }), ["TUJUAN_TIDAK_VALID", null]);
 check("tanpa ID", st({ ids: [] }), ["TIDAK_TERBACA", null]);
 check("di tujuan tapi level beda -> RESPONS_TIDAK_DIKENAL",
@@ -140,6 +150,15 @@ check("PML tepat 1", m.pilihPetugas("Pengawas", [pml, { ...pml, id: "x", active:
 check("PPL harus anak PML terpilih", m.pilihPetugas("Pencacah", [ppl, { ...ppl, id: "y", parentAllocationId: "lain" }], TUJ, "al1").petugas.id, "ur2");
 check("PPL ganda", m.pilihPetugas("Pencacah", [ppl, { ...ppl, id: "y", allocationId: "al3" }], TUJ, "al1").status, "PETUGAS_TUJUAN_GANDA");
 check("petugas tidak ada", m.pilihPetugas("Pengawas", [], TUJ).status, "PETUGAS_TUJUAN_TIDAK_ADA");
+// alokasi wilayah: hanya pemilih kalau server punya > 1 petugas sah
+const pml2 = { ...pml, id: "ur9", allocationId: "al9", email: "PML.Dua@x" };
+check("2 PML + alokasi -> yang di alokasi (huruf besar/kecil bebas)",
+  [m.pilihPetugas("Pengawas", [pml, pml2], TUJ, undefined, "pml.dua@x").petugas.id, m.pilihPetugas("Pengawas", [pml, pml2], TUJ, undefined, "pml.dua@x").status],
+  ["ur9", "OK"]);
+check("2 PML + alokasi bukan kandidat -> GANDA", m.pilihPetugas("Pengawas", [pml, pml2], TUJ, undefined, "lain@x").status, "PETUGAS_TUJUAN_GANDA");
+check("2 PML tanpa alokasi -> GANDA", m.pilihPetugas("Pengawas", [pml, pml2], TUJ).status, "PETUGAS_TUJUAN_GANDA");
+check("1 PML: alokasi beda tidak mengubah pilihan", m.pilihPetugas("Pengawas", [pml], TUJ, undefined, "pml.dua@x").petugas.id, "ur1");
+check("2 PPL anak PML + alokasi", m.pilihPetugas("Pencacah", [ppl, { ...ppl, id: "y", allocationId: "al3", email: "ppl2@x" }], TUJ, "al1", "ppl2@x").petugas.id, "y");
 const roles = [{ id: "r7", sequence: 7, isPencacah: false, surveyRoleGroup: { name: "Petugas" } },
   { id: "r8", sequence: 8, isPencacah: true, surveyRoleGroup: { name: "Petugas" } }, { id: "r1", surveyRoleGroup: { name: "Admin" } }];
 check("peran petugas urut sequence", m.peranPetugas([roles[1], roles[2], roles[0]]).map((r) => r.id), ["r7", "r8"]);

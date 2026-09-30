@@ -53,6 +53,9 @@ NAMA_SHEET_DITERIMA = (NAMA_SHEET, *NAMA_SHEET_LAMA)
 # 8b "Nama komersial usaha/perusahaan": validasi form "Panjang maksimal 50"
 # (GALAT ringkasan, run live 2026-09-14).
 MAKS_8B = 50
+# Kodepos "tidak tahu" menurut validasi form rincian 10 ("jika responden tidak tahu
+# isikan 99999"); tahap 2 mengisinya lewat TAHAP2_KODEPOS_KOSONG_JADI.
+KODEPOS_TIDAK_TAHU = "99999"
 # 12c Umur: GALAT "Wajib terisi 10-99" (run live 2026-09-14, Agenda1-1.xlsx
 # berisi umur 0 di SEMUA baris -> tiap baris jadi DRAFT yang tak bisa dikirim).
 UMUR_MIN, UMUR_MAKS = 10, 99
@@ -1337,15 +1340,19 @@ def periksa_semua(rows: list[GabunganRow], tahun_berjalan: int | None = None,
                         "baris itu dibuat lebih dulu")
 
     # Kodepos dialokasikan per DESA; nilai minoritas dalam satu desa patut dicek.
+    # KODEPOS_TIDAK_TAHU bukan kodepos: tidak ikut menentukan mayoritas (kodepos asli
+    # tidak ditandai "beda" hanya krn banyak baris 99999), tapi ditandai kalau desanya
+    # punya kodepos asli di baris lain (kodepos itu bisa dipakai).
     per_desa = defaultdict(Counter)
     for r in rows:
-        if len(r.idsubsls) == 16 and r["kodepos"]:
+        if len(r.idsubsls) == 16 and r["kodepos"] and r["kodepos"] != KODEPOS_TIDAK_TAHU:
             per_desa[r.idsubsls[:10]][r["kodepos"]] += 1
     for r in rows:
         c = per_desa.get(r.idsubsls[:10])
-        if c and len(c) > 1:
+        tidak_tahu = r["kodepos"] == KODEPOS_TIDAK_TAHU
+        if c and (len(c) > 1 or tidak_tahu):
             mayoritas, n = c.most_common(1)[0]
-            if r["kodepos"] != mayoritas and c[r["kodepos"]] < n:
+            if r["kodepos"] != mayoritas and (tidak_tahu or c[r["kodepos"]] < n):
                 hasil[r.baris].tanda.append(
                     f"kodepos {r['kodepos']} beda dgn mayoritas desa {r.idsubsls[:10]} ({mayoritas}, {dict(c)})")
     return hasil

@@ -55,28 +55,28 @@ python fasih_sm/pindah_wilayah/pindah_wilayah.py --catat --tulis    # DIPINDAH_W
 
 ## Status penting
 
-| Status | Arti / tindakan |
-| --- | --- |
-| `DIPINDAH_TERVERIFIKASI` | dipindah, detail 6 level wilayah dibaca cocok & tetap APPROVED |
-| `DIPINDAH_SERVER_OK` | server menjawab berhasil utk rombongannya; dipastikan oleh `periksa` berikutnya |
-| `SUDAH_DI_TUJUAN` | sudah di subsls tujuan (tuntas) |
-| `SIAP_PINDAH` | (periksa) di wadah, APPROVED, tujuan & petugas siap |
-| `TUJUAN_BELUM_DIBUKA` | tujuan masih Listing Selesai → buka wilayah, jalankan lagi |
-| `BELUM_APPROVED` | approve dulu |
-| `NAMA_TIDAK_COCOK`, `DOKUMEN_GANDA`, `DI_SUBSLS_LAIN`, `DOKUMEN_HILANG`, `TIDAK_TERBACA` | tidak dipindah — cek manual |
-| `PETUGAS_TUJUAN_TIDAK_ADA` / `_GANDA` | alokasi petugas tujuan bukan tepat 1 — perbaiki, jalankan lagi |
-| ⛔ `DIPINDAH_BELUM_TERVERIFIKASI`, `DIPINDAH_LEVEL_BEDA`, `DIPINDAH_STATUS_BERUBAH`, `DIPINDAH_JUMLAH_BEDA` | cek dokumen itu manual sebelum lanjut |
-| ⛔ `RATE_LIMIT`, `SERVER_SIBUK`, `SESI_DITOLAK` | tunggu 10–15 menit / login ulang, jalankan lagi (yang sudah dipindah dilewati) |
+| Status                                                                                                             | Arti / tindakan                                                                  |
+| ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `DIPINDAH_TERVERIFIKASI`                                                                                         | dipindah, detail 6 level wilayah dibaca cocok & tetap APPROVED                   |
+| `DIPINDAH_SERVER_OK`                                                                                             | server menjawab berhasil utk rombongannya; dipastikan oleh`periksa` berikutnya |
+| `SUDAH_DI_TUJUAN`                                                                                                | sudah di subsls tujuan (tuntas)                                                  |
+| `SIAP_PINDAH`                                                                                                    | (periksa) di wadah, APPROVED, tujuan & petugas siap                              |
+| `TUJUAN_BELUM_DIBUKA`                                                                                            | tujuan masih Listing Selesai → buka wilayah, jalankan lagi                      |
+| `BELUM_APPROVED`                                                                                                 | approve dulu                                                                     |
+| `NAMA_TIDAK_COCOK`, `DOKUMEN_GANDA`, `DI_SUBSLS_LAIN`, `DOKUMEN_HILANG`, `TIDAK_TERBACA`                 | tidak dipindah — cek manual                                                     |
+| `PETUGAS_TUJUAN_TIDAK_ADA` / `_GANDA`                                                                          | alokasi petugas tujuan bukan tepat 1 — perbaiki, jalankan lagi                  |
+| ⛔`DIPINDAH_BELUM_TERVERIFIKASI`, `DIPINDAH_LEVEL_BEDA`, `DIPINDAH_STATUS_BERUBAH`, `DIPINDAH_JUMLAH_BEDA` | cek dokumen itu manual sebelum lanjut                                            |
+| ⛔`RATE_LIMIT`, `SERVER_SIBUK`, `SESI_DITOLAK`                                                               | tunggu 10–15 menit / login ulang, jalankan lagi (yang sudah dipindah dilewati)  |
 
 Salah pindah tidak dibatalkan skrip — pindah balik manual lewat Change Region by Selection.
 
 ## Kode yang berpengaruh
 
-| Berkas | Isi |
-| --- | --- |
-| `pindah_wilayah.py` | target dari sheet + audit, `--bagi`, pengaturan beban, `--catat` |
-| `pindah_wilayah_console.js` | baca daftar per jendela tanggal, klasifikasi, rombongan, PUT `update-region-bulk`, verifikasi |
-| `input_usaha/mesin.py` | `STATUS_DIPINDAH` (= tuntas di akun lain) |
+| Berkas                        | Isi                                                                                            |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `pindah_wilayah.py`         | target dari sheet + audit,`--bagi`, pengaturan beban, `--catat`                            |
+| `pindah_wilayah_console.js` | baca daftar per jendela tanggal, klasifikasi, rombongan, PUT`update-region-bulk`, verifikasi |
+| `input_usaha/mesin.py`      | `STATUS_DIPINDAH` (= tuntas di akun lain)                                                    |
 
 Uji: `python tests/test_pindah_wilayah.py`, `node tests/test_pindah_wilayah_console.js`,
 `node tests/test_pindah_wilayah_simulasi.js` (alur browser penuh terhadap server palsu).

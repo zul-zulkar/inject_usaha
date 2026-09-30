@@ -90,6 +90,29 @@ def target_dari_ganda(ganda: list[dict], akun: set | None = None, hanya_papi: bo
     return keluar
 
 
+def target_salinan(rows, audit: list[dict]) -> list[dict]:
+    """TARGET Console utk baris SALINAN sheet (TAHAP2_BARIS_SALINAN, `row.salinan_dari`): pasangan
+    asli+salinan yang KEDUANYA punya dokumen di audit = satu usaha terkirim dua kali. Nama dokumennya
+    bisa beda ('… 1' / '… 2', nomor pembeda dari blok dobel) -> `nb` (Console: namaBebas). Dokumen
+    baris ASLI ditaruh pertama (dipertahankan kalau statusnya seri). g = kunci baris ASLI, supaya
+    --catat mengarahkan baris asli ke dokumen yang tersisa kalau dokumennya yang terhapus."""
+    dokumen = mg.dokumen_dari(audit)
+    per_baris = {r.baris: r for r in rows}
+    keluar = []
+    for r in rows:
+        asli = per_baris.get(getattr(r, "salinan_dari", 0))
+        if asli is None:
+            continue
+        da, ds = dokumen.get(asli.kunci), dokumen.get(r.kunci)
+        ida, ids = id_dokumen((da or ("", "", ""))[2]), id_dokumen((ds or ("", "", ""))[2])
+        if not ida or not ids or ida == ids:
+            continue
+        keluar.append({"g": asli.kunci, "b": asli.baris, "n": asli.nama_dokumen, "nb": True,
+                       "d": [{"id": ida, "c": True, "l": False, "x": False, "a": da[0], "m": ""},
+                             {"id": ids, "c": True, "l": False, "x": False, "a": ds[0], "m": ""}]})
+    return keluar
+
+
 def baca_unduhan(pola: str = POLA_GANDA_DIHAPUS) -> list[dict]:
     """Baris ganda_dihapus*.csv (hapusGanda.unduh()) yang penghapusannya TERVERIFIKASI."""
     out = []
@@ -157,6 +180,8 @@ def main(argv=None) -> int:
     ap.add_argument("--semua-mode", action="store_true",
                     help="ikutkan dokumen CAPI/CAWI (bawaan: hanya PAPI). Console juga perlu {hanyaPapi: false}")
     ap.add_argument("--keluaran", default=str(KONSOL_SIAP))
+    ap.add_argument("--salinan-sheet", default="",
+                    help="sheet ber-TAHAP2_BARIS_SALINAN: grup = dokumen baris asli + dokumen baris salinannya")
     ap.add_argument("--catat", action="store_true",
                     help=f"SESUDAH menghapus: arahkan audit ke dokumen yang dipertahankan ({POLA_GANDA_DIHAPUS})")
     ap.add_argument("--tulis", action="store_true", help="dgn --catat: benar-benar tulis ke audit")
@@ -181,6 +206,24 @@ def main(argv=None) -> int:
         for t in tulis:
             mg.append_audit(t)
         print(f"✅ {len(tulis)} baris ditulis ke {mg.AUDIT_LOG_PATH}. Lalu cocokkan dgn server: sinkron_list.py per akun.")
+        return 0
+
+    if args.salinan_sheet:
+        rows, _hasil = mg.muat_sumber(args.salinan_sheet, "tahap2", True, "", True, True)
+        target = target_salinan(rows, audit)
+        print(f"Audit: {mg.AUDIT_LOG_PATH} | {args.salinan_sheet}: {len(target)} usaha terkirim dua kali "
+              f"(baris asli + salinan)")
+        for t in target:
+            print(f"  baris {t['b']:>5}  {t['n'][:45]:<45} " + "  ".join(f"{d['id'][:8]} {d['a']}" for d in t["d"]))
+        if not target:
+            return 0
+        keluaran = Path(args.keluaran) if args.keluaran != str(KONSOL_SIAP) else KONSOL_SIAP.with_name(
+            "hapus_ganda_salinan.siap.js")
+        path = tulis_console(target, keluaran)
+        print(f"\n✅ {path} — fasih-sm akun ADMIN, halaman Data survei, tempel di Console:")
+        print("   hapusGanda.cek()                               // READ-ONLY dulu, periksa keputusannya")
+        print("   hapusGanda.jalankan({mode: 'hapus', limit: 1}) // lalu tanpa limit")
+        print("Sesudahnya: hapusGanda.unduh() -> simpan di audit/, lalu hapus_ganda.py --catat --tulis")
         return 0
 
     status_server, galat_server, nama_server = baca_status_server(args.list_json or [lokasi.POLA_LIST_API])

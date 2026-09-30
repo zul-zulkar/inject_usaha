@@ -22,6 +22,7 @@ bisa menduplikasinya. Semua nilai milik Buleleng bisa diganti lewat `inti/config
 | [`gui/`](gui/) | **GUI web lokal** untuk semua alat di bawah (klik dua kali `gui\buka_gui.bat`): pilih berkas, atur pengaturan, klik tombol | [README](gui/README.md) |
 | [`input_usaha/`](input_usaha/) | **Alat utama**: periksa sheet, buat & isi & kirim dokumen di fasih-web, sinkron, laporan progres | [README](input_usaha/README.md) |
 | [`approve_pml/`](approve_pml/) | Approve dokumen oleh akun PML (fasih-web) | [README](approve_pml/README.md) |
+| [`approve_capi/`](approve_capi/) | Approve assignment CAPI: ganti ke PAPI → approve banyak PML → kembalikan ke CAPI | [README](approve_capi/README.md) |
 | [`monitoring/`](monitoring/) | **Rekap hasil input** per kecamatan/desa/SLS/PPL: semua status + dokumen ganda → Excel & dasbor HTML | [README](monitoring/README.md) |
 | [`fasih_sm/`](fasih_sm/) | Alat Console fasih-sm: `ganti_moda`, `buka_wilayah`, `tandai_selesai`, `pindah_wilayah`, `hapus_ganda` | [README](fasih_sm/README.md) |
 | [`reset_mitra/`](reset_mitra/) | Samakan password akun PPL (manajemen-mitra, Console) | [README](reset_mitra/README.md) |

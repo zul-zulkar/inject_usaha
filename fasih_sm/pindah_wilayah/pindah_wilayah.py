@@ -19,16 +19,21 @@ LANGKAH
         --bagi 3 --daftar-tujuan bahan/tujuan_pindah.txt --console
   -> hasil/pindah_wilayah_console.bagian-1-dari-3.siap.js dst. Tiap berkas ditempel oleh SATU akun admin
      (browser/PC sendiri) di Console halaman Data survei:
-        await pindahWilayah.jalankan({mode: "periksa"})
-        await pindahWilayah.jalankan({mode: "pindah", limit: 1})
         await pindahWilayah.jalankan({mode: "pindah"})
         pindahWilayah.unduh()          -> simpan CSV-nya di folder audit/
     python fasih_sm/pindah_wilayah/pindah_wilayah.py --catat            (rencana)
     python fasih_sm/pindah_wilayah/pindah_wilayah.py --catat --tulis    (tulis DIPINDAH_WILAYAH ke audit)
 
+Sisa sesudah run pertama (unduhan Console sudah di audit/):
+    python fasih_sm/pindah_wilayah/pindah_wilayah.py --sumber ... --hanya-sisa --alokasi bahan/alokasi_wilayah.csv --console
+  --hanya-sisa: target yang dokumennya sudah tuntas ke tujuan yang sama (menurut unduhan) tidak diikutkan.
+  --alokasi: CSV/xlsx berkolom idsubsls, Email PML, Email PPL -> dipakai Console HANYA kalau server punya
+  > 1 Pengawas/Pencacah di subsls tujuan (ketetapan user 2026-09-29).
+
 Pengaturan beban (bawaan di Console, bisa juga diubah saat jalankan({...})):
-  --per-kirim 50 (dokumen per request), --cek-sesudah 3 (detail diperiksa per request), --jeda-kirim 3
-  (detik sesudah tiap request pindah), --jeda-baca 1.5 (detik antar-halaman daftar), --jarak-request 0.8.
+  --per-kirim 50 (dokumen per request), --cek-sesudah 3 (detail diperiksa per request), --jeda-kirim 1
+  (detik sesudah tiap request pindah), --jeda-baca 0.1 (detik antar-halaman daftar), --jarak-request 0.25.
+  Jeda naik otomatis (x2 s.d. x8) tiap kena 429/5xx.
 """
 
 from __future__ import annotations
@@ -190,7 +195,43 @@ def bagi_target(target: list[dict], n: int) -> list[list[dict]]:
     return bagian
 
 
-def konfig_console(args, bagian: str = "") -> dict:
+def baca_alokasi(path: Path) -> dict[str, list[str]]:
+    """Alokasi petugas per subsls: {idsubsls: [email PML, email PPL]} dari CSV/xlsx berjudul idsubsls,
+    Email PML, Email PPL (huruf besar/kecil bebas). Baris tanpa email / kode tidak valid dilewati."""
+    path = Path(path)
+    if path.suffix.lower() in (".xlsx", ".xlsm"):
+        import openpyxl
+        sel = list(openpyxl.load_workbook(path, read_only=True, data_only=True).worksheets[0].iter_rows(values_only=True))
+        judul, isi = [str(x or "").strip().lower() for x in sel[0]], sel[1:]
+    else:
+        with path.open(encoding="utf-8-sig", newline="") as f:
+            sel = list(csv.reader(f))
+        judul, isi = [x.strip().lower() for x in sel[0]], sel[1:]
+    try:
+        i_kode, i_pml, i_ppl = judul.index("idsubsls"), judul.index("email pml"), judul.index("email ppl")
+    except ValueError:
+        raise SystemExit(f"⛔ {path}: butuh kolom idsubsls, Email PML, Email PPL (ada: {judul})")
+    hasil = {}
+    for r in isi:
+        r = [str(x or "").strip() for x in r] + [""] * len(judul)
+        kode, pml, ppl = r[i_kode], r[i_pml].lower(), r[i_ppl].lower()
+        if POLA_KODE.fullmatch(kode) and (pml or ppl):
+            hasil[kode] = [pml, ppl]
+    return hasil
+
+
+def id_tuntas(unduhan: list[dict]) -> set[tuple[str, str]]:
+    """(id dokumen, tujuan) yang menurut unduhan Console sudah di subsls tujuan."""
+    return {(h["id"], h["tujuan"]) for h in pilih_hasil(unduhan)}
+
+
+def saring_sisa(target: list[dict], tuntas: set[tuple[str, str]]) -> tuple[list[dict], int]:
+    """Buang target yang salah satu ID-nya sudah tuntas ke tujuan yang SAMA (tujuan berubah -> tetap target)."""
+    sisa = [t for t in target if not any((i, t["t"]) in tuntas for i in t["ids"])]
+    return sisa, len(target) - len(sisa)
+
+
+def konfig_console(args, bagian: str = "", alokasi: dict | None = None) -> dict:
     """Bawaan opsi Console dari argumen CLI (yang tidak diisi = bawaan Console)."""
     opsi = {}
     if args.per_kirim is not None:
@@ -205,7 +246,10 @@ def konfig_console(args, bagian: str = "") -> dict:
         opsi["jarakRequestMs"] = round(args.jarak_request * 1000)
     if args.izinkan_tujuan_selesai:
         opsi["izinkanTujuanSelesai"] = True
-    return {"bagian": bagian, "dibuat": time.strftime("%Y-%m-%d %H:%M"), "opsi": opsi}
+    konfig = {"bagian": bagian, "dibuat": time.strftime("%Y-%m-%d %H:%M"), "opsi": opsi}
+    if alokasi:
+        konfig["alokasi"] = alokasi
+    return konfig
 
 
 def isi_template(teks: str, target: list[dict], sumber: list[str], asal: list[str], konfig: dict) -> str:
@@ -220,7 +264,8 @@ def isi_template(teks: str, target: list[dict], sumber: list[str], asal: list[st
             .replace(PENANDA["kode_kab"], json.dumps(KODE_KAB)))
 
 
-def tulis_console(bagian: list[list[dict]], sumber: list[str], asal: list[str], args, folder: Path = HASIL) -> list[Path]:
+def tulis_console(bagian: list[list[dict]], sumber: list[str], asal: list[str], args, folder: Path = HASIL,
+                  alokasi: dict | None = None) -> list[Path]:
     """Satu berkas .siap.js per bagian. Berkas pembagian LAIN yang tertinggal dari run sebelumnya dihapus
     (berkas keluaran skrip ini sendiri) supaya tidak ada yang menempel target yang tumpang tindih."""
     teks = KONSOL_TEMPLATE.read_text(encoding="utf-8")
@@ -229,7 +274,9 @@ def tulis_console(bagian: list[list[dict]], sumber: list[str], asal: list[str], 
     keluar = []
     for i, daftar in enumerate(bagian, start=1):
         path = folder / (KONSOL_SIAP.name if n == 1 else f"pindah_wilayah_console.bagian-{i}-dari-{n}.siap.js")
-        konfig = konfig_console(args, "" if n == 1 else f"{i}/{n}")
+        tujuan = {t["t"] for t in daftar}
+        konfig = konfig_console(args, "" if n == 1 else f"{i}/{n}",
+                                {k: v for k, v in (alokasi or {}).items() if k in tujuan})
         lokasi.siapkan(path).write_text(isi_template(teks, daftar, sumber, asal, konfig), encoding="utf-8")
         keluar.append(path)
     for p in lama:
@@ -402,14 +449,18 @@ def main(argv=None) -> int:
     ap.add_argument("--per-kirim", type=int, metavar="N", help=f"dokumen per request pindah, 1-{MAKS_PER_KIRIM} (bawaan 50)")
     ap.add_argument("--cek-sesudah", type=int, metavar="N",
                     help="dokumen per request yang dibaca detailnya sesudah dipindah (bawaan 3; >= per-kirim = semua)")
-    ap.add_argument("--jeda-kirim", type=float, metavar="DETIK", help="jeda sesudah tiap request pindah (bawaan 3, acak s.d. 2x)")
-    ap.add_argument("--jeda-baca", type=float, metavar="DETIK", help="jeda antar-halaman daftar (bawaan 1.5, acak s.d. 2x)")
-    ap.add_argument("--jarak-request", type=float, metavar="DETIK", help="jarak minimal antar-request apa pun (bawaan 0.8)")
+    ap.add_argument("--jeda-kirim", type=float, metavar="DETIK", help="jeda sesudah tiap request pindah (bawaan 1, acak s.d. 2x)")
+    ap.add_argument("--jeda-baca", type=float, metavar="DETIK", help="jeda antar-halaman daftar (bawaan 0.1, acak s.d. 2x)")
+    ap.add_argument("--jarak-request", type=float, metavar="DETIK", help="jarak minimal antar-request apa pun (bawaan 0.25)")
     ap.add_argument("--izinkan-tujuan-selesai", action="store_true",
                     help="tetap pindah walau subsls tujuan masih Listing Selesai (bawaan: buka wilayah dulu)")
     ap.add_argument("--daftar-tujuan", default="", metavar="TXT",
                     help="tulis subsls tujuan unik ke berkas ini (bahan buka_wilayah.py --daftar)")
     ap.add_argument("--console", action="store_true", help="tulis hasil/pindah_wilayah_console*.siap.js")
+    ap.add_argument("--alokasi", default="", metavar="CSV/XLSX",
+                    help="alokasi petugas (idsubsls, Email PML, Email PPL): pemilih kalau server punya >1 PML/PPL di tujuan")
+    ap.add_argument("--hanya-sisa", action="store_true",
+                    help="buang target yang sudah tuntas ke tujuan yang sama menurut unduhan Console (--unduhan / audit/**)")
     ap.add_argument("--catat", action="store_true",
                     help="SESUDAH memindah: unduhan pindahWilayah.unduh() -> baris DIPINDAH_WILAYAH di audit")
     ap.add_argument("--unduhan", action="append", default=[], metavar="CSV",
@@ -459,6 +510,15 @@ def main(argv=None) -> int:
         sheet.append((s, rows, audits.get(path_audit, [])))
 
     target, sumber, asal, masalah, ringkasan = bangun_target(sheet, args.dari, args.sampai, awalan, args.subsls_asal)
+    if args.hanya_sisa:
+        berkas = [Path(u) for u in args.unduhan] or lokasi.cari(POLA_HASIL_CONSOLE)
+        unduhan = [b for f in berkas for b in baca_csv(Path(f))]
+        target, dibuang = saring_sisa(target, id_tuntas(unduhan))
+        print(f"--hanya-sisa: {dibuang} target sudah tuntas menurut {len(berkas)} unduhan Console -> sisa {len(target)}")
+    alokasi = baca_alokasi(Path(args.alokasi)) if args.alokasi else {}
+    if args.alokasi:
+        kena = {t["t"] for t in target}
+        print(f"--alokasi: {len(alokasi)} subsls ber-email; {len(kena & set(alokasi))}/{len(kena)} subsls tujuan tercakup")
     salah_asal = [a for a in asal if not POLA_KODE.fullmatch(a)]
     if salah_asal:
         print(f"⛔ subsls wadah tidak valid: {salah_asal}")
@@ -506,15 +566,16 @@ def main(argv=None) -> int:
               "dari list akun PPL-nya; selagi batch akun itu jalan, hitungan list-nya bisa salah -> 'Buat Dokumen' "
               "diulang = risiko GANDA. Pindahkan sesudah batch itu selesai (juga di PC lain).")
     if args.console:
-        keluar = tulis_console(bagian, sumber, asal, args)
+        keluar = tulis_console(bagian, sumber, asal, args, alokasi=alokasi)
         print()
         for p in keluar:
             print(f"✅ {p}")
         print("Tiap berkas -> SATU akun admin (browser sendiri) -> halaman Data survei fasih-sm -> F12 Console -> tempel:\n"
-              '  await pindahWilayah.jalankan({mode: "periksa"})\n'
-              '  await pindahWilayah.jalankan({mode: "pindah", limit: 1})\n'
               '  await pindahWilayah.jalankan({mode: "pindah"})\n'
-              "  pindahWilayah.unduh()   -> simpan di audit/, lalu: python fasih_sm/pindah_wilayah/pindah_wilayah.py --catat --tulis")
+              "  pindahWilayah.unduh()   -> simpan di audit/, lalu: python fasih_sm/pindah_wilayah/pindah_wilayah.py --catat --tulis\n"
+              "  pindahWilayah.sisaWadah()   (hanya berkas tanpa --bagi) -> CSV dokumen di wadah yang bukan target")
+    if args.console and not args.alokasi:
+        print("⚠️ Tanpa --alokasi: subsls tujuan ber-Pengawas/Pencacah ganda akan dilewati (PETUGAS_TUJUAN_GANDA).")
     return 0
 
 

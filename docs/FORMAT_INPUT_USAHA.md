@@ -78,6 +78,7 @@ lokal kalau kebijakan Anda berbeda) dan tercatat di `review_disarankan`.
 | tahun operasi di masa depan | disalin dari usaha lain pemilik sama (terdekat, baris sebelumnya didahulukan), sisanya `2025` | `TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI` |
 | HP / NIK tidak valid | `9999` | `TAHAP2_HP_TIDAK_VALID_JADI`, `TAHAP2_NIK_TIDAK_VALID_JADI` |
 | NIK kosong | `9999` | `TAHAP2_NIK_KOSONG_JADI` |
+| kodepos desa tidak diketahui (lihat [Kodepos](#kodepos)) | `99999` (petunjuk form: responden tidak tahu) | `TAHAP2_KODEPOS_KOSONG_JADI` |
 | 27d > 100 | `100` | `TAHAP2_27D_LEBIH_100_JADI_100` |
 | 16b1-b6 satu kode `1` | Ya hanya utk b1, b4, b5 | `TAHAP2_16B_YA_TUNGGAL` |
 | 16b 5 nilai / 16a Ya tanpa 16b Ya | b6 = Tidak / b6 = Ya | `TAHAP2_16B_LIMA_NILAI_B6`, `TAHAP2_16B_TANPA_YA_JADI_B6` |
@@ -101,16 +102,17 @@ lokal kalau kebijakan Anda berbeda) dan tercatat di `review_disarankan`.
 | keputusan per baris | ditulis di config lokal, dicocokkan idsubsls+8b+12a: `nama`, `umur`, `nomori` (baris yang isinya identik tetap diinput, dinomori) | `TAHAP2_KOREKSI_BARIS` |
 
 Yang **tidak pernah** ditebak (baris ditolak `SKIP_DATA_*`): kode opsi tak dikenal, kolom wajib
-hilang, total bukan-nol yang tidak cocok, baris identik (`BARIS_GANDA`), kodepos desa tak
-diketahui, nama > 50 karakter.
+hilang, total bukan-nol yang tidak cocok, baris identik (`BARIS_GANDA`), nama > 50 karakter.
 
 ## Kodepos
 
 Urutan sumber: kolom `kodepos` sheet → `KODEPOS_BY_IDSUBSLS` → `KODEPOS_BY_DESA` (10 digit
 pertama idsubsls) → kodepos kecamatan, HANYA kalau semua desa lain sekecamatan yang dikenal (min. 3)
-berkodepos sama (`TAHAP2_KODEPOS_DARI_KECAMATAN`) → `--kodepos`. Semua kosong →
-`SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI`. Isi `KODEPOS_BY_DESA` di `inti/config_lokal.py` (atau
-`input_usaha/kodepos_desa.py`).
+berkodepos sama (`TAHAP2_KODEPOS_DARI_KECAMATAN`) → `--kodepos`. Semua kosong → `99999`, kode "tidak
+tahu" menurut form (`TAHAP2_KODEPOS_KOSONG_JADI`; isi `""` kalau baris seperti itu harus ditolak
+`SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI`). Baris `99999` ditandai di kontrol kualitas; kalau kodeposnya
+diketahui, isi `KODEPOS_BY_DESA` di `inti/config_lokal.py` (atau `input_usaha/kodepos_desa.py`), atau beri
+kolom `kodepos` di sheet.
 
 ## Angka uang
 

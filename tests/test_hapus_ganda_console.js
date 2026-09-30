@@ -65,6 +65,14 @@ check("APPROVED + SUBMITTED -> SUBMITTED dihapus", kep([dk(A, "SUBMITTED BY Penc
   ["HAPUS", "PERTAHANKAN"]);
 check("status tertinggi menang atas penunjuk audit",
   kep([dk(A, "DRAFT", { c: true }), dk(B, "SUBMITTED BY Pencacah", { galat: 2 })]), ["HAPUS", "PERTAHANKAN"]);
+check("nama beda -> PERIKSA", kep([dk(A, "SUBMITTED BY Pencacah", { c: true }), dk(B, "SUBMITTED BY Pencacah", { nama: "WARUNG 2 (MADE)" })]),
+  ["PERTAHANKAN", "PERIKSA"]);
+check("nama beda + namaBebas (salinan sheet) -> salah satu dihapus, urutan pertama dipertahankan",
+  kep([dk(A, "SUBMITTED BY Pencacah", { c: true }), dk(B, "SUBMITTED BY Pencacah", { c: true, nama: "WARUNG 2 (MADE)" })],
+    { namaBebas: true }), ["PERTAHANKAN", "HAPUS"]);
+check("namaBebas tetap tidak menghapus APPROVED",
+  kep([dk(A, "SUBMITTED BY Pencacah", { c: true }), dk(B, "APPROVED BY Pengawas", { nama: "WARUNG 2 (MADE)" })],
+    { namaBebas: true }), ["HAPUS", "PERTAHANKAN"]);
 check("di luar audit -> PERIKSA tanpa izin", kep([dk(A, "SUBMITTED BY Pencacah"), dk(B, "DRAFT", { l: true })]), ["PERTAHANKAN", "PERIKSA"]);
 check("di luar audit + izinkanLuarAudit -> HAPUS",
   kep([dk(A, "SUBMITTED BY Pencacah"), dk(B, "DRAFT", { l: true })], { izinkanLuarAudit: true }), ["PERTAHANKAN", "HAPUS"]);

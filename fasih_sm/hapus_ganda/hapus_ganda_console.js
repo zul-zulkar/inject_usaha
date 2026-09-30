@@ -172,7 +172,9 @@
       const d = dok[i];
       const p = peringkatStatus(d.alias);
       if (i === simpan) hasil[i] = { keputusan: "PERTAHANKAN", alasan: `status tertinggi (${d.alias})` };
-      else if (norm(d.nama) !== norm(dok[simpan].nama)) {
+      // namaBebas: grup dari baris SALINAN sheet (hapus_ganda.py --salinan-sheet) — dua dokumen satu
+      // usaha yang sempat diberi nomor pembeda beda ('… 1' / '… 2'), jadi namanya memang tidak sama.
+      else if (!opsi.namaBebas && norm(d.nama) !== norm(dok[simpan].nama)) {
         hasil[i] = { keputusan: "PERIKSA", alasan: `nama beda dgn yang dipertahankan ('${d.nama}' vs '${dok[simpan].nama}')` };
       } else if (d.x) hasil[i] = { keputusan: "PERIKSA", alasan: "URL ini juga tercatat utk baris lain" };
       else if (d.l && !opsi.izinkanLuarAudit) {
@@ -466,7 +468,7 @@
         if (x.bersih == null && i.bersih != null) x.bersih = i.bersih;
       }
     }
-    const kep = putuskanGrup(dok, opsi);
+    const kep = putuskanGrup(dok, g.nb ? { ...opsi, namaBebas: true } : opsi);
     return dok.map((d, i) => ({ ...d, keputusan: kep[i].keputusan, alasan: kep[i].alasan }));
   }
 

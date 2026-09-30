@@ -101,13 +101,31 @@ check("sinkron idempoten (tidak menulis apa pun lagi)", tulis_t3, [])
 lap_d, _, _ = rencana_sinkron([("S", r_kirim, "SIAP")], [items[0], dict(items[0])], AKUN, SUBSLS, ASG, [])
 check("id sama terbaca dua kali bukan GANDA", lap_d[0]["kategori"], "TERKIRIM")
 
-# Kasus nyata 2026-09-15 (Agenda1-1 baris 88): dokumen terkunci dihapus admin -> DOKUMEN_DIHAPUS.
+# Dokumen dihapus admin (Agenda1-1 baris 88, 2026-09-15) -> DOKUMEN_DIHAPUS — kini hanya utk
+# status BELUM terkirim (draft/galat): dokumen terkirim yang hilang bisa jadi diganti ke CAPI.
 audit_h = [{"kunci": r_belum.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN, "dokumen_url": url_entry("id-dihapus", ASG)},
-           {"kunci": r_belum.kunci, "status": mg.STATUS_TERKUNCI, "akun_login": AKUN}]
+           {"kunci": r_belum.kunci, "status": "SKIP_GALAT_PERLU_REVIEW", "akun_login": AKUN}]
 lap_h, tulis_h, _ = rencana_sinkron([("S", r_belum, "SIAP")], items, AKUN, SUBSLS, ASG, audit_h, lengkap=True)
-check("dokumen audit tidak ada di list lengkap -> DOKUMEN_DIHAPUS",
+check("dokumen audit (belum terkirim) tidak ada di list lengkap -> DOKUMEN_DIHAPUS",
       ([(t["status"], id_dari_url(t["dokumen_url"])) for t in tulis_h], lap_h[0]["kategori"]),
       ([(mg.STATUS_DIHAPUS, "id-dihapus")], "BELUM_ADA+DOKUMEN_AUDIT_DIHAPUS"))
+
+# 2026-09-29 (ganti_moda semua_ke_capi): dokumen APPROVED diganti ke CAPI -> bisa hilang dari list PPL.
+# Audit terkirim/terkunci + tanpa kembaran bernama sama -> TIDAK digugurkan (tanpa ini: dokumen GANDA).
+for st in sorted(mg.STATUS_TERKIRIM):
+    audit_c = [audit_h[0], {"kunci": r_belum.kunci, "status": st, "akun_login": AKUN}]
+    lap_c, tulis_c, _ = rencana_sinkron([("S", r_belum, "SIAP")], items, AKUN, SUBSLS, ASG, audit_c, lengkap=True)
+    check(f"audit {st} hilang dari list lengkap -> tidak digugurkan, dilaporkan",
+          (tulis_c, lap_c[0]["kategori"]),
+          ([], "BELUM_ADA+AUDIT_BILANG_TERKIRIM+TERKIRIM_HILANG_DARI_LIST"))
+# ... tapi ganda terkirim yang dihapus admin (kembarannya tersisa) tetap ditunjuk ulang ke yang tersisa.
+audit_c2 = [{"kunci": r_kirim.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN, "dokumen_url": url_entry("id-kirim", ASG)},
+            {"kunci": r_kirim.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN, "dokumen_url": url_entry("id-hapus", ASG)},
+            {"kunci": r_kirim.kunci, "status": "TERKIRIM_TERVERIFIKASI", "akun_login": AKUN}]
+_, tulis_c2, _ = rencana_sinkron([("S", r_kirim, "SIAP")], items, AKUN, SUBSLS, ASG, audit_c2, lengkap=True)
+check("ganda terkirim dihapus, kembaran tersisa -> DIHAPUS + dokumen tersisa dicatat",
+      [(t["status"], id_dari_url(t["dokumen_url"])) for t in tulis_c2],
+      [(mg.STATUS_DIHAPUS, "id-hapus"), (mg.STATUS_DIBUAT, "id-kirim"), ("TERKIRIM_TERVERIFIKASI", "id-kirim")])
 _, tulis_h2, _ = rencana_sinkron([("S", r_belum, "SIAP")], items, AKUN, SUBSLS, ASG, audit_h, lengkap=False)
 check("list tidak terbukti lengkap (--dari-json/bergeser) -> TIDAK menulis DOKUMEN_DIHAPUS", tulis_h2, [])
 _, tulis_h3, _ = rencana_sinkron([("S", r_belum, "SIAP")], items, AKUN, SUBSLS, ASG,
@@ -142,7 +160,7 @@ _, tulis2, _ = rencana_sinkron([("S", r_draft, "SIAP")],
 check("dua DRAFT bernama sama -> tidak ditulis", tulis2, [])
 
 check("status_server", [status_server(s) for s in ("DRAFT", "SUBMITTED BY Pencacah", "APPROVED BY PML", "REJECTED")],
-      ["DRAFT", "TERKIRIM", "TERKIRIM", "LAIN"])
+      ["DRAFT", "TERKIRIM", "TERKIRIM", "DITOLAK"])
 
 # --- draft yang DITANDAI GALAT server: audit harus tahu supaya dikerjakan lagi ---
 # Tanpa ini, draft tanpa koordinat dianggap tuntas sementara oleh --lewati-selesai
@@ -223,5 +241,36 @@ audit_kirim = [{"kunci": r_kunci.kunci, "status": mg.STATUS_DIBUAT, "akun_login"
 _, tulis_k3, _ = rencana_sinkron([("S", r_kunci, "SIAP")], [d_kunci], AKUN, SUBSLS, ASG, audit_kirim)
 check("terkirim-belum-terverifikasi tetap diturunkan jadi DRAFT_DI_SERVER",
       [t["status"] for t in tulis_k3], [STATUS_DRAFT_SERVER])
+
+# --- DOKUMEN_TERKUNCI + server DRAFT ber-galat: JANGAN ditandai DRAFT_GALAT_DI_SERVER ---
+# 2026-09-29 (2627 baris 1144 dst.): list/tabel Data masih "draft" + sumError, padahal detail
+# dokumen (ikon info) SUBMITTED -> form read-only. Tanda galat membuat bot membukanya lagi tiap run.
+d_kunci_galat = dict(d_kunci, sumError=3, sumClean=87)
+_, tulis_k4, _ = rencana_sinkron([("S", r_kunci, "SIAP")], [d_kunci_galat], AKUN, SUBSLS, ASG, audit_kunci)
+check("terkunci + server DRAFT bergalat -> tidak ditulis apa-apa", tulis_k4, [])
+_, tulis_k5, _ = rencana_sinkron([("S", r_kunci, "SIAP")], [d_kunci_galat], AKUN, SUBSLS, ASG, audit_kirim)
+check("draft bergalat biasa tetap ditandai galat (paling belakang)",
+      [t["status"] for t in tulis_k5][-1], "DRAFT_GALAT_DI_SERVER")
+
+# --- REJECTED BY Pengawas -> DITOLAK_PML + sidik sheet (ketetapan user 2026-09-29) ---
+r_tolak = row(11, "APOTEK DITOLAK")
+r_tolak.sidik_sumber = "abc123"
+d_tolak = doc("id-tolak", "APOTEK DITOLAK (I MADE)", "REJECTED BY Pengawas")
+audit_tolak = [{"kunci": r_tolak.kunci, "status": mg.STATUS_DIBUAT, "akun_login": AKUN,
+                "dokumen_url": url_entry("id-tolak", ASG)},
+               {"kunci": r_tolak.kunci, "status": "TERKIRIM_TERVERIFIKASI", "akun_login": AKUN,
+                "dokumen_url": url_entry("id-tolak", ASG)}]
+lap_t, tulis_t, _ = rencana_sinkron([("S", r_tolak, "SIAP")], [d_tolak], AKUN, SUBSLS, ASG, audit_tolak)
+check("rejected -> DITOLAK_PML", [t["status"] for t in tulis_t], [mg.STATUS_DITOLAK])
+check("sidik sheet dicatat", "sidik_sheet=abc123" in tulis_t[0]["error_message"], True)
+check("kategori laporan rejected", lap_t[0]["kategori"], "DITOLAK_PML")
+_, tulis_t2, _ = rencana_sinkron([("S", r_tolak, "SIAP")], [d_tolak], AKUN, SUBSLS, ASG, audit_tolak + tulis_t)
+check("rejected sudah bertanda -> tidak ditulis ulang", tulis_t2, [])
+st = mg.sidik_ditolak_dari(audit_tolak + tulis_t)
+check("rejected, sheet belum dikoreksi -> menunggu", mg.menunggu_koreksi(r_tolak, st), True)
+r_tolak.sidik_sumber = "def456"
+check("rejected, sheet sudah dikoreksi -> dikerjakan", mg.menunggu_koreksi(r_tolak, st), False)
+st2 = mg.sidik_ditolak_dari(audit_tolak + tulis_t + [{"kunci": r_tolak.kunci, "status": "TERKIRIM_TERVERIFIKASI"}])
+check("rejected dikirim ulang -> tanda gugur", r_tolak.kunci in st2, False)
 
 print("\nSEMUA PASS" if ok_all else "\nADA YANG FAIL")

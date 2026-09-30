@@ -123,6 +123,31 @@ check("konfig console dari CLI", (k["bagian"], k["opsi"]),
 kosong = argparse.Namespace(per_kirim=None, cek_sesudah=None, jeda_kirim=None, jeda_baca=None, jarak_request=None,
                             izinkan_tujuan_selesai=False)
 check("tanpa opsi -> bawaan Console", pw.konfig_console(kosong)["opsi"], {})
+check("konfig: alokasi ikut hanya kalau ada", ["alokasi" in pw.konfig_console(kosong), pw.konfig_console(kosong, "", {"x": ["a", "b"]})["alokasi"]],
+      [False, {"x": ["a", "b"]}])
+
+# alokasi wilayah (ketetapan user 2026-09-29) & --hanya-sisa
+with tempfile.TemporaryDirectory() as tmp:
+    f = Path(tmp) / "alokasi.csv"
+    f.write_text("Nama PPL SE,idsubsls,Email PML,Email PPL\n"
+                 "A,5108010001000101,PML.Satu@contoh.id,ppl.satu@contoh.id\n"
+                 "B,5108010001000102,,\n"               # tanpa email -> dilewati
+                 "C,51080100010001,x@contoh.id,y@contoh.id\n", encoding="utf-8")   # kode tidak valid
+    check("baca_alokasi: email huruf kecil, baris kosong & kode rusak dilewati", pw.baca_alokasi(f),
+          {"5108010001000101": ["pml.satu@contoh.id", "ppl.satu@contoh.id"]})
+    (Path(tmp) / "salah.csv").write_text("idsubsls,PML\n", encoding="utf-8")
+    try:
+        pw.baca_alokasi(Path(tmp) / "salah.csv")
+        check("baca_alokasi: kolom kurang ditolak", False, True)
+    except SystemExit:
+        check("baca_alokasi: kolom kurang ditolak", True, True)
+I1, I2 = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
+T_A, T_B = "5108010001000101", "5108010001000102"
+unduh = [{"status": "DIPINDAH_SERVER_OK", "id": I1, "tujuan": T_A, "sumber": "s", "kunci": "k1", "waktu": "1"},
+         {"status": "PETUGAS_TUJUAN_GANDA", "id": I2, "tujuan": T_B, "sumber": "s", "kunci": "k2", "waktu": "1"}]
+sisa, dibuang = pw.saring_sisa([{"k": "k1", "t": T_A, "ids": [I1]}, {"k": "k2", "t": T_B, "ids": [I2]},
+                                {"k": "k3", "t": T_B, "ids": [I1]}], pw.id_tuntas(unduh))
+check("hanya-sisa: tuntas ke tujuan sama dibuang; gagal & tujuan berubah tetap", ([t["k"] for t in sisa], dibuang), (["k2", "k3"], 1))
 templat = pw.KONSOL_TEMPLATE.read_text(encoding="utf-8")
 teks = pw.isi_template(templat, target, sumber, asal, k)
 check("template: semua penanda terganti", [p in teks for p in pw.PENANDA.values()], [False] * len(pw.PENANDA))
@@ -191,8 +216,12 @@ alasan = mg.alasan_lewati_saat_giliran(a.kunci, (AKUN, WADAH), set(mg.STATUS_TER
 check("input_usaha: baris yang dokumennya dipindah dilewati", alasan.startswith("dokumennya sudah dibuat proses lain"), True)
 check("dokumen_dari menunjuk dokumen yang dipindah", mg.dokumen_dari(setelah)[b.kunci], ("", T2, url_entry(ib_sheet, ASG)))
 _lap, tulis_sinkron, _ = rencana_sinkron([("s", a, "SIAP"), ("s", c, "SIAP")], [], AKUN, WADAH, ASG, setelah, lengkap=True)
+# c (terkirim, TIDAK dipindah) dulu digugurkan; sejak 2026-09-29 dokumen terkirim tanpa kembaran yang hilang dari
+# list hanya dilaporkan (bisa jadi diganti ke CAPI oleh ganti_moda semua_ke_capi).
 check("sinkron akun input (list utuh, dokumen tak ada): TIDAK menulis DOKUMEN_DIHAPUS utk dokumen yang dipindah",
-      [(t_["kunci"] == a.kunci, t_["status"]) for t_ in tulis_sinkron], [(False, "DOKUMEN_DIHAPUS")])
+      [(t_["kunci"] == a.kunci, t_["status"]) for t_ in tulis_sinkron], [])
+check("... dokumen terkirim yang hilang tanpa catatan pindah dilaporkan",
+      [l_["kategori"].endswith("+TERKIRIM_HILANG_DARI_LIST") for l_ in _lap], [False, True])
 
 with tempfile.TemporaryDirectory() as tmp:
     berkas_audit = Path(tmp) / "audit_log_gabungan.csv"

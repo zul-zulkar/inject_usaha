@@ -1255,8 +1255,8 @@ function kartuWilayah() {
 
   return h("section", { class: "kartu lebar" }, h("h2", { text: "Wilayah" }),
     h("h3", { class: "jarak-atas", text: "Kodepos per desa" }),
-    h("p", { class: "keterangan", text: `Sheet input tidak punya kolom kodepos; kodepos diambil per DESA (10 digit awal idsubsls). Desa yang tidak ada di sini ditolak ` +
-      `(SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI). Ditampilkan desa berawalan ${kab || "KODE_KAB"}.` }),
+    h("p", { class: "keterangan", text: `Sheet input tidak punya kolom kodepos; kodepos diambil per DESA (10 digit awal idsubsls). Desa yang tidak ada di sini diisi ` +
+      `99999 ("tidak tahu" menurut form; aturan TAHAP2_KODEPOS_KOSONG_JADI). Ditampilkan desa berawalan ${kab || "KODE_KAB"}.` }),
     h("div", { class: "baris-flex" }, cari, jumlah,
       h("button", { class: "tombol kecil", style: "margin-left:auto", text: "Impor dari Excel/CSV…", onclick: () => dialogImporTabel("kodepos") }),
       h("button", { class: "tombol kecil", text: "Susun dari sheet lama…", onclick: dialogKodeposLama })),

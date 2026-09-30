@@ -118,6 +118,12 @@ TAHAP2_13A_KOSONG_DARI_KBLI = True
 # kunci TIDAK berubah (tetap dari 8b mentah). Isinya data responden -> isi HANYA di
 # inti/config_lokal.py, jangan di file ini.
 TAHAP2_KOREKSI_BARIS: dict = {}
+# Baris SALINAN di sheet (blok yang tersalin dua kali): {"<nama berkas sheet>": "<salinan>:<asli>, ..."},
+# mis. {"input_tahap2_2627.xlsx": "220-221:214, 471-589:352"} = baris 220-221 salinan 214-215, 471-589
+# salinan 352-470. Salinan dilewati (SKIP_DATA_BARIS_SALINAN); nama & kunci baris ASLI tidak berubah
+# (dokumen yang sudah ada tetap dikenali). Loader BERHENTI kalau salinan tidak cocok aslinya (akun,
+# subsls, 8b, 12a, 13f, 13a) — nomor baris bergeser. Isi HANYA di inti/config_lokal.py.
+TAHAP2_BARIS_SALINAN: dict = {}
 # 27c = 0 (penjualan 27a & 27b kosong/nol) -> 27a diisi minimal form (100.000;
 # varian bulanan 10.000) — ketetapan user 2026-09-24 (baris 1374/1375). False =
 # skip DI_BAWAH_MINIMAL (perilaku lama). 26f = 0 TETAP skip.
@@ -176,6 +182,12 @@ TAHAP2_BEDAKAN_NAMA_BENTROK = True
 # (input_tahap2_23: desa Panji Anom 5108050012, 14 desa Sukasada lain = 81161).
 TAHAP2_KODEPOS_DARI_KECAMATAN = True
 TAHAP2_KODEPOS_KECAMATAN_MIN_DESA = 3
+# Kodepos yang TETAP tidak diketahui (tidak ada kolom 'kodepos' di sheet, tidak ada di
+# KODEPOS_BY_DESA/KODEPOS_BY_IDSUBSLS, kecamatannya tidak seragam, tanpa --kodepos) diisi
+# kode ini. Rincian 10 wajib di form, dan pesan validasinya sendiri: "jika responden tidak
+# tahu isikan 99999" (ketetapan user 2026-09-29 — kabupaten lain yang belum punya daftar
+# kodepos). "" = baris ditolak KODEPOS_TIDAK_DIKETAHUI (perilaku lama).
+TAHAP2_KODEPOS_KOSONG_JADI = "99999"
 # Koordinat yang formatnya dirusak Excel (2026-09-24, 114 baris "tanpa koordinat"
 # yang sebenarnya berisi titik): "-8.148.438" (titik jadi pemisah ribuan),
 # bujur negatif "-115,142881", lat & long dalam satu sel "-8.142753,115.059837",
@@ -335,6 +347,8 @@ ASSIGNMENT_ID_GABUNGAN = "fd68e454-ba45-4b85-8205-f3bf777ded24"
 # menolak jalan kecuali diberi --per-baris (alur lama: subsls & akun per baris).
 GABUNGAN_SUBSLS_TUNGGAL = ""
 GABUNGAN_AKUN_TUNGGAL = ""
+# Subsls wadah bawaan input_usaha/sisir.py (--subsls), sama utk semua akun penyisiran. Isi di config_lokal.
+SISIR_SUBSLS = ""
 # Satu login ±12 jam berisiko sesi SSO kedaluwarsa -> login ulang tiap N baris.
 GABUNGAN_BARIS_PER_SESI = 40
 

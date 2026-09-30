@@ -12,8 +12,7 @@
  * Chrome biasa, VPN, login fasih-sm, halaman Data survei (…/app/surveys/<survei>/<periode>/data)
  * -> F12 -> Console -> tempel SELURUH isi berkas .siap.js -> Enter.
  *     await pindahWilayah.jalankan({mode: "periksa"})           // READ-ONLY: status semua target + cek tujuan
- *     await pindahWilayah.jalankan({mode: "pindah", limit: 1})  // pindah 1 dokumen, cek hasilnya di web
- *     await pindahWilayah.jalankan({mode: "pindah"})            // sisanya (atau limit: 200 mencicil)
+ *     await pindahWilayah.jalankan({mode: "pindah"})            // semua (atau limit: 200 mencicil)
  *     await pindahWilayah.jalankan({mode: "periksa"})           // pastikan semuanya sudah di tujuan
  *     pindahWilayah.unduh()                                     // CSV -> audit/, lalu pindah_wilayah.py --catat
  *   Opsi: limit (dokumen dipindah per run), tujuan: ["5108060", ...] (awalan kode tujuan), kunci: [...],
@@ -22,6 +21,7 @@
  *     cekTujuan (periksa: cek wilayah & petugas tujuan, bawaan true), pindaiUlang (paksa baca daftar ulang),
  *     pindaiDari (ISO), maksDetail (batas baca detail cadangan per run).
  *   pindahWilayah.berhenti() | ringkasan() | unduh() | daftarTujuan("TUJUAN_BELUM_DIBUKA") | hapusHasil()
+ *   pindahWilayah.sisaWadah([subsls...])  // READ-ONLY: dokumen di wadah yang bukan target berkas ini -> CSV
  *
  * CARA KERJA — hemat request (rate limit 429 terjadi di datatable analytic)
  * -----------------------------------------------------------------------
@@ -50,7 +50,8 @@
  * - PUT yang kena galat sementara (429/5xx/jaringan) TIDAK dikirim ulang buta: detail semua anggota
  *   dibaca dulu; hanya yang terbukti masih di wadah yang dikirim ulang.
  * - Batch BERHENTI kalau sesi ditolak, respons tidak dikenal, atau sampel verifikasi tidak cocok.
- * - Pindah tanpa `limit` butuh minimal 1 DIPINDAH_TERVERIFIKASI di browser ini. Ketik YA tiap run pindah.
+ * - Ketik YA tiap run pindah (tanpa gerbang "limit 1 dulu" — ketetapan user 2026-09-29; sampel verifikasi
+ *   per rombongan & berhenti di anomali tetap berlaku).
  * - Beberapa akun: tiap akun menempel berkas BAGIAN-nya sendiri (target dibagi per subsls tujuan, tidak
  *   tumpang tindih). Jangan menempel bagian yang sama di dua browser.
  */
@@ -180,6 +181,17 @@
 
   const namaCocok = (namaServer, namaSah) => (namaServer || []).some((n) => (namaSah || []).includes(n));
 
+  /** "WARUNG X 1 (Nyoman Ardini)" -> "NYOMANARDINI" (isi kurung TERAKHIR, huruf/angka saja); "" kalau tanpa kurung. */
+  function pemilikNama(nama) {
+    const m = String(nama == null ? "" : nama).match(/\(([^()]*)\)\s*$/);
+    return m ? m[1].toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
+  }
+
+  /** Nama server beda tapi PEMILIK sama dgn salah satu nama sah (ketetapan user 2026-09-29: ID sheet +
+   *  pemilik sama = dokumen yang sama, mis. nama sheet dinomori "… 1 (X)" sesudah dokumen dibuat). */
+  const pemilikCocok = (namaServer, namaSah) => (namaServer || []).map(pemilikNama).filter(Boolean)
+    .some((p) => (namaSah || []).map(pemilikNama).includes(p));
+
   /** Item datatable ATAU data detail -> bentuk ringkas yang sama:
    *  {id, kode, level[], alias, nama[], grup, pengguna}. */
   function ringkasDokumen(it) {
@@ -220,8 +232,9 @@
 
   /** Satu target -> {status, dok, pesan}. `dok` = Map id -> ringkas (atau {hilang: true}).
    *  Status: SIAP | SUDAH_DI_TUJUAN | BELUM_APPROVED | DI_SUBSLS_LAIN | NAMA_TIDAK_COCOK | DOKUMEN_GANDA |
-   *  DOKUMEN_HILANG | TIDAK_TERBACA | TUJUAN_TIDAK_VALID | RESPONS_TIDAK_DIKENAL. */
-  function nilaiTarget(t, dok, asal) {
+   *  DOKUMEN_HILANG | TIDAK_TERBACA | TUJUAN_TIDAK_VALID | RESPONS_TIDAK_DIKENAL.
+   *  opsi.namaPemilikSama (bawaan true): nama beda tapi pemilik (isi kurung) sama -> tetap dinilai posisinya. */
+  function nilaiTarget(t, dok, asal, opsi = {}) {
     if (!KODE_VALID.test((t && t.t) || "")) return { status: "TUJUAN_TIDAK_VALID", dok: null, pesan: `tujuan '${t && t.t}'` };
     const ids = (t && t.ids) || [];
     if (!ids.length) return { status: "TIDAK_TERBACA", dok: null, pesan: "target tanpa ID dokumen" };
@@ -235,11 +248,17 @@
     }
     const d = hidup[0];
     if (belum.length) return { status: "TIDAK_TERBACA", dok: d, pesan: `ID lain ${belum.map((i) => i.slice(0, 8)).join(", ")} belum terbaca` };
+    let catatan = "";
     if (!namaCocok(d.nama, namaTarget(t))) {
-      return { status: "NAMA_TIDAK_COCOK", dok: d, pesan: `server: ${d.nama.join(" / ") || "-"} | sheet: ${namaTarget(t).join(" / ")}` };
+      const beda = `server: ${d.nama.join(" / ") || "-"} | sheet: ${namaTarget(t).join(" / ")}`;
+      if (opsi.namaPemilikSama === false || !pemilikCocok(d.nama, namaTarget(t))) {
+        return { status: "NAMA_TIDAK_COCOK", dok: d, pesan: beda };
+      }
+      catatan = `nama beda, pemilik sama (${beda})`;
     }
     const p = nilaiPosisi(d, t.t, asal);
-    return { status: p.status === "LEVEL_BEDA" ? "RESPONS_TIDAK_DIKENAL" : p.status, dok: d, pesan: p.pesan };
+    return { status: p.status === "LEVEL_BEDA" ? "RESPONS_TIDAK_DIKENAL" : p.status, dok: d,
+      pesan: [catatan, p.pesan].filter(Boolean).join(" | ") };
   }
 
   /** [{t, r}] berstatus SIAP -> rombongan [{asal, tujuan, grup, anggota: [{t, r}]}] (<= perKirim anggota,
@@ -321,8 +340,10 @@
     return { status: "OK", item: w, pesan: w.doneListing ? "tujuan Listing Selesai (diizinkan)" : "" };
   }
 
-  /** Daftar user-region satu peran -> {status, petugas, pesan}. parentAllocationId utk Pencacah. */
-  function pilihPetugas(peran, data, tujuan, parentAllocationId) {
+  /** Daftar user-region satu peran -> {status, petugas, pesan}. parentAllocationId utk Pencacah.
+   *  emailAlokasi: kalau petugas yang sah > 1, pilih yang email-nya = alokasi wilayah (ketetapan user
+   *  2026-09-29, sheet alokasi PML/PPL per subsls); tidak ada / bukan kandidat -> tetap GANDA. */
+  function pilihPetugas(peran, data, tujuan, parentAllocationId, emailAlokasi) {
     if (!Array.isArray(data)) return { status: "RESPONS_TIDAK_DIKENAL", petugas: null, pesan: `${peran}: data bukan array` };
     const valid = data.filter((x) => x && x.active !== false && x.smallestRegionCode && tujuan.startsWith(x.smallestRegionCode)
       && (parentAllocationId == null || x.parentAllocationId === parentAllocationId));
@@ -331,12 +352,20 @@
       return { status: "PETUGAS_TUJUAN_TIDAK_ADA", petugas: null,
         pesan: `${peran} tujuan tidak ada (${data.length} data user-region${parentAllocationId ? ", dgn induk Pengawas terpilih" : ""})` };
     }
+    let p = valid[0];
+    let asal = "";
     if (valid.length > 1) {
-      return { status: "PETUGAS_TUJUAN_GANDA", petugas: null, pesan: `${valid.length} ${peran}: ${valid.map(siapa).join(", ")}` };
+      const surel = String(emailAlokasi || "").trim().toLowerCase();
+      const pilih = surel ? valid.filter((x) => String(x.email || "").trim().toLowerCase() === surel) : [];
+      if (pilih.length !== 1) {
+        return { status: "PETUGAS_TUJUAN_GANDA", petugas: null, pesan: `${valid.length} ${peran}: ${valid.map(siapa).join(", ")}`
+          + (surel ? ` — alokasi ${surel} ${pilih.length ? "juga ganda" : "bukan salah satunya"}` : " — tidak ada di alokasi") };
+      }
+      p = pilih[0];
+      asal = ` (dari alokasi; ${valid.length} kandidat)`;
     }
-    const p = valid[0];
     if (!p.id || !p.allocationId) return { status: "RESPONS_TIDAK_DIKENAL", petugas: null, pesan: `${peran} tanpa id/allocationId` };
-    return { status: "OK", petugas: p, pesan: siapa(p) };
+    return { status: "OK", petugas: p, pesan: siapa(p) + asal };
   }
 
   /** Peran Petugas dari survey-roles -> [Pengawas, Pencacah] (urut sequence) atau null kalau bentuknya lain. */
@@ -407,7 +436,7 @@
     module.exports = {
       TARGET, SUMBER, ASAL, KONFIG, STATUS_BERHENTI_SEGERA, STATUS_TUNTAS, STATUS_DIPINDAH, BATAS_ULANG_429,
       halamanData, norm, approved, jenisSementara, gagalDihitung, kodeSubsls, kodeLevel, levelWilayah, jalurLevel,
-      bedaLevel, jedaRateLimit, faktorJeda, namaDariKode, namaTarget, namaCocok, ringkasDokumen, ringkasDetail,
+      bedaLevel, jedaRateLimit, faktorJeda, namaDariKode, namaTarget, namaCocok, pemilikNama, pemilikCocok, ringkasDokumen, ringkasDetail,
       nilaiPosisi, nilaiTarget, susunRombongan, indeksSampel, nilaiResponsPindah, nilaiWilayahTujuan, pilihPetugas,
       peranPetugas, bodyPindah, bodyDaftar, bagiJendela, gabungJendela, gabungHasil, kunciHasil, saringTarget,
     };
@@ -421,6 +450,9 @@
   const KUNCI_JENDELA = "pindahWilayah.jendela.v1";
   const API = "/app/api";
   const BAGIAN = KONFIG.bagian || "";
+  // Alokasi petugas per subsls tujuan (pindah_wilayah.py --alokasi): {tujuan: [email PML, email PPL]}.
+  // Dipakai HANYA utk memilih kalau server punya > 1 Pengawas/Pencacah di tujuan.
+  const ALOKASI = KONFIG.alokasi || {};
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const acak = (a, b) => a + Math.floor(Math.random() * (Math.max(a, b) - a + 1));
   const log = (...a) => console.log("%c[pindahWilayah]", "color:#2e7d32;font-weight:bold", ...a);
@@ -646,12 +678,13 @@
     const w = nilaiWilayahTujuan(kode, await wilayahTujuan(ctx, o, kode), groupId, o);
     let hasil = { status: w.status, pesan: w.pesan };
     if (w.status === "OK") {
-      const pw = pilihPetugas("Pengawas", await userRegion(ctx, o, ctx.peran[0], kode), kode);
+      const al = ALOKASI[kode] || [];
+      const pw = pilihPetugas("Pengawas", await userRegion(ctx, o, ctx.peran[0], kode), kode, undefined, al[0]);
       if (pw.status !== "OK") {
         hasil = pw;
       } else {
         const pc = pilihPetugas("Pencacah", await userRegion(ctx, o, ctx.peran[1], kode, pw.petugas.allocationId), kode,
-          pw.petugas.allocationId);
+          pw.petugas.allocationId, al[1]);
         hasil = pc.status !== "OK" ? pc
           : { status: "OK", pengawas: pw.petugas, pencacah: pc.petugas, pesan: [w.pesan, `PML ${pw.pesan}, PPL ${pc.pesan}`].filter(Boolean).join(" | ") };
       }
@@ -719,7 +752,7 @@
       if (d) dok.set(ids[i], d);
       if ((i + 1) % 50 === 0) log(`  detail ${i + 1}/${Math.min(ids.length, o.maksDetail)}`);
     }
-    return daftar.map((t) => ({ t, r: nilaiTarget(t, dok, asal) }));
+    return daftar.map((t) => ({ t, r: nilaiTarget(t, dok, asal, o) }));
   }
 
   function simpanKlasifikasi(kerja, o) {
@@ -864,12 +897,7 @@
 
   async function jalankanPindah(ctx, o, kerja, sebelumnya, hitung) {
     const siap = kerja.filter((x) => x.r.status === "SIAP");
-    const adaBukti = Object.values(sebelumnya).some((h) => h.st === "DIPINDAH_TERVERIFIKASI");
     if (!siap.length) return log("Tidak ada dokumen SIAP dipindah.");
-    if (!o.limit && !adaBukti) {
-      return log("Pindah massal butuh minimal 1 DIPINDAH_TERVERIFIKASI di browser ini. Jalankan: "
-        + 'await pindahWilayah.jalankan({mode: "pindah", limit: 1}) lalu cek dokumennya di fasih-sm.');
-    }
     let rombongan = susunRombongan(siap, o.perKirim);
     const maks = o.limit ? Math.min(o.limit, siap.length) : siap.length;
     if (prompt(`PINDAH WILAYAH SUNGGUHAN${BAGIAN ? ` (bagian ${BAGIAN})` : ""}: maks. ${maks} dokumen, `
@@ -942,9 +970,9 @@
   async function jalankan(opsi = {}) {
     const o = {
       mode: "periksa", limit: null, tujuan: null, kunci: null, lewatiSelesai: true, izinkanTujuanSelesai: false,
-      perKirim: 50, cekSesudah: 3, jarakRequestMs: 800, jedaBacaMin: 1500, jedaBacaMaks: 3000,
-      jedaKirimMin: 3000, jedaKirimMaks: 6000, maksJendela: 900, pindaiDari: "2026-01-01T00:00:00.000Z",
-      modePindai: ["PAPI"], maksDetail: 300, cekTujuan: true, pindaiUlang: false, umurPindaiMenit: 30,
+      perKirim: 50, cekSesudah: 3, jarakRequestMs: 250, jedaBacaMin: 100, jedaBacaMaks: 300,
+      jedaKirimMin: 1000, jedaKirimMaks: 2000, maksJendela: 900, pindaiDari: "2026-01-01T00:00:00.000Z",
+      modePindai: ["PAPI"], maksDetail: 300, namaPemilikSama: true, cekTujuan: true, pindaiUlang: false, umurPindaiMenit: 30,
       ...KONFIG.opsi, ...opsi,
     };
     o.perKirim = Math.max(1, Math.min(MAKS_PER_KIRIM, Math.floor(o.perKirim) || MAKS_PER_KIRIM));
@@ -1042,8 +1070,34 @@
     log(`Diunduh: ${a.download} (${baris.length} baris) — pindahkan ke folder audit/ proyek.`);
   }
 
+  /** READ-ONLY, tanpa request: dokumen (daftar PAPI terakhir yang dibaca jalankan()) yang MASIH di subsls wadah
+   *  tapi TIDAK dimiliki target mana pun di berkas ini -> ringkasan per status + unduhan CSV (bahan dicocokkan
+   *  offline ke baris sheet). `wadah` = daftar subsls (bawaan ASAL berkas ini). */
+  function sisaWadah(wadah, opsi = {}) {
+    if (!pindaiTerakhir) return log('Daftar belum dibaca — jalankan dulu await pindahWilayah.jalankan({mode: "periksa"}).');
+    const asal = new Set(wadah && wadah.length ? wadah : ASAL);
+    const milik = new Set(TARGET.flatMap((t) => t.ids || []));
+    const sisa = [...pindaiTerakhir.dok.values()].filter((d) => d && !d.hilang && asal.has(d.kode) && !milik.has(d.id));
+    const per = {};
+    for (const d of sisa) per[d.alias || "-"] = (per[d.alias || "-"] || 0) + 1;
+    log(`${sisa.length} dokumen PAPI di ${asal.size} subsls wadah yang bukan target berkas ini (daftar dibaca `
+      + `${Math.round((Date.now() - pindaiTerakhir.waktu) / 60000)} mnt lalu):`, per);
+    if (opsi.unduh === false || !sisa.length) return sisa;
+    const kolom = ["id", "kode", "status_server", "nama", "pengguna"];
+    const kutip = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    const baris = sisa.map((d) => [d.id, d.kode, d.alias, (d.nama || []).join(" / "), d.pengguna].map(kutip).join(","));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["﻿" + [kolom.join(","), ...baris].join("\n")], { type: "text/csv" }));
+    a.download = `sisa_wadah_pindah_wilayah_${new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-")}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    log(`Diunduh: ${a.download} (${sisa.length} baris) — simpan di folder audit/ proyek.`);
+    return sisa;
+  }
+
   global.pindahWilayah = {
-    jalankan, ringkasan, unduh, daftarTujuan, target: TARGET, asal: ASAL, konfig: KONFIG,
+    jalankan, ringkasan, unduh, daftarTujuan, sisaWadah, target: TARGET, asal: ASAL, konfig: KONFIG,
     get terakhir() { return terakhir; },
     berhenti() {
       hentikan = true;
@@ -1057,6 +1111,7 @@
     },
   };
   log(`Siap${BAGIAN ? ` — BAGIAN ${BAGIAN}` : ""}${KONFIG.dibuat ? ` (dibuat ${KONFIG.dibuat})` : ""}: ${TARGET.length} target, `
-    + `${new Set(TARGET.map((t) => t.t)).size} subsls tujuan, wadah ${ASAL.join(", ")}. `
-    + 'Mulai dgn: await pindahWilayah.jalankan({mode: "periksa"})');
+    + `${new Set(TARGET.map((t) => t.t)).size} subsls tujuan, wadah ${ASAL.join(", ")}`
+    + `${Object.keys(ALOKASI).length ? `, alokasi petugas ${Object.keys(ALOKASI).length} subsls` : ", TANPA alokasi petugas"}. `
+    + 'Jalankan: await pindahWilayah.jalankan({mode: "pindah"})');
 })(typeof window !== "undefined" ? window : globalThis);

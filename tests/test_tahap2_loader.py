@@ -262,9 +262,12 @@ cek("saklar mati: gol 56 & 26b+26c = 0 -> 26B_HARUS_LEBIH_0",
                                          "26d": "Rp200.000"})]))[2].status, "SKIP_DATA_26B_HARUS_LEBIH_0")
 t2.TAHAP2_26B_NOL_AMBIL_DARI_26D = True
 
+_kodepos_kosong = t2.TAHAP2_KODEPOS_KOSONG_JADI
+t2.TAHAP2_KODEPOS_KOSONG_JADI = ""
 hasil = periksa_semua_tahap2(tulis([baris(**{"5": "9999999999000101"})]))
-cek_benar("kodepos tidak diketahui -> skip",
+cek_benar("saklar kodepos 99999 mati: kodepos tidak diketahui -> skip",
           any(k == "KODEPOS_TIDAK_DIKETAHUI" for k, _ in hasil[2].masalah))
+t2.TAHAP2_KODEPOS_KOSONG_JADI = _kodepos_kosong
 
 hasil = periksa_semua_tahap2(tulis([baris(**{"12c": "0"})]))
 cek("umur 0 ditolak (GALAT form 10-99)", hasil[2].status, "SKIP_DATA_UMUR_DI_LUAR_10_99")
@@ -839,6 +842,39 @@ cek("... dan diproses", _status([rw]), ["SIAP"])
 cek("saklar mati -> WAJIB_KOSONG",
     _dgn_saklar("TAHAP2_NIK_KOSONG_JADI", "", lambda: _status(tulis([baris(**{"12d": ""})]))),
     ["SKIP_DATA_WAJIB_KOSONG"])
+
+print("\n== 2026-09-29: kodepos tidak diketahui -> 99999 (kabupaten tanpa daftar kodepos) ==")
+_desa_asing = {"5": "9999999999000101"}
+(rw,) = tulis([baris(**_desa_asing)])
+cek("kodepos tidak diketahui -> 99999", rw["kodepos"], "99999")
+cek_benar("... dicatat", any("tidak diketahui -> '99999'" in k for k in rw.koreksi))
+cek("... dan diproses", _status([rw]), ["SIAP"])
+cek("cadangan --kodepos tetap didahulukan", tulis([baris(**_desa_asing)], kodepos="81160")[0]["kodepos"], "81160")
+cek("desa yang ada di daftar tidak berubah", tulis([baris()])[0]["kodepos"], "81155")
+cek("saklar mati -> ditolak spt dulu",
+    _dgn_saklar("TAHAP2_KODEPOS_KOSONG_JADI", "", lambda: _status(tulis([baris(**_desa_asing)]))),
+    ["SKIP_DATA_WAJIB_KOSONG"])
+
+
+def _tanda_kodepos(isi_kodepos: list[str]) -> list[bool]:
+    """Satu desa asing, kolom 'kodepos' per baris ("" = tidak diketahui -> 99999):
+    baris mana yang ditandai 'beda dgn mayoritas desa'."""
+    f = Path(tempfile.mkdtemp()) / "kodepos.csv"
+    with f.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(JUDUL + ["kodepos"])
+        for i, kp in enumerate(isi_kodepos):
+            w.writerow(baris(**{**_desa_asing, "8b.": f"TOKO CONTOH {'ABCDEFG'[i]}",
+                                "12a": f"I KETUT CONTOH {'ABCDEFG'[i]}"}) + [kp])
+    hasil = periksa_semua_tahap2(load_tahap2(f), izinkan_tanpa_koordinat=True)
+    return [any(t.startswith("kodepos ") and "mayoritas" in t for t in h.tanda) for h in hasil.values()]
+
+
+cek("99999 di desa yg kodeposnya ada di baris lain -> ditandai", _tanda_kodepos(["81155", "81155", ""]),
+    [False, False, True])
+cek("kodepos asli tidak ditandai 'beda mayoritas' gara-gara baris 99999", _tanda_kodepos(["81155", "", ""]),
+    [False, True, True])
+cek("semua 99999 -> tidak ada tanda", _tanda_kodepos(["", ""]), [False, False])
 
 print("\n== input_tahap2_23: 24 dibayar/tidak dibayar 0, laki+perempuan terisi ==")
 _nol = {"24.L": "1", "24.P": "1", "24.Total": "2", "24.Dibayar": "0", "24.Tidak dibayar": "0"}

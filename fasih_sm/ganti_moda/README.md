@@ -28,6 +28,29 @@ ubahModa.unduh()
 **Balik PAPI → CAPI per subsls:** `--subsls bahan/daftar_subsls.txt --ke CAPI --console` (lewat menu
 ⋮ per baris). Target tanpa Python: `ubahModa.muatDaftarKode(\`...\`)` di Console.
 
+## Semua PAPI yang sudah APPROVED → CAPI (`semua_ke_capi_console.js`)
+
+Lewat API (bukan klik tabel), se-kabupaten, tanpa daftar. Hanya dokumen **APPROVED**: DRAFT/SUBMITTED/REJECTED
+tetap PAPI karena fasih-web (input_usaha/sisir, approve_pml, approve_capi) hanya bisa membuka dokumen PAPI.
+Tempel isi berkas itu langsung di Console halaman Data survei (akun admin), lalu:
+
+```js
+await semuaKeCapi.jalankan()             // baca daftar -> jumlah per status -> ketik YA -> langsung ganti semua
+semuaKeCapi.unduh()                      // CSV bukti
+```
+
+- Tidak ada tahap periksa/percobaan terpisah: selain `YA` di prompt = batal. `{limit: N}` opsional.
+- Paralel beberapa tab/PC: `{bagian: "1/3"}`, `{bagian: "2/3"}`, … di `jalankan`/`unduh` (dibagi lewat hash id,
+  saling lepas). Perkiraan ±5 dtk/dokumen per tab.
+- Per dokumen: detail segar harus APPROVED → `change-mode` CAPI → status harus tetap & mode terbaca CAPI.
+  Belum terbaca CAPI → dicek ulang di sela dokumen lain s.d. 15 mnt, lewat itu **berhenti**
+  (`DIGANTI_CAPI_BELUM_TERVERIFIKASI`). Run berikutnya mengecek dokumen itu dulu, tidak mengirim ulang
+  (`{ulangi: true}` memaksa, sesudah dicek di fasih-sm).
+- Berhenti juga di `STATUS_BERUBAH`, `GANTI_DITOLAK`, `SERVER_SIBUK`, 5 detail gagal beruntun, sesi habis.
+- Aman diulang kapan saja (mis. tiap hari) untuk dokumen yang baru APPROVED.
+- Pengaman di `input_usaha/sinkron_list.py`: dokumen terkirim yang hilang dari list PENDATAAN (bisa jadi karena
+  sudah CAPI) tidak digugurkan, hanya dilaporkan `+TERKIRIM_HILANG_DARI_LIST` (tanpa itu dokumen dibuat ulang = ganda).
+
 ## Status penting
 
 | Status | Arti |
@@ -45,8 +68,9 @@ ubahModa.unduh()
 | --- | --- |
 | `ubah_moda.py` | baca daftar/sheet → target, `--console` suntik ke template; jalur Playwright lama (`--petakan`/`--eksekusi`) |
 | `ubah_moda_console.js` | logika Console (cari, centang, menu, verifikasi, antrean cek ulang, 429) |
+| `semua_ke_capi_console.js` | semua PAPI APPROVED → CAPI lewat API `change-mode` (tempel langsung) |
 | `hasil/` | `ubah_moda_console.siap.js`, `target_ubah_moda.csv`, audit & profil jalur Playwright |
 
-Uji: `python tests/test_ubah_moda.py`, `node tests/test_ubah_moda_console.js` (8 kegagalan lama:
+Uji: `python tests/test_ubah_moda.py`, `node tests/test_semua_ke_capi_console.js`, `node tests/test_ubah_moda_console.js` (8 kegagalan lama:
 `normalisasiKode()` di Console sengaja tidak lagi mengurai kode, ujinya masih mengharapkan bentuk
 baku — belum diputuskan mana yang benar).

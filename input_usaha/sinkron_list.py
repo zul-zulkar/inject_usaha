@@ -23,6 +23,9 @@ Yang dilaporkan per baris (pencocokan lewat nama dokumen, di-UPPERCASE form):
   - DOKUMEN_DIHAPUS utk baris bertanda DOKUMEN_TANPA_URL_PERLU_CEK yang TERBUKTI
     tidak punya dokumen di server (list utuh, nama tidak ada, & tidak ada DRAFT
     kosong tanpa nama) -> tandanya gugur, input_usaha boleh membuat dokumennya.
+    Dokumen audit yang hilang dari list utuh juga digugurkan (dihapus admin), KECUALI
+    baris yang audit-nya terkirim & tanpa dokumen lain bernama sama: hanya dilaporkan
+    +TERKIRIM_HILANG_DARI_LIST (dokumen APPROVED yang diganti ke CAPI bisa tidak tampil).
   Baris GANDA yang dua-duanya DRAFT tidak ditulis (pilih manual).
 
 Contoh:
@@ -74,6 +77,8 @@ def status_server(alias: str) -> str:
     a = (alias or "").upper()
     if a.startswith("DRAFT"):
         return "DRAFT"
+    if a.startswith("REJECT"):
+        return "DITOLAK"       # "REJECTED BY Pengawas": kembali ke PPL, perlu dikoreksi & dikirim ulang
     if "SUBMIT" in a or "APPROV" in a or "COMPLETE" in a:
         return "TERKIRIM"
     return "LAIN"
@@ -154,11 +159,18 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
         dipakai_lain = len(docs) < len(semua_docs)
         terkirim = [d for d in docs if status_server(d.get("assignmentStatusAlias")) == "TERKIRIM"]
         draft = [d for d in docs if status_server(d.get("assignmentStatusAlias")) == "DRAFT"]
+        ditolak = [d for d in docs if status_server(d.get("assignmentStatusAlias")) == "DITOLAK"]
         st_audit = akhir.get(row.kunci, "")
         akun_audit = dok.get(row.kunci, "")
         id_tercatat = id_dari_url(dok_url.get(row.kunci, ""))
-        hilang = (lengkap and akun_audit == akun and id_tercatat and id_tercatat not in id_server
-                  and row.kunci not in sudah_kunci)
+        tidak_di_list = (lengkap and akun_audit == akun and id_tercatat and id_tercatat not in id_server
+                         and row.kunci not in sudah_kunci)
+        # Dokumen TERKIRIM tanpa kembaran bernama sama yang hilang dari list TIDAK digugurkan:
+        # sejak ganti_moda semua_ke_capi (2026-09-29) dokumen APPROVED diganti ke CAPI, dan list
+        # PENDATAAN akun PPL belum terbukti memuat dokumen CAPI -> menggugurkannya = dokumen GANDA
+        # dibuat ulang. Admin menghapus dokumen terkirim hanya utk ganda (kembarannya tersisa = docs).
+        tertahan = tidak_di_list and st_audit in mg.STATUS_TERKIRIM and not docs
+        hilang = tidak_di_list and not tertahan
         if hilang:
             # Dihapus admin (Agenda1-1 baris 88, 2026-09-15): gugurkan catatannya supaya
             # input_usaha membuat dokumen baru, bukan membuka URL yang sudah tidak ada.
@@ -198,12 +210,16 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
             kategori = "TERKIRIM"
         elif draft:
             kategori = "DRAFT"
+        elif ditolak:
+            kategori = "DITOLAK_PML"
         else:
             kategori = "LAIN"
         if len(docs) > 1:
             kategori += "+GANDA"
         if hilang:
             kategori += "+DOKUMEN_AUDIT_DIHAPUS"
+        if tertahan:
+            kategori += "+TERKIRIM_HILANG_DARI_LIST"
         if dipakai_lain:
             kategori += "+NAMA_DIPAKAI_BARIS_LAIN"
         if st_audit == mg.STATUS_TERKUNCI and draft and not terkirim:
@@ -238,7 +254,7 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
         # Urutan: dokumen terkirim ditulis TERAKHIR supaya URL terakhir kunci ini
         # menunjuk dokumen terkirim (dokumen_per_kunci: URL terakhir menang).
         dicatat = False
-        for d in draft + terkirim:
+        for d in draft + ditolak + terkirim:
             # `hilang`: dokumen yang ditunjuk audit sudah tidak ada (mis. dokumen GANDA yang
             # dihapus admin lewat hapus_ganda) -> dokumen bernama sama yang TERSISA dicatat
             # ulang walau id-nya pernah tercatat. Tanpa ini DOKUMEN_DIHAPUS di atas membuat
@@ -264,10 +280,20 @@ def rencana_sinkron(sumber_rows: list[tuple[str, GabunganRow, str]], items: list
             if st_audit != mg.STATUS_TERKUNCI:
                 tulis.append(baris_audit(STATUS_DRAFT_SERVER, draft[0],
                                          f"audit '{st_audit}' tapi server masih DRAFT — kirim ulang lewat URL"))
+        # Ditolak PML (hanya kalau tidak ada dokumen lain yg terkirim/draft utk baris ini). Sidik isi
+        # sheet SEKARANG dicatat: bot baru mengisi ulang sesudah baris dikoreksi (mesin.menunggu_koreksi).
+        # Catatan: list bisa basi sesaat sesudah bot mengirim ulang -> ditandai lagi dgn sidik baru ->
+        # menunggu koreksi berikutnya (aman: tidak ada yang terkirim dua kali).
+        if ditolak and not terkirim and not draft and (st_audit != mg.STATUS_DITOLAK or dicatat):
+            tulis.append(baris_audit(mg.STATUS_DITOLAK, ditolak[0], mg.pesan_ditolak(
+                f"sinkron list API: {ditolak[0].get('assignmentStatusAlias')}", getattr(row, "sidik_sumber", ""))))
         # Ditulis PALING BELAKANG: status terakhir per kunci yang menentukan
         # apakah baris ini dikerjakan lagi.
         galat_draft = next((d for d in draft if int(d.get("sumError") or 0) > 0), None)
-        if galat_draft and not terkirim and (st_audit != STATUS_DRAFT_GALAT or dicatat):
+        # DOKUMEN_TERKUNCI juga TIDAK ditimpa tanda galat: dokumennya read-only, bot tidak bisa
+        # membereskan galatnya -> dulu berputar TERKUNCI -> DRAFT_GALAT -> dibuka -> TERKUNCI
+        # (2026-09-29, 2627 baris 1144: 4 putaran; 6 draft "masih draft tapi tidak bisa submit").
+        if galat_draft and not terkirim and st_audit != mg.STATUS_TERKUNCI and (st_audit != STATUS_DRAFT_GALAT or dicatat):
             tulis.append(baris_audit(
                 STATUS_DRAFT_GALAT, galat_draft,
                 f"server menandai {galat_draft.get('sumError')} galat "

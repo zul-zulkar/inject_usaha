@@ -114,6 +114,12 @@ STATUS_DRAFT_GALAT = "DRAFT_GALAT_DI_SERVER"
 # Dokumen tercatat sudah DIHAPUS admin (dibuktikan list API, lihat sinkron_list.py):
 # catatan dokumen kunci itu sebelum baris ini gugur -> baris dibuatkan dokumen baru.
 STATUS_DIHAPUS = "DOKUMEN_DIHAPUS"
+# Dokumen DITOLAK PML (server "REJECTED BY Pengawas"; ditulis sinkron_list / terapkan_daftar_draft).
+# Bukan status tuntas, TAPI baris baru dikerjakan lagi kalau isi sheet-nya SUDAH BERUBAH sejak
+# ditolak (ketetapan user 2026-09-29: sheet dikoreksi dulu sesuai catatan PML, baru bot mengisi
+# ulang & mengirim) — mengirim ulang isi yang sama = ditolak lagi. Sidik isi baris saat ditandai
+# dicatat di error_message ("sidik_sheet=<hex>", lihat pesan_ditolak / sidik_ditolak_dari).
+STATUS_DITOLAK = "DITOLAK_PML"
 # Dokumen kemungkinan TERBUAT tapi URL-nya tidak tertangkap (toast "berhasil
 # dibuat" muncul sebelum navigasi ke /entry). Dulu `STOP_DOKUMEN_TANPA_URL` &
 # menghentikan batch; sejak 2026-09-23 (permintaan user: run malam tidak boleh
@@ -419,6 +425,31 @@ def _id_dokumen(url: str) -> str:
     if len(bagian) >= 2 and bagian[-1] == "entry":
         return bagian[-2]
     return url.strip()
+
+
+def pesan_ditolak(asal: str, sidik: str) -> str:
+    """error_message baris DITOLAK_PML (sidik isi baris sheet saat ditandai)."""
+    return f"{asal} — koreksi baris di sheet sesuai catatan PML, bot mengirim ulang sesudahnya | sidik_sheet={sidik}"
+
+
+def sidik_ditolak_dari(baris: list[dict]) -> dict:
+    """{kunci: sidik sheet saat ditandai} utk kunci yang status TERAKHIR-nya DITOLAK_PML."""
+    akhir = status_terakhir_dari(baris)
+    out: dict = {}
+    for b in baris:
+        k = b.get("kunci")
+        if k and b.get("status") == STATUS_DITOLAK and akhir.get(k) == STATUS_DITOLAK:
+            m = re.search(r"sidik_sheet=([0-9a-f]*)", b.get("error_message") or "")
+            out[k] = m.group(1) if m else ""
+    return out
+
+
+def menunggu_koreksi(row, sidik_ditolak: dict) -> bool:
+    """Baris DITOLAK_PML yang sheet-nya BELUM dikoreksi (sidik sama / tak diketahui) -> jangan dikerjakan."""
+    if row.kunci not in sidik_ditolak:
+        return False
+    lama, kini = sidik_ditolak[row.kunci], getattr(row, "sidik_sumber", "")
+    return not lama or not kini or lama == kini
 
 
 def dokumen_per_kunci() -> dict:
@@ -1301,6 +1332,8 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
                     help="Alur LAMA: dokumen dibuat di idsubsls baris oleh akun PPL baris")
     ap.add_argument("--maks-error-beruntun", type=int, default=3,
                     help="Hentikan batch setelah N baris ERROR_* berturut-turut (mis. VPN putus). 0 = jangan berhenti.")
+    ap.add_argument("--kirim-ulang-ditolak", action="store_true",
+                    help="kerjakan baris DITOLAK_PML walau isi sheet belum dikoreksi (kirim ulang apa adanya)")
     ap.add_argument("--coba-terkunci", action="store_true",
                     help="Kerjakan lagi baris berstatus DOKUMEN_TERKUNCI (bawaan: dilewati sbg tuntas, "
                          "karena UI membuktikan dokumennya read-only). Pakai setelah admin/PML membukanya.")
@@ -1518,6 +1551,13 @@ def main(argv: list[str] | None = None, perintah: str = PERINTAH):
                 if not tuntas_menurut_audit(sudah.get(r.kunci, ""), tuntas,
                                             r.punya_koordinat or kirim_tanpa_koordinat)]
         print(f"--lewati-selesai: {sebelum - len(rows)} baris dilewati (sudah selesai di {AUDIT_LOG_PATH}).")
+    if not args.kirim_ulang_ditolak:
+        sidik_tolak = sidik_ditolak_dari(_baca_audit())
+        tunggu = [r for r in rows if menunggu_koreksi(r, sidik_tolak)]
+        if tunggu:
+            print(f"{len(tunggu)} baris DITOLAK PML dilewati — isi sheet belum berubah sejak ditolak (koreksi dulu, "
+                  f"atau --kirim-ulang-ditolak): {', '.join(str(r.baris) for r in tunggu[:20])}")
+            rows = [r for r in rows if r not in tunggu]
     # URUTAN KERJA (permintaan user 2026-09-23): bereskan yang sudah ada dulu,
     # dokumen BARU paling belakang.
     #   1. dokumen yang ditandai GALAT oleh server  -> paling mendesak

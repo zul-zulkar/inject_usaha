@@ -34,7 +34,7 @@ KODE_KAB = "5108"
 
 # Kodepos per DESA (10 digit pertama idsubsls). Sheet input usaha tidak punya kolom kodepos
 # (boleh ditambah: kolom 'kodepos'), jadi kodepos diambil dari sini. Desa yang tidak ada ->
-# baris ditolak SKIP_DATA_KODEPOS_TIDAK_DIKETAHUI (tidak ditebak).
+# kodepos 99999 ("tidak tahu" menurut form); TAHAP2_KODEPOS_KOSONG_JADI = "" -> baris ditolak.
 # KODEPOS_BY_DESA = {
 #     "5108010008": "81155",
 # }

@@ -58,9 +58,10 @@ from inti.config import (
     TAHAP2_PENGELUARAN_NOL_JADI_MINIMAL, TAHAP2_16B_YA_TUNGGAL, TAHAP2_PEMBEDA_WILAYAH_UTK_KEMBAR,
     TAHAP2_PENDAPATAN_ONLINE_JIKA_PESANAN, TAHAP2_PENGUSAHA_KOSONG_AWALAN,
     TAHAP2_TANDAI_KBLI_TIDAK_NYAMBUNG, TAHAP2_KOREKSI_BUMDES, KATA_UMUM_KBLI,
-    TAHAP2_JALAN_KOSONG_DARI_WILAYAH, TAHAP2_13A_KOSONG_DARI_KBLI, TAHAP2_KOREKSI_BARIS, WILAYAH_BY_IDSUBSLS,
+    TAHAP2_JALAN_KOSONG_DARI_WILAYAH, TAHAP2_13A_KOSONG_DARI_KBLI, TAHAP2_KOREKSI_BARIS, TAHAP2_BARIS_SALINAN, WILAYAH_BY_IDSUBSLS,
     TAHAP2_27D_LEBIH_100_JADI_100, TAHAP2_GAJI_PER_PEKERJA_DINAIKKAN, TAHAP2_KODEPOS_DARI_KECAMATAN,
-    TAHAP2_KODEPOS_KECAMATAN_MIN_DESA, TAHAP2_NIK_KOSONG_JADI, TAHAP2_PEKERJA_STATUS_NOL_DARI_JK,
+    TAHAP2_KODEPOS_KECAMATAN_MIN_DESA, TAHAP2_KODEPOS_KOSONG_JADI, TAHAP2_NIK_KOSONG_JADI,
+    TAHAP2_PEKERJA_STATUS_NOL_DARI_JK,
     TAHAP2_PISAHKAN_NAMA_TERMUAT, TAHAP2_BEDAKAN_NAMA_BENTROK, PETA_SLS_PATH, MAKS_KARAKTER_13A,
     MAKS_KARAKTER_13F, MAKS_KARAKTER_13E, TAHAP2_TAHUN_OPERASI_MASA_DEPAN_JADI, TAHAP2_UANG_KECIL_JADI_RIBUAN,
 )
@@ -68,7 +69,7 @@ from inti.gabungan_loader import (
     GAJI_MIN_PER_PEKERJA_DIBAYAR, KEY_16B, KEY_26, KEY_27, KEY_28, KEY_29, KEY_PEKERJA, MAKS_8B, OPSI_FORM,
     YA_TIDAK, GabunganRow, Pemeriksaan, _norm_judul, _pasangan_termuat, _sel, format_nama_usaha, hp_valid, judul_dari_opsi_kbli, koreksi_bumdes, kbli_26b_wajib_positif,
     kbli_kategori_ditolak, kbli_makan_minum, kbli_punya_30c, kbli_tanpa_26c,
-    koordinat_kosong, koordinat_valid, lengkapi_alamat, nama_muat, nama_tampil, nik_valid, periksa_semua,
+    koordinat_kosong, koordinat_valid, lengkapi_alamat, nama_muat, nama_tampil, nik_valid, periksa_baris, periksa_semua,
     ringkas_rincian,
 )
 
@@ -519,7 +520,8 @@ def kodepos_untuk(idsubsls: str, dari_sheet: str = "", cadangan: str = "") -> st
     kolom sheet -> KODEPOS_BY_IDSUBSLS (persis) -> KODEPOS_BY_DESA ->
     mayoritas KODEPOS_BY_IDSUBSLS desa yang sama -> kecamatan yang seragam
     (kodepos_kecamatan) -> `cadangan` (--kodepos).
-    Semuanya kosong -> "" (baris di-skip WAJIB_KOSONG, tidak ditebak)."""
+    Semuanya kosong -> "" (tidak ditebak). load_tahap2 lalu mengisi TAHAP2_KODEPOS_KOSONG_JADI
+    ("99999" = "tidak tahu" menurut form); saklar itu "" -> baris di-skip WAJIB_KOSONG."""
     return _kodepos_dan_sumber(idsubsls, dari_sheet, cadangan)[0]
 
 
@@ -588,6 +590,8 @@ class Tahap2Row(GabunganRow):
     # TAHAP2_KOREKSI_BARIS {"nomori": True}: baris yang isinya IDENTIK tetap diinput,
     # dibedakan nomor urut (ketetapan user per kelompok baris).
     nomori_identik: bool = False
+    # TAHAP2_BARIS_SALINAN: nomor baris ASLI kalau baris ini salinan (0 = bukan) -> dilewati.
+    salinan_dari: int = 0
     # Penanda yang ditambahkan putaran 3 (desa / kecamatan / nomor). Kalau pembeda HANYA
     # berisi ini, nama dokumen jatuh ke "<penanda> (<12a>)" -> dirapikan putaran 5.
     penanda_kembar: str = ""
@@ -1402,6 +1406,10 @@ def _v_dari_sheet(sel: dict, kodepos_cadangan: str) -> tuple[dict, dict, dict, l
     if sumber_kodepos == "kecamatan":
         catatan.append(f"kodepos desa {v['idsubsls'][:10]} tidak ada di daftar -> {v['kodepos']} (semua desa lain "
                        f"di kecamatan {v['idsubsls'][4:7]} berkodepos sama)")
+    elif not v["kodepos"] and TAHAP2_KODEPOS_KOSONG_JADI:
+        v["kodepos"] = TAHAP2_KODEPOS_KOSONG_JADI
+        catatan.append(f"kodepos desa {v['idsubsls'][:10]} tidak diketahui -> '{v['kodepos']}' "
+                       "(petunjuk form: responden tidak tahu = 99999)")
     elif v["kodepos"] and not sel.get("kodepos"):
         catatan.append(f"kodepos {v['kodepos']} dari daftar wilayah (tidak ada kolomnya di sheet)")
     # Identitas PPL sheet. Email dipakai kalau sheet punya kolomnya; kalau tidak,
@@ -1520,7 +1528,52 @@ def load_tahap2(path: str | Path, kodepos: str = "") -> list[Tahap2Row]:
             if baru != lama:
                 row.v[key] = baru
                 row.koreksi.append(f"{rincian} {len(lama)} karakter > {maks} -> diringkas: '{baru}'")
+    tandai_salinan(out, TAHAP2_BARIS_SALINAN.get(path.name, ""), path.name)
     return out
+
+
+def urai_salinan(teks: str) -> dict[int, int]:
+    """"220-221:214, 471-589:352, 1679:1676" -> {salinan: asli}."""
+    peta: dict[int, int] = {}
+    for bagian in filter(None, (b.strip() for b in (teks or "").split(","))):
+        m = re.fullmatch(r"(\d+)(?:\s*-\s*(\d+))?\s*:\s*(\d+)", bagian)
+        if not m:
+            raise ValueError(f"TAHAP2_BARIS_SALINAN: format '<salinan>[-<akhir>]:<asli>', bukan {bagian!r}")
+        awal, akhir, asli = int(m.group(1)), int(m.group(2) or m.group(1)), int(m.group(3))
+        if akhir < awal or asli >= awal:
+            raise ValueError(f"TAHAP2_BARIS_SALINAN {bagian!r}: rentang terbalik / asli harus sebelum salinan")
+        for i in range(akhir - awal + 1):
+            peta[awal + i] = asli + i
+    return peta
+
+
+def tandai_salinan(rows: list[Tahap2Row], teks: str, nama_berkas: str = "") -> None:
+    """TAHAP2_BARIS_SALINAN (2026-09-29, blok dobel input_tahap2_2627 versi 2.632 baris: 471-589 =
+    salinan 352-470, tidak persis sama — bujur '114.92144' vs '114.921440', 26b/26c tertukar).
+    Dipanggil SESUDAH pembeda, jadi nama & kunci baris asli TETAP seperti sebelumnya: 16 pasangan
+    yang sempat dinomori ('… 1'/'… 2') dan sudah terkirim tetap dikenali audit lewat kunci aslinya.
+    Salinan wajib cocok aslinya (kunci dasar + 13f + 13a); tidak -> ValueError (nomor baris
+    bergeser, JANGAN menebak baris mana yang salinan)."""
+    peta = urai_salinan(teks)
+    if not peta:
+        return
+    per_baris = {r.baris: r for r in rows}
+    salah = []
+    for b_salin, b_asli in sorted(peta.items()):
+        rs, ra = per_baris.get(b_salin), per_baris.get(b_asli)
+        if rs is None or ra is None:
+            salah.append(f"{b_salin}:{b_asli} (baris tidak ada)")
+            continue
+        sama = (rs._kunci_dasar() == ra._kunci_dasar()
+                and all(" ".join(rs[k].split()).upper() == " ".join(ra[k].split()).upper()
+                        for k in ("produk", "keg_utama")))
+        if not sama:
+            salah.append(f"{b_salin}:{b_asli} ({rs.nama!r} vs {ra.nama!r})")
+            continue
+        rs.salinan_dari = b_asli
+    if salah:
+        raise ValueError(f"TAHAP2_BARIS_SALINAN {nama_berkas}: {len(salah)} pasangan tidak cocok — nomor "
+                         f"baris bergeser? Perbaiki config_lokal. Contoh: {'; '.join(salah[:5])}")
 
 
 def pengusaha_cadangan(nama_usaha: str) -> tuple[str, str]:
@@ -1689,7 +1742,15 @@ def periksa_semua_tahap2(rows: list[Tahap2Row], tahun_berjalan: int | None = Non
     `cek_total=False` mematikan pembandingan kolom total (dipakai kalau
     sheet-nya belum mengisi kolom itu dgn benar). `izinkan_tanpa_koordinat`
     lihat gabungan_loader.periksa_baris."""
-    hasil = periksa_semua(rows, tahun_berjalan, mode_satu_subsls, izinkan_tanpa_koordinat)
+    # Baris salinan (TAHAP2_BARIS_SALINAN) tidak ikut pemeriksaan lintas baris: kalau ikut, baris
+    # ASLI-nya ter-skip BARIS_GANDA / NAMA_TUMPANG_TINDIH gara-gara salinannya sendiri.
+    salinan = [r for r in rows if getattr(r, "salinan_dari", 0)]
+    hasil = periksa_semua([r for r in rows if not getattr(r, "salinan_dari", 0)], tahun_berjalan,
+                          mode_satu_subsls, izinkan_tanpa_koordinat)
+    for r in salinan:
+        hasil[r.baris] = periksa_baris(r, tahun_berjalan, mode_satu_subsls, izinkan_tanpa_koordinat)
+        hasil[r.baris].masalah.insert(0, ("BARIS_SALINAN", f"salinan baris {r.salinan_dari} (blok dobel di "
+                                                           "sheet, TAHAP2_BARIS_SALINAN) — dilewati"))
     for row in rows:
         h = hasil[row.baris]
         if baris_contoh(row):
