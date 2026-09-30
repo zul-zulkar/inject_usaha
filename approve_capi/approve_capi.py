@@ -18,6 +18,9 @@ fasih-web (web-entry) hanya membuka dokumen PAPI, jadi alurnya tiga langkah:
   3. KEMBALIKAN KE CAPI (Console yang sama): await approveCapi.keCapi() -> unduh().
      Hanya dokumen yang diganti alat ini DAN sudah APPROVED.
 
+PARALEL LANGKAH 1 & 3 DI SATU BROWSER: berkas .siap.js yang sama di beberapa tab, kePapi({bagian: "k/n"}) /
+keCapi({bagian: "k/n"}) per tab (dokumen dibagi lewat hash id); unduh() di satu tab = CSV gabungan semua bagian.
+
 PARALEL DALAM SATU PC: --paralel K -> K bot approve bersamaan (PML dibagi per jumlah dokumen, satu akun tidak
 pernah di dua bot), satu YA utk semua, keluaran berawalan [bot k] + log per bot di approve_capi/hasil/.
 
@@ -213,7 +216,9 @@ def main() -> int:
             ap.error(f"opsi tidak dikenal utk --console: {terus}")
         path = tulis_console(daftar)
         print(f"Console siap: {path}\nTempel di Console fasih-sm (halaman Data survei, akun admin), lalu:\n"
-              "  await approveCapi.periksa()\n  await approveCapi.kePapi()\n  approveCapi.unduh()                     // simpan CSV di bahan/")
+              "  await approveCapi.kePapi()\n  approveCapi.unduh()                     // simpan CSV di bahan/\n"
+              "Paralel (berkas yang sama di beberapa tab): tab 1 await approveCapi.kePapi({bagian: \"1/4\"}), "
+              "tab 2 {bagian: \"2/4\"}, ... lalu unduh() di satu tab (gabungan semua bagian).")
         return 0
 
     paths = [Path(h) for h in args.hasil] if args.hasil else cari_csv()

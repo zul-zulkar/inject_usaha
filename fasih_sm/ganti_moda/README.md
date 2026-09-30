@@ -51,10 +51,20 @@ semuaKeCapi.unduh()                      // CSV bukti
   (`{ulangi: true}` memaksa, sesudah dicek di fasih-sm).
 - Berhenti juga di `STATUS_BERUBAH`, `GANTI_DITOLAK`, `SERVER_SIBUK`, 5 detail gagal beruntun, sesi habis.
 - Aman diulang kapan saja (mis. tiap hari) untuk dokumen yang baru APPROVED.
-- **Terputus (HTTP 401 / sesi habis / tab ditutup):** login ulang, muat ulang halaman Data, tempel berkasnya lagi,
-  lalu `jalankan()` dengan bagian yang **sama**. Sisanya dilanjutkan dari daftar tersimpan; daftar PAPI tidak
-  dibaca ulang. Dokumen yang sudah dikirim sebelum putus dicek, tidak dikirim ulang. Daftar yang sudah tuntas
-  membuat run berikutnya membaca daftar baru. `{telusurUlang: true}` memaksa baca ulang.
+- **HTTP 401 (sesi habis):** skrip menunggu tanpa batas ("🔑 … Login ulang di TAB LAIN"). Login ulang di tab
+  lain tanpa memuat ulang tab yang berjalan; skrip lanjut sendiri. `{tungguLoginMs: 0}` = langsung berhenti.
+  Supaya login ulangnya juga otomatis, pasang tab penjaga: [`../login_otomatis`](../login_otomatis/README.md).
+- **Kalau tetap harus dijalankan ulang** (bot dihentikan / tab dimuat ulang): login ulang, muat ulang halaman Data,
+  tempel berkasnya lagi, lalu `jalankan()` dengan bagian yang **sama**. Yang sudah dipindah ke CAPI dilewati tanpa
+  request; daftar PAPI tidak dibaca ulang. Dokumen yang sudah dikirim sebelum putus dicek, tidak dikirim ulang.
+  Daftar yang sudah tuntas membuat run berikutnya membaca daftar baru. `{telusurUlang: true}` memaksa baca ulang.
+- **HTTP 429 / server sibuk:**
+  - change-mode yang dijawab 429 dicek statusnya, lalu dikirim ulang (maks 5×, jeda 5–60 detik).
+  - Dokumen yang tetap sibuk ditunda ke akhir run dan dicoba sekali lagi.
+  - Baru 3 dokumen sibuk berturut-turut yang menghentikan batch.
+- **Kecepatan:** jeda bawaan 0,4 detik antar-request dan 0,3–0,8 detik antar-dokumen. Jedanya adaptif: tiap 429/5xx
+  menggandakan semua jeda (maks 8×), dan jeda turun lagi saat server lancar. Bisa diperlebar, mis.
+  `jalankan({jarakRequestMs: 800})`.
 - Jumlah bagian bebas: 10 bagian = `{bagian: "1/10"}` … `{bagian: "10/10"}`, langsung di Console, tanpa berkas
   `.siap.js`. Semua tab wajib memakai jumlah bagian yang sama. Makin banyak bagian, makin berat beban server
   (±1,25 request/detik per tab).
@@ -63,23 +73,23 @@ semuaKeCapi.unduh()                      // CSV bukti
 
 ## Status penting
 
-| Status | Arti |
-| --- | --- |
-| `DIUBAH_TERVERIFIKASI` / `KODE_SUDAH_PAPI` | tuntas |
-| `DIUBAH_MENUNGGU` | sudah diklik, menunggu terbaca PAPI — **jangan klik manual lagi** |
-| `KODE_TIDAK_ADA` / `KODE_TIDAK_TAMPIL` | kode tidak ditemukan / di halaman lain — cek manual; batch lanjut |
-| ⛔ `DIUBAH_BELUM_TERVERIFIKASI` | 15 menit belum PAPI — cek di fasih-sm sebelum mengulang |
-| ⛔ `PENCARIAN_TIDAK_MENYARING`, `KODE_GANDA`, `CENTANG_TIDAK_SESUAI` | tampilan tidak sesuai dugaan — lepas centang manual, laporkan |
-| ⛔ `RATE_LIMIT` | server membalas 429 terus — tunggu, jalankan lagi |
+| Status                                                                    | Arti                                                                    |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `DIUBAH_TERVERIFIKASI` / `KODE_SUDAH_PAPI`                            | tuntas                                                                  |
+| `DIUBAH_MENUNGGU`                                                       | sudah diklik, menunggu terbaca PAPI —**jangan klik manual lagi** |
+| `KODE_TIDAK_ADA` / `KODE_TIDAK_TAMPIL`                                | kode tidak ditemukan / di halaman lain — cek manual; batch lanjut      |
+| ⛔`DIUBAH_BELUM_TERVERIFIKASI`                                          | 15 menit belum PAPI — cek di fasih-sm sebelum mengulang                |
+| ⛔`PENCARIAN_TIDAK_MENYARING`, `KODE_GANDA`, `CENTANG_TIDAK_SESUAI` | tampilan tidak sesuai dugaan — lepas centang manual, laporkan          |
+| ⛔`RATE_LIMIT`                                                          | server membalas 429 terus — tunggu, jalankan lagi                      |
 
 ## Berkas
 
-| Berkas | Isi |
-| --- | --- |
-| `ubah_moda.py` | baca daftar/sheet → target, `--console` suntik ke template; jalur Playwright lama (`--petakan`/`--eksekusi`) |
-| `ubah_moda_console.js` | logika Console (cari, centang, menu, verifikasi, antrean cek ulang, 429) |
-| `semua_ke_capi_console.js` | semua PAPI APPROVED → CAPI lewat API `change-mode` (tempel langsung) |
-| `hasil/` | `ubah_moda_console.siap.js`, `target_ubah_moda.csv`, audit & profil jalur Playwright |
+| Berkas                       | Isi                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `ubah_moda.py`             | baca daftar/sheet → target,`--console` suntik ke template; jalur Playwright lama (`--petakan`/`--eksekusi`) |
+| `ubah_moda_console.js`     | logika Console (cari, centang, menu, verifikasi, antrean cek ulang, 429)                                           |
+| `semua_ke_capi_console.js` | semua PAPI APPROVED → CAPI lewat API`change-mode` (tempel langsung)                                             |
+| `hasil/`                   | `ubah_moda_console.siap.js`, `target_ubah_moda.csv`, audit & profil jalur Playwright                           |
 
 Uji: `python tests/test_ubah_moda.py`, `node tests/test_semua_ke_capi_console.js`, `node tests/test_ubah_moda_console.js` (8 kegagalan lama:
 `normalisasiKode()` di Console sengaja tidak lagi mengurai kode, ujinya masih mengharapkan bentuk

@@ -24,7 +24,7 @@ bisa menduplikasinya. Semua nilai milik Buleleng bisa diganti lewat `inti/config
 | [`approve_pml/`](approve_pml/) | Approve dokumen oleh akun PML (fasih-web) | [README](approve_pml/README.md) |
 | [`approve_capi/`](approve_capi/) | Approve assignment CAPI: ganti ke PAPI → approve banyak PML → kembalikan ke CAPI | [README](approve_capi/README.md) |
 | [`monitoring/`](monitoring/) | **Rekap hasil input** per kecamatan/desa/SLS/PPL: semua status + dokumen ganda → Excel & dasbor HTML | [README](monitoring/README.md) |
-| [`fasih_sm/`](fasih_sm/) | Alat Console fasih-sm: `ganti_moda`, `buka_wilayah`, `tandai_selesai`, `pindah_wilayah`, `hapus_ganda` | [README](fasih_sm/README.md) |
+| [`fasih_sm/`](fasih_sm/) | Alat Console fasih-sm: `ganti_moda`, `buka_wilayah`, `tandai_selesai`, `pindah_wilayah`, `hapus_ganda`, `login_otomatis` (userscript penjaga sesi) | [README](fasih_sm/README.md) |
 | [`reset_mitra/`](reset_mitra/) | Samakan password akun PPL (manajemen-mitra, Console) | [README](reset_mitra/README.md) |
 | [`koordinat/`](koordinat/) | Perbaiki / ganti koordinat yang rusak atau di luar subsls | [README](koordinat/README.md) |
 | [`antar_pc/`](antar_pc/) | Kerja di beberapa PC: bungkus zip, pindah struktur, gabung audit & ID | [README](antar_pc/README.md) |

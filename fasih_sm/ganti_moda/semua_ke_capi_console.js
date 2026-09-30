@@ -11,7 +11,10 @@
  *   await semuaKeCapi.jalankan()              // baca daftar PAPI segar -> jumlah per status -> ketik YA -> ganti
  *   semuaKeCapi.unduh()                       // CSV semua_ke_capi_<waktu>.csv (bukti)
  * Selain YA di prompt = batal (tidak ada yang diubah). {limit: N} opsional.
- * LANJUT SESUDAH TERPUTUS (401, tab ditutup): daftar kandidat disimpan per bagian; jalankan() lagi dgn bagian yang
+ * 401 (sesi habis): TIDAK berhenti — menunggu login ulang (tab lain / tab penjaga userscript) TANPA BATAS (tungguLoginMs), lalu lanjut.
+ * 429/5xx: jeda adaptif (x2 tiap tolak, maks x8; x0,9 tiap sukses); change-mode 429 -> cek status, kirim ulang (maks 5x);
+ * SERVER_SIBUK -> ditunda ke akhir run; baru 3 dokumen sibuk beruntun yang menghentikan batch.
+ * LANJUT SESUDAH TERPUTUS (401 lewat batas, tab ditutup): daftar kandidat disimpan per bagian; jalankan() lagi dgn bagian yang
  * sama melanjutkan sisanya TANPA membaca ulang daftar PAPI ({telusurUlang: true} memaksa baca ulang). Daftar yang
  * sudah tuntas -> run berikut otomatis membaca daftar baru (dokumen yang baru APPROVED).
  * PARALEL (beberapa tab/PC): tab 1 jalankan({bagian: "1/4"}), tab 2 {bagian: "2/4"}, … — dokumen dibagi lewat hash id,
@@ -38,7 +41,8 @@
   // Logika murni — diuji: node tests/test_semua_ke_capi_console.js
   // -------------------------------------------------------------------------
   const PANJANG_HALAMAN = 150; // datatable analytic menolak length > 150
-  const BATAS_ULANG = 6;
+  const BATAS_ULANG = 10;         // request BACA yang 429/5xx diulang s.d. ini (±7 mnt total) sebelum SERVER_SIBUK
+  const MAKS_SIBUK_BERUNTUN = 3;  // dokumen SERVER_SIBUK beruntun sebanyak ini -> batch berhenti (satu-dua = dilewati)
   const HTTP_SIBUK = new Set([0, 429, 502, 503, 504]);
   const ST = {
     OK: "DIGANTI_CAPI_TERVERIFIKASI",
@@ -47,7 +51,9 @@
   };
   const KOLOM_CSV = ["id", "kode_identitas", "nama", "status", "status_dokumen", "mode", "diganti", "pesan"];
   // Status yang menghentikan batch (anomali: jangan diteruskan ke dokumen lain).
-  const BERHENTI = new Set([ST.BELUM, "STATUS_BERUBAH", "GANTI_DITOLAK", "SERVER_SIBUK"]);
+  // SERVER_SIBUK TIDAK di sini: dokumen itu ditunda ke akhir run & dicoba sekali lagi; baru MAKS_SIBUK_BERUNTUN dokumen
+  // sibuk berturut-turut yang menghentikan batch (dulu satu 429 saat change-mode = seluruh batch berhenti).
+  const BERHENTI = new Set([ST.BELUM, "STATUS_BERUBAH", "GANTI_DITOLAK"]);
   const MAKS_TIDAK_TERBACA = 5; // detail gagal beruntun -> sesi/server bermasalah, berhenti
 
   const norm = (s) => String(s == null ? "" : s).trim().toLowerCase();
@@ -89,12 +95,21 @@
     return [[dari, m], [m, sampai]];
   }
 
+  /** Tunggu sebelum mengulang request yang kena 429/5xx: Retry-After server, atau 5, 10, 20, 40, 60, 60, … dtk. */
   function jedaUlang(ke, retryAfter) {
     const detik = Number(retryAfter);
     if (retryAfter != null && retryAfter !== "" && Number.isFinite(detik) && detik >= 0) {
-      return Math.min(Math.max(detik * 1000, 5000), 300000);
+      return Math.min(Math.max(detik * 1000, 3000), 300000);
     }
-    return Math.min(15000 * 2 ** ke, 120000);
+    return Math.min(5000 * 2 ** ke, 60000);
+  }
+
+  /** Laju adaptif: semua jeda dikali faktor ini — x2 tiap 429/5xx/gagal jaringan (maks x8), x0,9 tiap sukses (min x1).
+   *  Jadi jeda bawaan bisa kecil: melambat sendiri saat server menolak, cepat lagi saat lancar. */
+  function faktorBaru(faktor, status) {
+    if (HTTP_SIBUK.has(status)) return Math.min(8, faktor * 2);
+    if (status >= 200 && status < 300) return Math.max(1, faktor * 0.9);
+    return faktor;
   }
 
   /** "k/n" -> {k, n} (1 <= k <= n) atau null (tanpa bagian). Salah tulis -> Error. */
@@ -210,7 +225,7 @@
   }
 
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { ST, KOLOM_CSV, BERHENTI, halamanData, modeDari, bodyDaftar, bagiJendela, jedaUlang, uraiBagian,
+    module.exports = { ST, KOLOM_CSV, BERHENTI, halamanData, modeDari, bodyDaftar, bagiJendela, jedaUlang, faktorBaru, uraiBagian,
       bagianDari, bentrokBagian, kandidatDari, nilaiDetail, cegahSebelum, nilaiSesudah, jedaCek, keCsv, approved,
       padat, urai, sisaDaftar, TUNTAS };
     return;
@@ -238,9 +253,15 @@
   let detakTerakhir = 0;
   let bagianTab = null;  // bagian terakhir yang dijalankan tab ini -> bawaan unduh()/ringkasan()
 
-  const OPSI_BAWAAN = { dari: "2026-01-01T00:00:00.000Z", maksJendela: 900, jarakRequestMs: 800,
-    jedaBacaMin: 1000, jedaBacaMaks: 2000, jedaTulisMin: 500, jedaTulisMaks: 1500,
-    maksMenunggu: 20, batasTungguMs: 15 * 60 * 1000 };
+  let faktor = 1;         // laju adaptif (faktorBaru): jeda x1 s.d. x8
+  let sesiHabisSejak = 0; // HTTP 401 pertama yang belum pulih (menunggu login ulang di tab lain)
+
+  // Jeda bawaan kecil (user 2026-09-30: "waktu tunggu dipersingkat") — dikali `faktor`, jadi melambat sendiri saat 429.
+  const OPSI_BAWAAN = { dari: "2026-01-01T00:00:00.000Z", maksJendela: 900, jarakRequestMs: 400,
+    jedaBacaMin: 500, jedaBacaMaks: 1000, jedaTulisMin: 300, jedaTulisMaks: 800,
+    maksMenunggu: 20, batasTungguMs: 15 * 60 * 1000,
+    tungguLoginMs: Infinity, // 401: tunggu login ulang (tab lain / tab penjaga) TANPA BATAS; angka ms = batas; 0 = langsung berhenti
+    ulangKirim429: 5 };            // change-mode yang dijawab 429: cek status, kirim ulang s.d. sekian kali
 
   const labelBagian = (b) => (b ? `.bagian-${b.k}-dari-${b.n}` : "");
   const kunciHasil = (b) => `semuaKeCapi.hasil.v1${labelBagian(b)}`; // per bagian: tab paralel tidak saling menimpa
@@ -304,7 +325,46 @@
 
   /** Request mentah dgn jarak minimal. -> {status, j, teks, retryAfter}. */
   async function kirim(o, metode, path, body) {
-    const tunggu = requestTerakhir + o.jarakRequestMs - Date.now();
+    for (;;) {
+      const r = await kirimSekali(o, metode, path, body);
+      if (r.status !== 401) {
+        if (sesiHabisSejak) log(`✅ Sesi aktif lagi sesudah ${Math.round((Date.now() - sesiHabisSejak) / 60000)} mnt — lanjut.`);
+        sesiHabisSejak = 0;
+        return r;
+      }
+      // 401 = sesi habis, request DITOLAK (tidak diproses) -> aman diulang sesudah login ulang. Tab ini JANGAN dimuat
+      // ulang; login di tab lain memperbarui cookie yang sama. Lewat batas -> dikembalikan ke pemanggil (SESI_DITOLAK).
+      if (!sesiHabisSejak) {
+        sesiHabisSejak = Date.now();
+        if (o.tungguLoginMs > 0) {
+          log(`🔑 HTTP 401 — sesi fasih-sm habis. Login ulang di TAB LAIN (tab ini JANGAN dimuat ulang), atau biarkan tab `
+            + `penjaga (userscript fasih_login_otomatis) melakukannya; skrip lanjut sendiri begitu sesi aktif lagi `
+            + `(menunggu ${Number.isFinite(o.tungguLoginMs) ? `s.d. ${Math.round(o.tungguLoginMs / 60000)} mnt` : "tanpa batas; berhenti: .berhenti()"}).`);
+        }
+      }
+      // Sinyal utk tab penjaga (userscript fasih_sm/login_otomatis, origin sama): login ulang SEKARANG.
+      try { localStorage.setItem("fasihSesi.minta.v1", JSON.stringify({ t: Date.now() })); } catch (e) { /* penuh/diblokir */ }
+      if (Date.now() - sesiHabisSejak >= o.tungguLoginMs) return r;
+      await tungguPulih(20000);
+    }
+  }
+
+  let pulihTerpakai = 0; // sinyal pulih terakhir yang sudah membangunkan tab ini (tidak dipakai dua kali)
+  /** Tunggu s.d. `ms`, tapi bangun SEGERA saat tab penjaga (userscript) menulis sinyal sesi pulih yang baru. */
+  async function tungguPulih(ms) {
+    for (const akhir = Date.now() + ms; Date.now() < akhir;) {
+      await tidur(Math.min(1000, akhir - Date.now()));
+      let p = null;
+      try { p = JSON.parse(localStorage.getItem("fasihSesi.pulih.v1") || "null"); } catch (e) { /* rusak */ }
+      if (p && p.t > Math.max(sesiHabisSejak, pulihTerpakai)) {
+        pulihTerpakai = p.t;
+        return;
+      }
+    }
+  }
+
+  async function kirimSekali(o, metode, path, body) {
+    const tunggu = requestTerakhir + o.jarakRequestMs * faktor - Date.now();
     if (tunggu > 0) await sleep(tunggu);
     requestTerakhir = Date.now();
     detak();
@@ -321,9 +381,16 @@
     } catch (e) {
       teks = `fetch gagal: ${e && e.message ? e.message : e}`;
     }
+    faktor = faktorBaru(faktor, status);
     let j = null;
     try { j = JSON.parse(teks); } catch (e) { /* bukan JSON */ }
     return { status, j, teks, retryAfter };
+  }
+
+  function sesiDitolak(o) {
+    return new Berhenti("SESI_DITOLAK", `HTTP 401 — sesi habis${o.tungguLoginMs > 0 ? ` & tidak pulih dalam ${Math.round(o.tungguLoginMs / 60000)} mnt` : ""}: `
+      + "login ulang fasih-sm, muat ulang halaman Data, tempel skrip lagi, lalu jalankan() dgn bagian yang SAMA — "
+      + "dilanjutkan dari daftar tersimpan, yang sudah dipindah dilewati, tanpa menelusuri ulang");
   }
 
   /** Request BACA: galat sementara ditunggu & diulang. */
@@ -337,10 +404,7 @@
         await tidur(ms);
         continue;
       }
-      if (r.status === 401) {
-        throw new Berhenti("SESI_DITOLAK", "HTTP 401 — sesi habis: login ulang fasih-sm, muat ulang halaman Data, tempel skrip "
-          + "lagi, lalu jalankan() dgn bagian yang SAMA — dilanjutkan dari daftar tersimpan, tanpa menelusuri ulang");
-      }
+      if (r.status === 401) throw sesiDitolak(o);
       return r;
     }
   }
@@ -383,7 +447,7 @@
     while (antre.length) {
       cekHenti();
       const [a, b] = antre.shift();
-      await tidur(acak(o.jedaBacaMin, o.jedaBacaMaks));
+      await tidur(acak(o.jedaBacaMin, o.jedaBacaMaks) * faktor);
       const awal = await bacaDaftar(o, ctx, 0, a, b, "PAPI");
       if (awal.totalHit > o.maksJendela && Date.parse(b) - Date.parse(a) >= 60000) {
         antre.unshift(...bagiJendela(a, b));
@@ -398,7 +462,7 @@
       };
       simpan(awal.searchData);
       for (let start = PANJANG_HALAMAN; start < awal.totalHit; start += PANJANG_HALAMAN) {
-        await tidur(acak(o.jedaBacaMin, o.jedaBacaMaks));
+        await tidur(acak(o.jedaBacaMin, o.jedaBacaMaks) * faktor);
         const j = await bacaDaftar(o, ctx, start, a, b, "PAPI");
         if (!j.searchData.length) break;
         simpan(j.searchData);
@@ -560,12 +624,24 @@
         catat(b, k.id, { ...dasar, status: cegah.status, pesan: cegah.pesan });
         return cegah.status;
       }
-      const r = await kirim(o, "POST", `/assignment-submit/api/assignment/${encodeURIComponent(k.id)}/change-mode`, { modes: ["CAPI"] });
+      const urlGanti = `/assignment-submit/api/assignment/${encodeURIComponent(k.id)}/change-mode`;
+      let r = await kirim(o, "POST", urlGanti, { modes: ["CAPI"] });
+      // 429 = ditolak pembatas laju (TIDAK diproses): tunggu, pastikan dokumen belum berubah, lalu kirim ulang.
+      for (let u = 0; r.status === 429 && u < o.ulangKirim429; u++) {
+        const ms = jedaUlang(u, r.retryAfter);
+        log(`⏳ change-mode HTTP 429 — tunggu ${Math.round(ms / 1000)} dtk, cek status, kirim ulang (${u + 1}/${o.ulangKirim429})`);
+        await tidur(ms);
+        const cek = await detailLengkap(o, ctx, k.id, dasar.kode);
+        if (cek.ada && cek.mode === "CAPI") { r = { status: 200, j: { success: true }, teks: "", retryAfter: null }; break; }
+        if (!cek.ada || cek.alias !== det.alias) break; // keadaan berubah -> jalur verifikasi di bawah yang memutuskan
+        r = await kirim(o, "POST", urlGanti, { modes: ["CAPI"] });
+      }
+      if (r.status === 401) throw sesiDitolak(o);
       const sementara = HTTP_SIBUK.has(r.status);
       if (!sementara && !(r.status === 200 && r.j && r.j.success === true)) {
         const pesan = `HTTP ${r.status} ${(r.j && (r.j.message || r.j.error)) || r.teks.slice(0, 150)}`;
+        if (r.status === 403) throw new Berhenti("SESI_DITOLAK", pesan);
         catat(b, k.id, { ...dasar, status: "GANTI_DITOLAK", pesan });
-        if (r.status === 401 || r.status === 403) throw new Berhenti("SESI_DITOLAK", pesan);
         return "GANTI_DITOLAK";
       }
       const diganti = new Date().toISOString();
@@ -574,7 +650,7 @@
       catat(b, k.id, { ...dasar, status: ST.MENUNGGU, diganti, pesan: "change-mode dikirim — belum diverifikasi" });
       if (sementara) log(`⏳ change-mode HTTP ${r.status || "gagal jaringan"} — TIDAK dikirim ulang; status dibaca dulu.`);
       let akhir = null;
-      for (const ms of sementara ? [20000, 20000] : [1000, 3000]) {
+      for (const ms of sementara ? [10000, 20000] : [1000, 2000]) {
         await tidur(ms);
         akhir = await detailLengkap(o, ctx, k.id, dasar.kode);
         if (nilaiSesudah(akhir, det.alias) !== "BELUM") break;
@@ -602,29 +678,42 @@
     }
 
     const lama = bacaJson(kunciHasil(b), {});
+    let sibukBeruntun = 0;
+    const antrian = [...daftar]; // dokumen SERVER_SIBUK ditaruh lagi di belakang (dicoba sekali lagi)
     try {
-      for (const k of daftar) {
+      for (let i = 0; i < antrian.length; i++) {
+        const k = antrian[i];
         cekHenti();
         if (dikirim >= limit) break;
         await layaniAntrean();
         await tungguAntrean(o.maksMenunggu - 1);
         // Sudah pernah diganti tapi belum terbukti (run sebelumnya berhenti): cek ulang dulu, jangan kirim lagi.
         const rLama = urai(lama[k.id]);
-        if (rLama && [ST.MENUNGGU, ST.BELUM].includes(rLama.status) && !o.ulangi) {
+        if (!k.ditunda && rLama && [ST.MENUNGGU, ST.BELUM].includes(rLama.status) && !o.ulangi) {
           antre.push({ k, alias: rLama.statusDok || k.alias, waktu: Date.now(), ke: 0, berikut: Date.now() });
           log(`[cek ulang] ${k.id.slice(0, 8)} tercatat ${rLama.status} di run sebelumnya — dicek, tidak dikirim ulang ({ulangi: true} utk memaksa)`);
           continue;
         }
         const st = await gantiSatu(k);
-        if (st !== ST.MENUNGGU) tambah(st);
+        sibukBeruntun = st === "SERVER_SIBUK" ? sibukBeruntun + 1 : 0;
+        const tunda = st === "SERVER_SIBUK" && !k.ditunda && sibukBeruntun < MAKS_SIBUK_BERUNTUN;
+        if (tunda) {
+          k.ditunda = true;
+          antrian.push(k);
+        } else if (st !== ST.MENUNGGU) {
+          tambah(st);
+        }
         const nomor = Object.values(hitung).reduce((x, y) => x + y, 0) + antre.length;
-        log(`[${nomor}/${n}] ${st.padEnd(34)} ${k.id.slice(0, 8)} ${k.kode || k.nama}`);
+        log(`[${nomor}/${n}] ${st.padEnd(34)} ${k.id.slice(0, 8)} ${k.kode || k.nama}${tunda ? " — dicoba lagi di akhir run" : ""}`);
         tidakTerbaca = st === "TIDAK_TERBACA" ? tidakTerbaca + 1 : 0;
         if (tidakTerbaca >= MAKS_TIDAK_TERBACA) throw new Berhenti("DETAIL_GAGAL_BERUNTUN", `${tidakTerbaca} detail beruntun tidak terbaca — sesi/server bermasalah?`);
         if (BERHENTI.has(st)) throw new Berhenti(st, `dokumen ${k.id} — periksa di fasih-sm sebelum menjalankan lagi`);
-        if ([ST.OK, ST.MENUNGGU].includes(st)) {
-          dikirim++;
-          await tidur(acak(o.jedaTulisMin, o.jedaTulisMaks));
+        if (sibukBeruntun >= MAKS_SIBUK_BERUNTUN) {
+          throw new Berhenti("SERVER_SIBUK", `${sibukBeruntun} dokumen berturut-turut SERVER_SIBUK — jalankan lagi nanti (dilanjutkan dari daftar tersimpan)`);
+        }
+        if ([ST.OK, ST.MENUNGGU, "SERVER_SIBUK"].includes(st)) {
+          if (st !== "SERVER_SIBUK" || !tunda) dikirim++;
+          await tidur(acak(o.jedaTulisMin, o.jedaTulisMaks) * faktor);
         }
       }
       if (antre.length) log(`Menunggu ${antre.length} dokumen yang belum terbukti CAPI (maks ${Math.round(o.batasTungguMs / 60000)} mnt)...`);

@@ -12,11 +12,19 @@
  *   ... python approve_capi/approve_capi.py --daftar-pml <txt> --eksekusi   (approve per PML)
  *   await approveCapi.keCapi()                // kembalikan ke CAPI dokumen yang SUDAH APPROVED
  *   approveCapi.unduh()                       // bukti akhir
- * PARALEL (beberapa PC / tab): approve_capi.py --bagi N membagi daftar PML -> satu .siap.js per bagian; tiap
+ * PARALEL DI SATU BROWSER (berkas .siap.js yang SAMA di beberapa tab/jendela): tab 1 kePapi({bagian: "1/4"}),
+ * tab 2 {bagian: "2/4"}, … (dokumen dibagi lewat hash id, saling lepas). Daftar CAPI dibaca SATU tab; tab lain
+ * menunggu lalu memakai daftar tersimpannya. keCapi({bagian}) sama. Bagian yang sudah jalan di tab lain / jumlah
+ * bagian beda / tanpa bagian selagi bagian lain jalan -> ditolak. Tiap tab menulis ke kuncinya sendiri
+ * (approveCapi.hasil.v1<LABEL>.tab-k-dari-n); unduh()/ringkasan() = GABUNGAN semua bagian.
+ * PARALEL BEBERAPA PC: approve_capi.py --bagi N membagi daftar PML -> satu .siap.js per bagian; tiap
  * bagian hanya menyentuh PML-nya sendiri, catatan localStorage & CSV unduhan berlabel bagian.
  * Lain: approveCapi.unduhPerPml() (jumlah per PML, bahan --bagi --jumlah), approveCapi.ringkasan(), approveCapi.berhenti(), approveCapi.muatHasil(teksCsv) (pulihkan hasil
  * dari CSV unduhan kalau localStorage hilang / pindah browser).
- * LANJUT SESUDAH TERPUTUS (401, tab dimuat ulang): kandidat periksa() disimpan per bagian; kePapi() lagi (berkas .siap.js
+ * 401 (sesi habis): TIDAK berhenti — menunggu login ulang (tab lain / tab penjaga userscript) TANPA BATAS (tungguLoginMs), lalu lanjut.
+ * 429/5xx: jeda adaptif (x2 tiap tolak, maks x8; x0,9 tiap sukses); change-mode 429 -> cek status, kirim ulang (maks 5x);
+ * SERVER_SIBUK -> ditunda ke akhir run; baru 3 dokumen sibuk beruntun yang menghentikan batch.
+ * LANJUT SESUDAH TERPUTUS (401 lewat batas, tab dimuat ulang): kandidat periksa() disimpan; kePapi() lagi (berkas .siap.js
  * yang sama) melanjutkan sisanya TANPA membaca ulang daftar CAPI ({telusurUlang: true} memaksa baca ulang). Dokumen yang
  * change-mode-nya sudah terkirim sebelum putus (DIGANTI_PAPI_DIKIRIM) diakui PAPI_OK tanpa dikirim ulang.
  *
@@ -29,6 +37,8 @@
  * - keCapi HANYA menyentuh dokumen yang tercatat diganti oleh alat ini (bukan dokumen yang aslinya PAPI),
  *   dan hanya yang sudah APPROVED (kecuali {termasukBelumApproved: true}).
  * - Konfirmasi ketik YA tiap run (tanpa gerbang limit 1 — ketetapan user 2026-09-29). Kejanggalan -> batch berhenti.
+ * - Catatan hasil disimpan RINGKAS (±100 karakter/dokumen; format lama tetap terbaca). Gagal menyimpan (localStorage
+ *   penuh) -> PENYIMPANAN_PENUH, batch berhenti (dulu diam-diam: dokumen jadi PAPI tanpa catatan).
  *
  * API (terekam 2026-09-27, bukan tebakan): POST /assignment-submit/api/assignment/{id}/change-mode
  * body {modes:["PAPI"|"CAPI"]} -> {success, message:"Berhasil. "} (dipakai dialog "Ganti Mode" per baris).
@@ -45,7 +55,8 @@
   // Logika murni — diuji: node tests/test_approve_capi_console.js
   // -------------------------------------------------------------------------
   const PANJANG_HALAMAN = 150; // datatable analytic menolak length > 150
-  const BATAS_ULANG = 6;
+  const BATAS_ULANG = 10;         // request BACA yang 429/5xx diulang s.d. ini (±7 mnt total) sebelum SERVER_SIBUK
+  const MAKS_SIBUK_BERUNTUN = 3;  // dokumen SERVER_SIBUK beruntun sebanyak ini -> batch berhenti (satu-dua = dilewati)
   const HTTP_SIBUK = new Set([0, 429, 502, 503, 504]);
   const SUBMITTED = "SUBMITTED BY Pencacah";
   const ST = {
@@ -62,8 +73,10 @@
   const CEGAH_TUNTAS = ["BUKAN_SUBMITTED", "MODE_LAIN"];
   const KOLOM_CSV = ["id", "kode_identitas", "nama", "pml", "status", "status_dokumen", "mode", "diganti", "dikembalikan", "pesan"];
   // Status yang menghentikan batch (anomali: jangan diteruskan ke dokumen lain).
+  // SERVER_SIBUK TIDAK di sini: dokumen itu dilewati & dicoba sekali lagi di akhir run; baru MAKS_SIBUK_BERUNTUN
+  // dokumen sibuk berturut-turut yang menghentikan batch (dulu satu 429 saat change-mode = seluruh batch berhenti).
   const BERHENTI = new Set([ST.PAPI_BELUM, ST.CAPI_BELUM, "STATUS_BERUBAH", "GANTI_DITOLAK", "RESPONS_TIDAK_DIKENAL",
-    "SESI_DITOLAK", "SERVER_SIBUK"]);
+    "SESI_DITOLAK"]);
 
   const norm = (s) => String(s == null ? "" : s).trim().toLowerCase();
 
@@ -102,12 +115,21 @@
     return [[dari, m], [m, sampai]];
   }
 
+  /** Tunggu sebelum mengulang request yang kena 429/5xx: Retry-After server, atau 5, 10, 20, 40, 60, 60, … dtk. */
   function jedaUlang(ke, retryAfter) {
     const detik = Number(retryAfter);
     if (retryAfter != null && retryAfter !== "" && Number.isFinite(detik) && detik >= 0) {
-      return Math.min(Math.max(detik * 1000, 5000), 300000);
+      return Math.min(Math.max(detik * 1000, 3000), 300000);
     }
-    return Math.min(15000 * 2 ** ke, 120000);
+    return Math.min(5000 * 2 ** ke, 60000);
+  }
+
+  /** Laju adaptif: semua jeda dikali faktor ini — x2 tiap 429/5xx/gagal jaringan (maks x8), x0,9 tiap sukses (min x1).
+   *  Jadi jeda bawaan bisa kecil: melambat sendiri saat server menolak, cepat lagi saat lancar. */
+  function faktorBaru(faktor, status) {
+    if (HTTP_SIBUK.has(status)) return Math.min(8, faktor * 2);
+    if (status >= 200 && status < 300) return Math.max(1, faktor * 0.9);
+    return faktor;
   }
 
   /** Item datatable -> kandidat {id, kode, nama, pml, peran, alias, mode}. */
@@ -217,9 +239,96 @@
     });
   }
 
+  // ---- Pembagian paralel di Console: {bagian: "k/n"} -> dokumen dibagi lewat hash id (saling lepas, stabil).
+  /** "k/n" -> {k, n} (1 <= k <= n) atau null (tanpa bagian). Salah tulis -> Error. */
+  function uraiBagian(b) {
+    if (b == null || b === "") return null;
+    const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(String(b));
+    if (!m || +m[1] < 1 || +m[1] > +m[2]) throw new Error(`bagian "${b}" tidak valid — tulis mis. "1/4"`);
+    return +m[2] === 1 ? null : { k: +m[1], n: +m[2] };
+  }
+  /** Hash FNV-1a 32-bit id -> bagian 1..n. */
+  function bagianDari(id, n) {
+    let h = 0x811c9dc5;
+    for (const c of String(id)) { h ^= c.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+    return (h % n) + 1;
+  }
+  /** Label kunci localStorage/CSV bagian Console. SENGAJA beda dgn LABEL ".bagian-K-dari-N" dari approve_capi.py --bagi. */
+  const labelTab = (b) => (b ? `.tab-${b.k}-dari-${b.n}` : "");
+  /** Bagian yang sedang jalan di tab lain (["k/n" | "" = tanpa bagian]) vs bagian ini -> alasan bentrok / "". */
+  function bentrokBagian(lain, b) {
+    for (const x of lain) {
+      if (!x) return "tab lain sedang berjalan TANPA bagian";
+      if (!b) return `bagian ${x} sedang berjalan di tab lain — tab ini juga wajib memakai {bagian: "k/${x.split("/")[1]}"}`;
+      const y = uraiBagian(x);
+      if (y.n !== b.n) return `tab lain memakai pembagian ${x} — semua tab wajib memakai jumlah bagian yang sama (/${y.n})`;
+      if (y.k === b.k) return `bagian ${x} sudah berjalan di tab lain`;
+    }
+    return "";
+  }
+  /** Kunci hasil milik berkas ini (LABEL sama): kunci dasar + kunci per bagian Console. */
+  function kunciMilik(semua, dasar) {
+    return semua.filter((x) => x === dasar || (x.startsWith(`${dasar}.tab-`) && /^\.tab-\d+-dari-\d+$/.test(x.slice(dasar.length))));
+  }
+
+  // ---- Catatan hasil RINGKAS (localStorage ±5 juta karakter per situs, dipakai bersama alat lain; format panjang
+  // ±300 karakter x 22 rb dokumen tidak muat -> dulu gagal tulis DIAM-DIAM). Format lama tetap terbaca.
+  const SINGKAT = { [ST.PAPI_OK]: "P", [ST.PAPI_BELUM]: "PB", [ST.PAPI_KIRIM]: "PK", [ST.CAPI_OK]: "C", [ST.CAPI_BELUM]: "CB" };
+  const PANJANG = Object.fromEntries(Object.entries(SINGKAT).map(([a, s]) => [s, a]));
+  const ALIAS_SINGKAT = { [SUBMITTED]: "S", "APPROVED BY Pengawas": "A" };
+  const ALIAS_PANJANG = Object.fromEntries(Object.entries(ALIAS_SINGKAT).map(([a, s]) => [s, a]));
+  const MODE_DARI_STATUS = { P: "PAPI", C: "CAPI" };
+  const detik = (iso) => (iso && Number.isFinite(Date.parse(iso)) ? Math.round(Date.parse(iso) / 1000) : 0);
+  const iso = (d) => (d ? new Date(d * 1000).toISOString() : "");
+  const namaDariKode = (kode) => String(kode || "").replace(/^\d{16}\s*-\s*/, "");
+
+  /** Catatan lengkap -> ringkas. Kode identitas hanya disimpan utk status yang bukan tuntas-OK (P/C cukup id). */
+  function padatRekam(r) {
+    const s = SINGKAT[r.status] || r.status || "";
+    const v = {};
+    if (s) v.s = s;
+    if (r.kode && s !== "P" && s !== "C") v.k = r.kode;
+    if (r.pml) v.u = r.pml;
+    if (r.statusDok) v.a = ALIAS_SINGKAT[r.statusDok] || r.statusDok;
+    if (r.mode && r.mode !== MODE_DARI_STATUS[s]) v.m = r.mode;
+    if (detik(r.diganti)) v.g = detik(r.diganti);
+    if (detik(r.dikembalikan)) v.c = detik(r.dikembalikan);
+    if (r.pesan) v.e = r.pesan;
+    if (detik(r.waktu)) v.w = detik(r.waktu);
+    return v;
+  }
+  /** Ringkas (atau format lama) -> catatan lengkap {kode, nama, pml, status, statusDok, mode, diganti, dikembalikan, pesan, waktu}. */
+  function uraiRekam(v) {
+    if (!v || typeof v !== "object") return null;
+    const lama = ["status", "kode", "pml", "statusDok", "pesan", "waktu", "diganti"].some((x) => x in v);
+    if (lama) {
+      return { kode: v.kode || "", nama: v.nama || namaDariKode(v.kode), pml: v.pml || "", status: v.status || "",
+        statusDok: v.statusDok || "", mode: v.mode || "", diganti: v.diganti || "", dikembalikan: v.dikembalikan || "",
+        pesan: v.pesan || "", waktu: v.waktu || "" };
+    }
+    const s = v.s || "";
+    return { kode: v.k || "", nama: namaDariKode(v.k), pml: v.u || "", status: PANJANG[s] || s,
+      statusDok: ALIAS_PANJANG[v.a] || v.a || "", mode: v.m || MODE_DARI_STATUS[s] || "", diganti: iso(v.g),
+      dikembalikan: iso(v.c), pesan: v.e || "", waktu: iso(v.w) };
+  }
+  /** Beberapa kumpulan catatan (mentah) -> satu {id: catatan lengkap}; per id catatan dgn waktu TERBARU menang
+   *  (seri -> kumpulan belakangan). */
+  function gabungHasil(kumpulan) {
+    const hasil = {};
+    for (const isi of kumpulan) {
+      for (const [id, v] of Object.entries(isi || {})) {
+        const r = uraiRekam(v);
+        if (!r) continue;
+        if (!hasil[id] || (Date.parse(r.waktu) || 0) >= (Date.parse(hasil[id].waktu) || 0)) hasil[id] = r;
+      }
+    }
+    return hasil;
+  }
+
   if (typeof module !== "undefined" && module.exports) {
     module.exports = { ST, SUBMITTED, KOLOM_CSV, BERHENTI, halamanData, modeDari, bodyDaftar, bagiJendela, jedaUlang,
-      kandidatDari, putuskanKandidat, nilaiDetail, cegahSebelum, keCsv, dariCsv, padatDaftar, uraiDaftar, sisaTersimpan };
+      kandidatDari, putuskanKandidat, nilaiDetail, cegahSebelum, keCsv, dariCsv, padatDaftar, uraiDaftar, sisaTersimpan, faktorBaru,
+      uraiBagian, bagianDari, labelTab, bentrokBagian, kunciMilik, padatRekam, uraiRekam, gabungHasil };
     return;
   }
 
@@ -227,8 +336,14 @@
   // Interaksi halaman (hanya berjalan di browser)
   // -------------------------------------------------------------------------
   const API = "/app/api";
-  const KUNCI_HASIL = `approveCapi.hasil.v1${LABEL}`; // per bagian: beberapa tab tidak saling menimpa
-  const KUNCI_DAFTAR = `approveCapi.daftar.v1${LABEL}`; // kandidat periksa() terakhir -> kePapi melanjutkan tanpa baca ulang
+  // Kunci per berkas .siap.js (LABEL dari --bagi) + per bagian Console (.tab-k-dari-n): tiap tab MENULIS ke kuncinya
+  // sendiri, MEMBACA gabungan semua kunci berkas ini (catatan terbaru menang).
+  const KUNCI_HASIL = `approveCapi.hasil.v1${LABEL}`;
+  const KUNCI_DAFTAR = `approveCapi.daftar.v1${LABEL}`; // SEMUA kandidat periksa() terakhir (bersama utk semua bagian)
+  const KUNCI_JALAN = `approveCapi.jalan.v1${LABEL}`;   // tab yang sedang kePapi/keCapi: {id tab: {bagian, t}}
+  const KUNCI_MEMBACA = `approveCapi.membaca.v1${LABEL}`; // tab yang sedang membaca daftar CAPI: {tab, t}
+  const HIDUP_MS = 3 * 60 * 1000; // tanpa tanda hidup selama ini = tab itu dianggap sudah berhenti/ditutup
+  const ID_TAB = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const acak = (a, b) => a + Math.floor(Math.random() * (Math.max(a, b) - a + 1));
   const log = (...a) => console.log("%c[approveCapi]", "color:#b8541d;font-weight:bold", ...a);
@@ -241,20 +356,45 @@
   let hentikan = false;
   let requestTerakhir = 0;
   let kandidatTerakhir = null;
+  let kunciTulis = KUNCI_HASIL; // kunci hasil run yang sedang jalan (per bagian)
+  let labelJalan = null;        // "k/n" | "" selama kePapi/keCapi aktif di tab ini
+  let sedangMembaca = false;    // tab ini sedang membaca daftar CAPI (tab lain menunggu hasilnya)
+  let detakTerakhir = 0;
 
-  const OPSI_BAWAAN = { dari: "2026-01-01T00:00:00.000Z", maksJendela: 900, jarakRequestMs: 800,
-    jedaBacaMin: 1000, jedaBacaMaks: 2000, jedaTulisMin: 1500, jedaTulisMaks: 3000 };
+  let faktor = 1;       // laju adaptif (faktorBaru): jeda x1 s.d. x8
+  let sesiHabisSejak = 0; // HTTP 401 pertama yang belum pulih (menunggu login ulang di tab lain)
 
-  function bacaHasil() {
-    try { return JSON.parse(localStorage.getItem(KUNCI_HASIL) || "{}") || {}; } catch (e) { return {}; }
+  // Jeda bawaan kecil (user 2026-09-30: "waktu tunggu dipersingkat") — dikali `faktor`, jadi melambat sendiri saat 429.
+  const OPSI_BAWAAN = { dari: "2026-01-01T00:00:00.000Z", maksJendela: 900, jarakRequestMs: 400,
+    jedaBacaMin: 500, jedaBacaMaks: 1000, jedaTulisMin: 500, jedaTulisMaks: 1000,
+    tungguLoginMs: Infinity, // 401: tunggu login ulang (tab lain / tab penjaga) TANPA BATAS; angka ms = batas; 0 = langsung berhenti
+    ulangKirim429: 5 };            // change-mode yang dijawab 429: cek status, kirim ulang s.d. sekian kali
+
+  function bacaJson(kunci, bawaan) {
+    try { return JSON.parse(localStorage.getItem(kunci) || "null") || bawaan; } catch (e) { return bawaan; }
   }
-  function simpanHasil(h) {
-    try { localStorage.setItem(KUNCI_HASIL, JSON.stringify(h)); } catch (e) { log("⚠️ localStorage gagal ditulis — unduh() sering-sering", e); }
+  /** -> true kalau tersimpan (false: localStorage penuh / diblokir). */
+  function tulisJson(kunci, isi) {
+    try { localStorage.setItem(kunci, JSON.stringify(isi)); return true; } catch (e) { return false; }
+  }
+  function semuaKunci() {
+    const k = [];
+    try { for (let i = 0; i < localStorage.length; i++) k.push(localStorage.key(i)); } catch (e) { /* diblokir */ }
+    return k;
+  }
+  /** Catatan hasil GABUNGAN semua bagian berkas ini: {id: catatan lengkap}. */
+  function bacaHasil() {
+    const kunci = [KUNCI_HASIL, ...kunciMilik(semuaKunci(), KUNCI_HASIL).filter((x) => x !== KUNCI_HASIL)];
+    return gabungHasil(kunci.map((x) => bacaJson(x, {})));
   }
   function catat(id, isi) {
-    const h = bacaHasil();
-    h[id] = { ...(h[id] || {}), ...isi, waktu: new Date().toISOString() };
-    simpanHasil(h);
+    const lama = bacaHasil()[id] || {};
+    const h = bacaJson(kunciTulis, {});
+    h[id] = padatRekam({ ...lama, ...isi, waktu: new Date().toISOString() });
+    if (!tulisJson(kunciTulis, h)) {
+      throw new Berhenti("PENYIMPANAN_PENUH", `catatan dokumen ${id} tidak bisa disimpan di localStorage (penuh?) — `
+        + "approveCapi.unduh() SEKARANG (CSV = bukti & bahan approve); dokumen ini dicek ulang di run berikut");
+    }
   }
 
   function cekHenti() {
@@ -263,8 +403,47 @@
   async function tidur(ms) {
     for (const akhir = Date.now() + ms; Date.now() < akhir;) {
       cekHenti();
+      detak();
       await sleep(Math.min(1000, akhir - Date.now()));
     }
+  }
+
+  // Tab paralel di browser yang sama: tanda jalan per tab (bagian + tanda hidup) supaya bagian yang sama /
+  // pembagian yang tumpang tindih tidak jalan dua kali; tanda "membaca" supaya daftar CAPI dibaca SATU tab saja.
+  const hidup = (v) => v && Date.now() - v.t < HIDUP_MS;
+  function tabLainJalan() {
+    return Object.entries(bacaJson(KUNCI_JALAN, {})).filter(([id, v]) => id !== ID_TAB && hidup(v)).map(([, v]) => v.bagian || "");
+  }
+  function detak(paksa) {
+    if ((labelJalan === null && !sedangMembaca) || (!paksa && Date.now() - detakTerakhir < 10000)) return;
+    detakTerakhir = Date.now();
+    if (labelJalan !== null) {
+      const j = bacaJson(KUNCI_JALAN, {});
+      for (const [id, v] of Object.entries(j)) if (!hidup(v)) delete j[id];
+      j[ID_TAB] = { bagian: labelJalan, t: Date.now() };
+      tulisJson(KUNCI_JALAN, j);
+    }
+    if (sedangMembaca) tulisJson(KUNCI_MEMBACA, { tab: ID_TAB, t: Date.now() });
+  }
+  function lepasJalan() {
+    const j = bacaJson(KUNCI_JALAN, {});
+    delete j[ID_TAB];
+    tulisJson(KUNCI_JALAN, j);
+  }
+  function lepasMembaca() {
+    const m = bacaJson(KUNCI_MEMBACA, null);
+    if (m && m.tab === ID_TAB) tulisJson(KUNCI_MEMBACA, null);
+  }
+  if (typeof global.addEventListener === "function") {
+    global.addEventListener("pagehide", () => { if (labelJalan !== null) lepasJalan(); if (sedangMembaca) lepasMembaca(); });
+  }
+  /** Tab lain sedang membaca daftar CAPI -> tunggu sampai selesai (tanda hidupnya hilang). -> true kalau menunggu. */
+  async function tungguPembacaLain() {
+    const m = bacaJson(KUNCI_MEMBACA, null);
+    if (!hidup(m) || m.tab === ID_TAB) return false;
+    log("⏳ Tab lain sedang membaca daftar CAPI — menunggu hasilnya supaya daftar tidak dibaca dua kali...");
+    for (let v = m; hidup(v) && v.tab !== ID_TAB; v = bacaJson(KUNCI_MEMBACA, null)) await tidur(5000);
+    return true;
   }
   function xsrf() {
     const c = document.cookie.split("; ").find((x) => x.startsWith("XSRF-TOKEN="));
@@ -273,9 +452,49 @@
 
   /** Request mentah dgn jarak minimal. -> {status, j, teks, retryAfter}. */
   async function kirim(o, metode, path, body) {
-    const tunggu = requestTerakhir + o.jarakRequestMs - Date.now();
+    for (;;) {
+      const r = await kirimSekali(o, metode, path, body);
+      if (r.status !== 401) {
+        if (sesiHabisSejak) log(`✅ Sesi aktif lagi sesudah ${Math.round((Date.now() - sesiHabisSejak) / 60000)} mnt — lanjut.`);
+        sesiHabisSejak = 0;
+        return r;
+      }
+      // 401 = sesi habis, request DITOLAK (tidak diproses) -> aman diulang sesudah login ulang. Tab ini JANGAN dimuat
+      // ulang; login di tab lain memperbarui cookie yang sama. Lewat batas -> dikembalikan ke pemanggil (SESI_DITOLAK).
+      if (!sesiHabisSejak) {
+        sesiHabisSejak = Date.now();
+        if (o.tungguLoginMs > 0) {
+          log(`🔑 HTTP 401 — sesi fasih-sm habis. Login ulang di TAB LAIN (tab ini JANGAN dimuat ulang), atau biarkan tab `
+            + `penjaga (userscript fasih_login_otomatis) melakukannya; skrip lanjut sendiri begitu sesi aktif lagi `
+            + `(menunggu ${Number.isFinite(o.tungguLoginMs) ? `s.d. ${Math.round(o.tungguLoginMs / 60000)} mnt` : "tanpa batas; berhenti: .berhenti()"}).`);
+        }
+      }
+      // Sinyal utk tab penjaga (userscript fasih_sm/login_otomatis, origin sama): login ulang SEKARANG.
+      try { localStorage.setItem("fasihSesi.minta.v1", JSON.stringify({ t: Date.now() })); } catch (e) { /* penuh/diblokir */ }
+      if (Date.now() - sesiHabisSejak >= o.tungguLoginMs) return r;
+      await tungguPulih(20000);
+    }
+  }
+
+  let pulihTerpakai = 0; // sinyal pulih terakhir yang sudah membangunkan tab ini (tidak dipakai dua kali)
+  /** Tunggu s.d. `ms`, tapi bangun SEGERA saat tab penjaga (userscript) menulis sinyal sesi pulih yang baru. */
+  async function tungguPulih(ms) {
+    for (const akhir = Date.now() + ms; Date.now() < akhir;) {
+      await tidur(Math.min(1000, akhir - Date.now()));
+      let p = null;
+      try { p = JSON.parse(localStorage.getItem("fasihSesi.pulih.v1") || "null"); } catch (e) { /* rusak */ }
+      if (p && p.t > Math.max(sesiHabisSejak, pulihTerpakai)) {
+        pulihTerpakai = p.t;
+        return;
+      }
+    }
+  }
+
+  async function kirimSekali(o, metode, path, body) {
+    const tunggu = requestTerakhir + o.jarakRequestMs * faktor - Date.now();
     if (tunggu > 0) await sleep(tunggu);
     requestTerakhir = Date.now();
+    detak();
     let status = 0, teks = "", retryAfter = null;
     try {
       const res = await fetch(`${API}${path}`, {
@@ -289,9 +508,16 @@
     } catch (e) {
       teks = `fetch gagal: ${e && e.message ? e.message : e}`;
     }
+    faktor = faktorBaru(faktor, status);
     let j = null;
     try { j = JSON.parse(teks); } catch (e) { /* bukan JSON */ }
     return { status, j, teks, retryAfter };
+  }
+
+  function sesiDitolak(o) {
+    return new Berhenti("SESI_DITOLAK", `HTTP 401 — sesi habis${o.tungguLoginMs > 0 ? ` & tidak pulih dalam ${Math.round(o.tungguLoginMs / 60000)} mnt` : ""}: `
+      + "login ulang fasih-sm, muat ulang halaman Data, tempel berkas .siap.js yang SAMA, lalu kePapi()/keCapi() lagi "
+      + "(bagian yang sama) — dilanjutkan dari daftar tersimpan, yang sudah dipindah dilewati, tanpa menelusuri ulang");
   }
 
   /** Request BACA: galat sementara ditunggu & diulang. */
@@ -305,10 +531,7 @@
         await tidur(ms);
         continue;
       }
-      if (r.status === 401) {
-        throw new Berhenti("SESI_DITOLAK", "HTTP 401 — sesi habis: login ulang fasih-sm, muat ulang halaman Data, tempel "
-          + "berkas .siap.js yang SAMA, lalu kePapi()/keCapi() lagi — dilanjutkan dari daftar tersimpan, tanpa menelusuri ulang");
-      }
+      if (r.status === 401) throw sesiDitolak(o);
       return r;
     }
   }
@@ -364,7 +587,7 @@
     while (antre.length) {
       cekHenti();
       const [a, b] = antre.shift();
-      await tidur(acak(o.jedaBacaMin, o.jedaBacaMaks));
+      await tidur(acak(o.jedaBacaMin, o.jedaBacaMaks) * faktor);
       const awal = await bacaDaftar(o, ctx, 0, a, b, "CAPI");
       if (awal.totalHit > o.maksJendela && Date.parse(b) - Date.parse(a) >= 60000) {
         antre.unshift(...bagiJendela(a, b));
@@ -373,7 +596,7 @@
       const ids = new Set();
       simpan(awal.searchData, ids);
       for (let start = PANJANG_HALAMAN; start < awal.totalHit; start += PANJANG_HALAMAN) {
-        await tidur(acak(o.jedaBacaMin, o.jedaBacaMaks));
+        await tidur(acak(o.jedaBacaMin, o.jedaBacaMaks) * faktor);
         const j = await bacaDaftar(o, ctx, start, a, b, "CAPI");
         if (!j.searchData.length) break;
         simpan(j.searchData, ids);
@@ -394,6 +617,8 @@
     if (!ctx || berjalan) return null;
     berjalan = true;
     hentikan = false;
+    sedangMembaca = true;
+    detak(true);
     try {
       const r = await bacaSemuaCapi(o, ctx);
       const hasil = bacaHasil();
@@ -424,13 +649,15 @@
         const tanpa = daftar.filter((p) => !perPml[p]);
         if (tanpa.length) log(`PML di daftar tanpa dokumen CAPI SUBMITTED: ${tanpa.join(", ")}`);
       }
-      log(`SIAP diganti ke PAPI: ${siap.length}. Lanjut: await approveCapi.kePapi()`);
+      log(`SIAP diganti ke PAPI: ${siap.length}. Lanjut: await approveCapi.kePapi()  (paralel: kePapi({bagian: "1/4"}) … "4/4")`);
       return { terbaca: r.dok.size, total: r.total, siap: siap.length, per };
     } catch (e) {
       laporGalat(e);
       return null;
     } finally {
       berjalan = false;
+      sedangMembaca = false;
+      lepasMembaca();
     }
   }
 
@@ -475,21 +702,33 @@
       return "MODE_TIDAK_TERBACA";
     }
     const statusSebelum = det.alias;
-    const r = await kirim(o, "POST", `/assignment-submit/api/assignment/${encodeURIComponent(k.id)}/change-mode`, { modes: [ke] });
+    const urlGanti = `/assignment-submit/api/assignment/${encodeURIComponent(k.id)}/change-mode`;
+    let r = await kirim(o, "POST", urlGanti, { modes: [ke] });
+    // 429 = ditolak pembatas laju (TIDAK diproses): tunggu, pastikan dokumen belum berubah, lalu kirim ulang.
+    for (let u = 0; r.status === 429 && u < o.ulangKirim429; u++) {
+      const ms = jedaUlang(u, r.retryAfter);
+      log(`⏳ change-mode HTTP 429 — tunggu ${Math.round(ms / 1000)} dtk, cek status, kirim ulang (${u + 1}/${o.ulangKirim429})`);
+      await tidur(ms);
+      const cek = await detailLengkap(o, ctx, k.id, dasar.kode);
+      if (cek.ada && cek.mode === ke) { r = { status: 200, j: { success: true }, teks: "", retryAfter: null }; break; }
+      if (!cek.ada || cek.alias !== statusSebelum) break; // keadaan berubah -> jalur verifikasi di bawah yang memutuskan
+      r = await kirim(o, "POST", urlGanti, { modes: [ke] });
+    }
+    if (r.status === 401) throw sesiDitolak(o);
     const sementara = HTTP_SIBUK.has(r.status);
     if (!sementara && !(r.status === 200 && r.j && r.j.success === true)) {
       const pesan = `HTTP ${r.status} ${(r.j && (r.j.message || r.j.error)) || r.teks.slice(0, 150)}`;
+      if (r.status === 403) throw new Berhenti("SESI_DITOLAK", pesan);
       catat(k.id, { ...dasar, pesan: `GANTI_DITOLAK: ${pesan}` });
-      if (r.status === 401 || r.status === 403) throw new Berhenti("SESI_DITOLAK", pesan);
       return "GANTI_DITOLAK";
     }
     // Dicatat SEBELUM verifikasi: run yang terputus di sini (401, tab ditutup) tetap mengenali dokumen ini sbg
     // diganti alat ini (ST.PAPI_KIRIM) — lihat penanganan SUDAH_PAPI di atas.
     if (ke === "PAPI") catat(k.id, { ...dasar, status: ST.PAPI_KIRIM, diganti: new Date().toISOString(), pesan: "change-mode dikirim — belum diverifikasi" });
     if (sementara) log(`⏳ change-mode HTTP ${r.status || "gagal jaringan"} — TIDAK dikirim ulang; status dibaca dulu.`);
-    // Verifikasi: detail segar sampai mode = tujuan (maks ±3x).
+    // Verifikasi: detail segar sampai mode = tujuan (1, 2, 4, 8 dtk; sesudah 5xx/429 yang habis diulang: 10, 20, 30 dtk).
     let akhir = null;
-    for (const ms of sementara ? [20000, 20000, 30000] : [1500, 4000, 8000]) {
+    for (const ms of sementara ? [10000, 20000, 30000] : [1000, 2000, 4000, 8000]) {
       await tidur(ms);
       akhir = await detailLengkap(o, ctx, k.id, dasar.kode);
       if (akhir.ada && akhir.mode === ke) break;
@@ -516,40 +755,70 @@
 
   async function jalankanArah(ke, opsi) {
     const o = { ...OPSI_BAWAAN, ...opsi };
+    let b;
+    try { b = uraiBagian(o.bagian); } catch (e) { log(`⛔ ${e.message}`); return null; }
     const ctx = cekHalaman();
     if (!ctx) return null;
+    const alasan = bentrokBagian(tabLainJalan(), b);
+    if (alasan) {
+      log(`⛔ ${alasan} — tidak dijalankan. (Tab yang sudah ditutup dianggap berhenti ${HIDUP_MS / 60000} mnt sesudah tanda hidup terakhirnya.)`);
+      return null;
+    }
+    labelJalan = b ? `${b.k}/${b.n}` : "";
+    kunciTulis = KUNCI_HASIL + labelTab(b);
+    detak(true);
+    try {
+      return await jalankanBagian(ke, o, ctx, b);
+    } finally {
+      labelJalan = null;
+      lepasJalan();
+    }
+  }
+
+  async function jalankanBagian(ke, o, ctx, b) {
+    const labelB = b ? `${b.k}/${b.n}` : "";
+    const dalamBagian = (k) => !b || bagianDari(k.id, b.n) === b.k;
+    const bacaSimpanan = () => {
+      try { return uraiDaftar(JSON.parse(localStorage.getItem(KUNCI_DAFTAR) || "null")); } catch (e) { return null; }
+    };
+    const pilih = (kandidat) => sisaTersimpan(kandidat.filter(dalamBagian), daftarPmlAktif(o), bacaHasil());
     let daftar;
     if (ke === "PAPI") {
-      if (!kandidatTerakhir || Date.now() - kandidatTerakhir.waktu > 30 * 60 * 1000) {
-        // Run sebelumnya terputus (401, tab dimuat ulang): lanjutkan daftar tersimpan TANPA membaca ulang daftar CAPI.
-        let simpanan = null;
-        try { simpanan = o.telusurUlang ? null : uraiDaftar(JSON.parse(localStorage.getItem(KUNCI_DAFTAR) || "null")); } catch (e) { /* rusak */ }
-        const sisa = simpanan ? sisaTersimpan(simpanan.kandidat, daftarPmlAktif(o), bacaHasil()) : [];
+      if (kandidatTerakhir && Date.now() - kandidatTerakhir.waktu <= 30 * 60 * 1000 && !o.telusurUlang) {
+        daftar = pilih(kandidatTerakhir.siap);
+      } else {
+        // Lanjutkan daftar tersimpan (run terputus: 401, tab dimuat ulang; atau dibaca tab lain) TANPA membaca ulang.
+        let simpanan = o.telusurUlang ? null : bacaSimpanan();
+        let sisa = simpanan ? pilih(simpanan.kandidat) : [];
+        if (!sisa.length && !o.telusurUlang && await tungguPembacaLain()) {
+          simpanan = bacaSimpanan();
+          sisa = simpanan ? pilih(simpanan.kandidat) : [];
+        }
         if (sisa.length) {
-          log(`▶️ Melanjutkan daftar tersimpan (${simpanan.waktu}): ${sisa.length} dari ${simpanan.kandidat.length} belum diproses — `
-            + "daftar CAPI TIDAK dibaca ulang. {telusurUlang: true} = baca ulang dari server.");
+          log(`▶️ Melanjutkan daftar tersimpan (${simpanan.waktu}${labelB ? `, bagian ${labelB}` : ""}): ${sisa.length} dari `
+            + `${simpanan.kandidat.length} kandidat belum diproses — daftar CAPI TIDAK dibaca ulang. {telusurUlang: true} = baca ulang dari server.`);
           daftar = sisa;
         } else {
           log(simpanan ? "Daftar tersimpan sudah tuntas — membaca daftar CAPI SUBMITTED baru..." : "Daftar CAPI belum dibaca — membaca...");
-          const p = await periksa(opsi);
+          const p = await periksa(o);
           if (!p) return null;
+          daftar = pilih(kandidatTerakhir.siap);
         }
       }
-      if (!daftar) daftar = kandidatTerakhir.siap.filter((k) => putuskanKandidat(k, daftarPmlAktif(o), bacaHasil()).status === "SIAP");
     } else {
-      const h = bacaHasil();
-      daftar = Object.entries(h).filter(([, v]) => [ST.PAPI_OK, ST.PAPI_BELUM, ST.PAPI_KIRIM].includes(v.status))
-        .map(([id, v]) => ({ id, kode: v.kode || "", nama: v.nama || "", pml: v.pml || "" }));
+      daftar = Object.entries(bacaHasil()).filter(([, v]) => [ST.PAPI_OK, ST.PAPI_BELUM, ST.PAPI_KIRIM].includes(v.status))
+        .map(([id, v]) => ({ id, kode: v.kode || "", nama: v.nama || "", pml: v.pml || "" })).filter(dalamBagian);
       if (o.pml) {
         const p = o.pml.map(norm);
         daftar = daftar.filter((k) => p.includes(norm(k.pml)));
       }
     }
     const limit = o.limit || daftar.length;
-    log(`${ke === "PAPI" ? "🔁 CAPI -> PAPI" : "↩️ PAPI -> CAPI (hanya yang diganti alat ini & sudah APPROVED)"}: ${daftar.length} kandidat, limit ${limit}.`);
+    log(`${ke === "PAPI" ? "🔁 CAPI -> PAPI" : "↩️ PAPI -> CAPI (hanya yang diganti alat ini & sudah APPROVED)"}`
+      + `${labelB ? ` bagian ${labelB}` : ""}: ${daftar.length} kandidat, limit ${limit}.`);
     if (!daftar.length) return { diproses: 0 };
     const n = Math.min(limit, daftar.length);
-    if ((prompt(`Ketik YA utk mengganti mode ${n} dokumen ke ${ke}:`) || "").trim().toUpperCase() !== "YA") {
+    if ((prompt(`Ketik YA utk mengganti mode ${n} dokumen ke ${ke}${labelB ? ` (bagian ${labelB})` : ""}:`) || "").trim().toUpperCase() !== "YA") {
       log("Dibatalkan — tidak ada yang diubah.");
       return null;
     }
@@ -557,22 +826,35 @@
     hentikan = false;
     const hitung = {};
     let dikirim = 0;
+    let sibukBeruntun = 0;
+    const antrian = [...daftar]; // dokumen SERVER_SIBUK ditaruh lagi di belakang (dicoba sekali lagi)
     try {
-      for (const k of daftar) {
+      for (let i = 0; i < antrian.length; i++) {
+        const k = antrian[i];
         cekHenti();
         if (dikirim >= limit) break;
         const st = await gantiSatu(o, ctx, k, ke);
-        hitung[st] = (hitung[st] || 0) + 1;
-        const n = Object.values(hitung).reduce((a, b) => a + b, 0);
-        log(`[${n}] ${st.padEnd(38)} ${k.id.slice(0, 8)} ${k.pml || "-"} ${k.kode || k.nama}`);
-        if ([ST.PAPI_OK, ST.CAPI_OK, ST.PAPI_BELUM, ST.CAPI_BELUM, "STATUS_BERUBAH", "GANTI_DITOLAK", "SERVER_SIBUK"].includes(st)) {
-          dikirim++;
-          if (!BERHENTI.has(st)) await tidur(acak(o.jedaTulisMin, o.jedaTulisMaks));
+        sibukBeruntun = st === "SERVER_SIBUK" ? sibukBeruntun + 1 : 0;
+        const tunda = st === "SERVER_SIBUK" && !k.ditunda && sibukBeruntun < MAKS_SIBUK_BERUNTUN;
+        if (tunda) {
+          k.ditunda = true;
+          antrian.push(k);
+        } else {
+          hitung[st] = (hitung[st] || 0) + 1;
         }
+        const n = Object.values(hitung).reduce((a, b) => a + b, 0);
+        log(`[${n}] ${st.padEnd(38)} ${k.id.slice(0, 8)} ${k.pml || "-"} ${k.kode || k.nama}${tunda ? " — dicoba lagi di akhir run" : ""}`);
+        const menulis = [ST.PAPI_OK, ST.CAPI_OK, ST.PAPI_BELUM, ST.CAPI_BELUM, "STATUS_BERUBAH", "GANTI_DITOLAK", "SERVER_SIBUK"].includes(st);
+        if (menulis && !tunda) dikirim++;
         if (BERHENTI.has(st)) {
           log(`⛔ ${st} — batch DIHENTIKAN. Periksa dokumen ${k.id} di fasih-sm sebelum menjalankan lagi.`);
           break;
         }
+        if (sibukBeruntun >= MAKS_SIBUK_BERUNTUN) {
+          log(`⛔ ${sibukBeruntun} dokumen berturut-turut SERVER_SIBUK — batch DIHENTIKAN; jalankan lagi nanti (dilanjutkan dari daftar tersimpan).`);
+          break;
+        }
+        if (menulis) await tidur(acak(o.jedaTulisMin, o.jedaTulisMaks) * faktor);
       }
     } catch (e) {
       laporGalat(e);
@@ -624,12 +906,15 @@
 
   function muatHasil(teks) {
     const baru = dariCsv(teks);
-    const h = bacaHasil();
+    const gabung = bacaHasil();
+    const h = bacaJson(KUNCI_HASIL, {});
+    const kini = new Date().toISOString();
     let n = 0;
     for (const [id, v] of Object.entries(baru)) {
-      if (!h[id] || !h[id].status || (v.status === ST.CAPI_OK)) { h[id] = { ...(h[id] || {}), ...v }; n++; }
+      const ada = gabung[id];
+      if (!ada || !ada.status || (v.status === ST.CAPI_OK)) { h[id] = padatRekam({ ...(ada || {}), ...v, waktu: kini }); n++; }
     }
-    simpanHasil(h);
+    if (!tulisJson(KUNCI_HASIL, h)) return log("⛔ PENYIMPANAN_PENUH: catatan CSV tidak bisa disimpan di localStorage (penuh?).");
     log(`${n} catatan dimuat dari CSV.`);
     return ringkasan();
   }
@@ -641,5 +926,6 @@
     ringkasan, unduh, unduhPerPml, muatHasil,
     berhenti() { hentikan = true; log("Akan berhenti di langkah berikutnya."); },
   };
-  log(`Siap${LABEL ? " (" + LABEL.slice(1) + ")" : ""}. Daftar PML: ${DAFTAR_PML.length ? DAFTAR_PML.length + " akun" : "KOSONG (semua PML)"}. Mulai: await approveCapi.periksa()`);
+  log(`Siap${LABEL ? " (" + LABEL.slice(1) + ")" : ""}. Daftar PML: ${DAFTAR_PML.length ? DAFTAR_PML.length + " akun" : "KOSONG (semua PML)"}. `
+    + "Mulai: await approveCapi.kePapi()  (paralel: tab 1 kePapi({bagian: \"1/4\"}), tab 2 \"2/4\", …)");
 })(typeof window !== "undefined" ? window : globalThis);

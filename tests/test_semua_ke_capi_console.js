@@ -50,6 +50,9 @@ check("sesudah: OK", m.nilaiSesudah(det({ mode: "CAPI" }), APP), "OK");
 check("sesudah: masih PAPI", m.nilaiSesudah(det(), APP), "BELUM");
 check("sesudah: status berubah", m.nilaiSesudah(det({ mode: "CAPI", alias: SUB }), APP), "STATUS_BERUBAH");
 check("jeda cek ulang", [0, 1, 2, 3, 4, 9].map(m.jedaCek), [20000, 40000, 60000, 120000, 180000, 180000]);
+check("faktor laju: 429 x2 (maks 8), sukses x0,9 (min 1)", [m.faktorBaru(1, 429), m.faktorBaru(8, 0), m.faktorBaru(2, 200), m.faktorBaru(1, 200)],
+  [2, 8, 1.8, 1]);
+check("jeda ulang dipersingkat: 5,10,20,40,60,60 dtk", [0, 1, 2, 3, 4, 7].map((k) => m.jedaUlang(k)), [5000, 10000, 20000, 40000, 60000, 60000]);
 const rek = { status: m.ST.OK, kode: "5108060006000224 - WARUNG X (I MADE)", statusDok: APP, mode: "CAPI",
   diganti: "2026-09-30T02:00:00.000Z", pesan: "" };
 check("catatan ringkas: bolak-balik", m.urai(m.padat(rek)), { status: rek.status, kode: rek.kode, nama: "WARUNG X (I MADE)",
@@ -64,7 +67,8 @@ check("sisa daftar: tuntas dibuang, menunggu/gagal/tanpa catatan tetap",
 // ---------------- simulasi browser
 const jam = { now: Date.parse("2026-09-29T12:00:00.000Z") };
 const server = { docs: new Map(), gantiDitolak: new Set(), tidakDiterapkan: new Set(), gantiLog: [], gangguan: [429],
-  sesiHabis: false, habisSesudahGanti: "", bacaDaftarPapi: 0 };
+  sesiHabis: false, habisSesudahGanti: "", bacaDaftarPapi: 0, pulihSetelahMs: null, sesiHabisSejak: 0,
+  tolak429: new Map(), selalu503: new Set() };
 let urut = 0;
 const tambah = (id, o) => server.docs.set(id, { id, kode: `5108060006000224 - USAHA ${id}`, alias: APP, mode: "PAPI",
   dibuat: Date.parse("2026-09-20T00:00:00.000Z") + (urut++) * 60000, ...o });
@@ -83,7 +87,10 @@ async function fetchPalsu(url, init) {
   const u = new URL(url, "https://fasih-sm.bps.go.id");
   const p = u.pathname.replace(/^\/app\/api/, "");
   if (!init.headers["X-XSRF-TOKEN"]) return json(403, "Invalid CSRF Token");
-  if (server.sesiHabis) return json(401, "");
+  if (server.sesiHabis) {
+    if (server.pulihSetelahMs != null && jam.now - server.sesiHabisSejak >= server.pulihSetelahMs) server.sesiHabis = false;
+    else return json(401, "");
+  }
   if (p === "/analytic/api/v2/assignment/datatable-all-user-survey-periode") {
     const g = server.gangguan.shift();
     if (g) return json(g, { error: "RATE_LIMIT_EXCEEDED" });
@@ -110,9 +117,14 @@ async function fetchPalsu(url, init) {
     const d = server.docs.get(mg[1]);
     const ke = JSON.parse(init.body).modes[0];
     server.gantiLog.push({ id: mg[1], ke, t: jam.now });
+    if ((server.tolak429.get(mg[1]) || 0) > 0) {
+      server.tolak429.set(mg[1], server.tolak429.get(mg[1]) - 1);
+      return json(429, { error: "RATE_LIMIT_EXCEEDED" });
+    }
+    if (server.selalu503.has(mg[1])) return json(503, "Service Unavailable");
     if (server.gantiDitolak.has(mg[1])) return json(200, { success: false, message: "Tidak bisa ganti mode" });
     if (!server.tidakDiterapkan.has(mg[1])) { d.modeLama = d.mode; d.mode = ke; d.berubahPada = jam.now; }
-    if (server.habisSesudahGanti === mg[1]) server.sesiHabis = true; // sesi habis tepat sesudah change-mode diterapkan
+    if (server.habisSesudahGanti === mg[1]) { server.sesiHabis = true; server.sesiHabisSejak = jam.now; } // sesi habis tepat sesudah change-mode diterapkan
     return json(200, { success: true, message: "Berhasil. " });
   }
   return json(404, {});
@@ -126,6 +138,14 @@ const unduhan = [];
 const blobs = new Map();
 const penyimpanan = new Map();
 const jawabPrompt = [];
+/** Tab penjaga (userscript) tiruan: `penjagaPulihSetelahMs` sesudah 401 -> sesi dipulihkan & sinyal pulih ditulis. */
+function penjagaPalsu(kunci) {
+  if (kunci === "fasihSesi.pulih.v1" && server.sesiHabis && server.penjagaPulihSetelahMs != null
+    && jam.now - server.sesiHabisSejak >= server.penjagaPulihSetelahMs) {
+    server.sesiHabis = false;
+    penyimpanan.set(kunci, JSON.stringify({ t: jam.now }));
+  }
+}
 /** Satu tab browser: konteks sendiri, localStorage/server/jam/prompt BERSAMA (seperti tab di browser yang sama). */
 function buatTab() {
   const sb = {
@@ -134,7 +154,7 @@ function buatTab() {
     setTimeout: (fn, ms) => { jam.now += Math.max(0, ms || 0); setImmediate(fn); },
     fetch: fetchPalsu,
     prompt: () => jawabPrompt.shift() || "",
-    localStorage: { getItem: (k) => (penyimpanan.has(k) ? penyimpanan.get(k) : null), setItem: (k, v) => penyimpanan.set(k, String(v)) },
+    localStorage: { getItem: (k) => { penjagaPalsu(k); return penyimpanan.has(k) ? penyimpanan.get(k) : null; }, setItem: (k, v) => penyimpanan.set(k, String(v)) },
     location: { host: "fasih-sm.bps.go.id", pathname: `/app/surveys/${SURVEI}/${PERIODE}/data` },
     document: { cookie: "XSRF-TOKEN=abc%3D", body: { appendChild: () => {} },
       createElement: () => ({ click() { unduhan.push({ nama: this.download, isi: blobs.get(this.href) }); }, remove() {} }) },
@@ -205,7 +225,7 @@ const mode = (...i) => i.map((x) => `${server.docs.get(x).mode}/${server.docs.ge
   server.habisSesudahGanti = "h1";
   const nKirimH = server.gantiLog.length;
   jawabPrompt.push("YA");
-  const rh1 = await s.jalankan();
+  const rh1 = await s.jalankan({ tungguLoginMs: 0 }); // 0 = langsung berhenti (bawaan: tunggu tanpa batas)
   check("401: berhenti sesudah h1 dikirim (h1 belum terverifikasi)", [rh1, server.gantiLog.slice(nKirimH).map((g) => g.id)],
     [{ [m.ST.OK]: 1 }, ["h0", "h1"]]);
   check("401: h1 sudah tercatat MENUNGGU sebelum verifikasi", hasil().h1.status, m.ST.MENUNGGU);
@@ -234,6 +254,55 @@ const mode = (...i) => i.map((x) => `${server.docs.get(x).mode}/${server.docs.ge
   jawabPrompt.push("YA");
   check("... daftar baru tersimpan & dipakai", [await s.jalankan(), server.docs.get("h4").mode], [{ [m.ST.OK]: 1 }, "CAPI"]);
 
+  // 401 di tengah run, user login ulang di tab lain -> skrip menunggu & lanjut sendiri (tanpa jalankan ulang)
+  ["q0", "q1", "q2"].forEach((i) => tambah(i, {}));
+  server.habisSesudahGanti = "q0";
+  server.pulihSetelahMs = 45 * 60 * 1000; // lebih lama dari batas lama 30 mnt: bawaan kini menunggu tanpa batas
+  const nKirimQ = server.gantiLog.length;
+  jawabPrompt.push("YA");
+  const rq = await s.jalankan();
+  check("401 lalu login ulang: TIDAK berhenti, semua selesai", [rq, server.gantiLog.slice(nKirimQ).map((g) => g.id)],
+    [{ [m.ST.OK]: 3 }, ["q0", "q1", "q2"]]);
+  check("401: sinyal utk tab penjaga (userscript) ditulis", !!penyimpanan.get("fasihSesi.minta.v1"), true);
+  check("401: petunjuk login di tab lain & 'sesi aktif lagi' dicetak",
+    [log.some((l) => l.includes("Login ulang di TAB LAIN")), log.some((l) => l.includes("Sesi aktif lagi"))], [true, true]);
+  server.habisSesudahGanti = "";
+  server.pulihSetelahMs = null;
+
+  // penjaga memulihkan sesi 5 dtk sesudah 401 & menulis sinyal pulih -> bot bangun SEGERA (bukan menunggu 20 dtk)
+  ["z0", "z1"].forEach((i) => tambah(i, {}));
+  server.habisSesudahGanti = "z0";
+  server.penjagaPulihSetelahMs = 5000;
+  const nKirimZ = server.gantiLog.length;
+  jawabPrompt.push("YA");
+  const rz = await s.jalankan();
+  const kirimZ = server.gantiLog.slice(nKirimZ);
+  check("sinyal pulih: bot lanjut < 20 dtk sesudah sesi habis", [rz, kirimZ.map((g) => g.id), kirimZ[1].t - server.sesiHabisSejak < 20000],
+    [{ [m.ST.OK]: 2 }, ["z0", "z1"], true]);
+  server.habisSesudahGanti = "";
+  server.penjagaPulihSetelahMs = null;
+
+  // change-mode dijawab 429 -> cek status, kirim ulang (dulu: SERVER_SIBUK = seluruh batch berhenti)
+  ["x0", "x1"].forEach((i) => tambah(i, {}));
+  server.tolak429.set("x0", 2);
+  const nKirimR = server.gantiLog.length;
+  jawabPrompt.push("YA");
+  const rr = await s.jalankan();
+  check("429 saat change-mode: dikirim ulang sampai berhasil, batch lanjut", [rr, server.gantiLog.slice(nKirimR).map((g) => g.id)],
+    [{ [m.ST.OK]: 2 }, ["x0", "x0", "x0", "x1"]]);
+
+  // server terus 503 utk satu dokumen -> ditunda ke akhir run, dicoba sekali lagi, batch TIDAK berhenti
+  ["s1a", "s1b", "s1c"].forEach((i) => tambah(i, {}));
+  server.selalu503.add("s1b");
+  const nKirimS = server.gantiLog.length;
+  jawabPrompt.push("YA");
+  const rs = await s.jalankan();
+  check("SERVER_SIBUK: ditunda, dicoba lagi di akhir, dokumen lain jalan", [rs, server.gantiLog.slice(nKirimS).map((g) => g.id)],
+    [{ [m.ST.OK]: 2, SERVER_SIBUK: 1 }, ["s1a", "s1b", "s1c", "s1b"]]);
+  server.selalu503.clear();
+  jawabPrompt.push("YA");
+  check("run berikut: hanya s1b yang tersisa, kini berhasil", [await s.jalankan(), server.docs.get("s1b").mode], [{ [m.ST.OK]: 1 }, "CAPI"]);
+
   // 4 tab paralel di browser yang sama: bagian saling lepas, bentrok ditolak, unduh() per tab = bagiannya
   const e = Array.from({ length: 24 }, (_, i) => `e${i}`);
   e.forEach((i) => tambah(i, {}));
@@ -257,7 +326,7 @@ const mode = (...i) => i.map((x) => `${server.docs.get(x).mode}/${server.docs.ge
   check("4 bagian: tiap tab hanya dokumen bagiannya",
     [1, 2, 3, 4].map((k) => Object.keys(hasil(`.bagian-${k}-dari-4`)).sort()), perBagian);
   check("4 bagian: jumlah per tab", r4tab.map((r) => r[m.ST.OK]), perBagian.map((x) => x.length));
-  check("catatan tanpa bagian tidak bertambah", Object.keys(hasil()).length, 12);
+  check("catatan tanpa bagian tidak bertambah", Object.keys(hasil()).length, 22);
   check("tanda jalan dilepas sesudah selesai", JSON.parse(penyimpanan.get("semuaKeCapi.jalan.v1")), {});
   tab[2].unduh();
   check("unduh() tanpa opsi = bagian tab itu", [unduhan[unduhan.length - 1].nama.includes(".bagian-3-dari-4"),

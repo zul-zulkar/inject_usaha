@@ -11,6 +11,7 @@ skrip Python menyiapkan target dan menulis `<alat>/hasil/<alat>_console.siap.js`
 | [`pindah_wilayah/`](pindah_wilayah/) | pindahkan dokumen yang sudah di-approve ke subsls aslinya (≤ 50 per request, bisa dibagi ke beberapa akun) | admin kab | [README](pindah_wilayah/README.md) |
 | [`tandai_selesai/`](tandai_selesai/) | Tandai Selesai Listing | admin kab | [README](tandai_selesai/README.md) |
 | [`hapus_ganda/`](hapus_ganda/) | hapus dokumen GANDA (sisa draft/kiriman dobel) | admin | [README](hapus_ganda/README.md) |
+| [`login_otomatis/`](login_otomatis/) | userscript Tampermonkey: tab penjaga login ulang otomatis saat sesi habis (401), supaya bot Console tidak perlu ditunggui | admin | [README](login_otomatis/README.md) |
 
 ## Cara menempel (sama untuk semua alat)
 

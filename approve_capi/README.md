@@ -3,11 +3,11 @@
 fasih-web hanya membuka dokumen **PAPI** untuk di-approve. Dokumen CAPI ditolak dengan pesan
 "tidak memiliki akses". Karena itu alurnya tiga langkah:
 
-| Langkah | Di mana | Akun | Alat |
-| --- | --- | --- | --- |
-| 1. CAPI `SUBMITTED BY Pencacah` → PAPI | Console Chrome fasih-sm | admin kab | `approveCapi.kePapi()` |
-| 2. Approve | fasih-web (Playwright) | tiap PML bergiliran | `approve_capi.py` (→ `approve_pml` mode server) |
-| 3. PAPI → CAPI (hanya yang sudah APPROVED) | Console Chrome fasih-sm | admin kab | `approveCapi.keCapi()` |
+| Langkah                                     | Di mana                 | Akun                | Alat                                                 |
+| ------------------------------------------- | ----------------------- | ------------------- | ---------------------------------------------------- |
+| 1. CAPI`SUBMITTED BY Pencacah` → PAPI    | Console Chrome fasih-sm | admin kab           | `approveCapi.kePapi()`                             |
+| 2. Approve                                  | fasih-web (Playwright)  | tiap PML bergiliran | `approve_capi.py` (→ `approve_pml` mode server) |
+| 3. PAPI → CAPI (hanya yang sudah APPROVED) | Console Chrome fasih-sm | admin kab           | `approveCapi.keCapi()`                             |
 
 Siapkan berkas **daftar PML**: satu email per baris (contoh `templates/daftar_pml.contoh.txt`),
 misalnya di `bahan/daftar_pml.txt`. Password semua PML diambil dari `FIXED_PASSWORD` di
@@ -23,20 +23,62 @@ Buka `approve_capi/hasil/approve_capi_console.siap.js`, lalu tempel isinya di Co
 survei (cara menempel: [fasih_sm/README.md](../fasih_sm/README.md)).
 
 ```js
-await approveCapi.periksa()              // READ-ONLY: jumlah CAPI SUBMITTED per PML
+await approveCapi.periksa()              // opsional, READ-ONLY: jumlah CAPI SUBMITTED per PML
 await approveCapi.kePapi()               // semua (ketik YA)
 approveCapi.unduh()                      // approve_capi_<waktu>.csv → simpan di bahan/ (atau biarkan di Downloads)
 ```
 
+**Paralel di satu browser.** Tempel berkas `.siap.js` yang **sama** di beberapa tab (lebih baik jendela
+terpisah yang berdampingan), lalu jalankan satu perintah per tab:
+
+```js
+await approveCapi.kePapi({bagian: "1/4"})   // tab 1
+await approveCapi.kePapi({bagian: "2/4"})   // tab 2
+await approveCapi.kePapi({bagian: "3/4"})   // tab 3
+await approveCapi.kePapi({bagian: "4/4"})   // tab 4
+approveCapi.unduh()                          // di tab mana saja: CSV GABUNGAN semua bagian
+```
+
+- Dokumen dibagi berdasarkan ID, jadi tidak ada dokumen yang dikerjakan dua tab. Tiap tab menanyakan
+  `YA` sendiri.
+- Daftar CAPI hanya dibaca **satu** tab. Tab lain menulis "⏳ Tab lain sedang membaca daftar CAPI" dan
+  menunggu, lalu memakai daftar tersimpan itu. Supaya ini berlaku, mulai tab 1 lebih dulu, lalu tab
+  lain beberapa detik kemudian.
+- Jumlah bagian bebas, mis. `{bagian: "1/10"}` … `"10/10"`, langsung di Console tanpa berkas baru. Semua
+  tab wajib memakai angka pembagi yang sama. Tiap tab menambah ±1,25 request/detik ke server; kalau
+  server sedang berat, mulai dari 2–4 tab.
+- Ditolak otomatis (di browser yang sama): bagian yang sudah berjalan di tab lain, jumlah bagian yang
+  berbeda, atau perintah tanpa bagian selagi ada bagian yang berjalan. Tab yang ditutup di tengah jalan
+  dianggap berhenti 3 menit kemudian.
+- Chrome memperlambat timer di tab latar belakang. Jendela terpisah yang terlihat berjalan lebih cepat.
 - Yang diganti hanya dokumen yang petugas saat ininya PML **di daftar**. Dokumen yang dipegang PPL,
   tidak punya petugas, atau dipegang PML di luar daftar hanya dilaporkan.
 - Tepat sebelum diganti, detail dokumen dibaca ulang dan harus SUBMITTED + CAPI. Sesudah diganti,
   detail dibaca lagi dan mode harus PAPI dengan status tetap. Kejanggalan menghentikan batch.
-- **Terputus di tengah jalan (HTTP 401 / sesi habis):** login ulang fasih-sm, muat ulang halaman Data, tempel
-  berkas `.siap.js` yang **sama**, lalu `await approveCapi.kePapi()` lagi. Sisanya dilanjutkan dari daftar yang
-  disimpan `periksa()`; daftar CAPI tidak dibaca ulang. Dokumen yang sudah sempat dikirim sebelum putus
-  (`DIGANTI_PAPI_DIKIRIM`) diakui tanpa dikirim ulang. Untuk sengaja membaca ulang dari server:
+- **HTTP 401 (sesi habis):** skrip **tidak** langsung berhenti. Ia menulis "🔑 … Login ulang di TAB LAIN" lalu
+  menunggu **tanpa batas**. Buka fasih-sm di tab lain dan login ulang; tab yang sedang berjalan **jangan** dimuat
+  ulang. Begitu sesi aktif lagi, skrip menulis "✅ Sesi aktif lagi" dan melanjutkan sendiri. Supaya login ulang
+  ini juga otomatis (tanpa ditunggui), pasang tab penjaga:
+  [`fasih_sm/login_otomatis`](../fasih_sm/login_otomatis/README.md).
+- **Kalau tetap harus dijalankan ulang** (bot dihentikan, atau tab terlanjur dimuat ulang): login ulang, muat ulang
+  halaman Data, tempel berkas `.siap.js` yang **sama**, lalu jalankan perintah yang sama lagi (dengan bagian yang
+  **sama** kalau paralel). Dokumen yang sudah dipindah ke PAPI **dilewati** tanpa satu request pun, dan daftar CAPI
+  tidak dibaca ulang. Dokumen yang sudah sempat dikirim sebelum putus (`DIGANTI_PAPI_DIKIRIM`) diakui tanpa dikirim
+  ulang. Untuk sengaja membaca ulang dari server (mis. mengambil dokumen SUBMITTED yang baru masuk):
   `kePapi({telusurUlang: true})`.
+- **HTTP 429 / server sibuk:** batch tidak berhenti karena satu dokumen.
+
+  - change-mode yang dijawab 429 ditunggu (5, 10, 20, 40, 60 detik), status dokumen dicek, lalu dikirim ulang
+    (maks 5×).
+  - Dokumen yang tetap sibuk (`SERVER_SIBUK`) ditaruh di akhir antrean dan dicoba sekali lagi.
+  - Batch baru berhenti kalau 3 dokumen berturut-turut sibuk. Jalankan lagi nanti; daftarnya dilanjutkan.
+- **Kecepatan:** jeda bawaan kecil (0,4 detik antar-request, 0,5–1 detik antar-dokumen) dan **adaptif**. Tiap 429/5xx
+  menggandakan semua jeda (maks 8×), tiap respons sukses menurunkannya lagi (×0,9). Masih bisa diatur, misalnya
+  `kePapi({jarakRequestMs: 800, jedaTulisMin: 1000, jedaTulisMaks: 2000})` kalau server sedang berat, atau
+  `{tungguLoginMs: 0}` supaya 401 langsung berhenti.
+- Catatan hasil disimpan ringkas di localStorage (±100 karakter per dokumen). Kalau tetap penuh, batch
+  berhenti dengan `PENYIMPANAN_PENUH`. Jalankan `approveCapi.unduh()` sesudahnya; CSV itu bukti sekaligus
+  bahan approve.
 
 ## 2. Approve (fasih-web, semua PML bergiliran)
 
@@ -60,7 +102,7 @@ diteruskan ke `approve_pml`. Catatan approve ditulis ke `audit/audit_approve_pml
 Tempel ulang berkas `.siap.js` yang sama di Console fasih-sm:
 
 ```js
-await approveCapi.keCapi()
+await approveCapi.keCapi()               // atau paralel: keCapi({bagian: "1/4"}) … "4/4", satu per tab
 approveCapi.unduh()                      // bukti akhir
 ```
 
@@ -70,7 +112,18 @@ Kalau memang harus dikembalikan juga, pakai `keCapi({termasukBelumApproved: true
 aslinya PAPI tidak pernah disentuh.
 
 Catatan hasil tersimpan di localStorage browser itu. Kalau pindah browser, pulihkan dengan
-`approveCapi.muatHasil(\`<isi CSV unduhan>\`)`.
+`approveCapi.muatHasil(\`<isi CSV unduhan></isi>\`)`.
+
+## Paralel: ringkasan
+
+| Langkah         | Satu PC                                                    | Beberapa PC                     |
+| --------------- | ---------------------------------------------------------- | ------------------------------- |
+| 1. CAPI → PAPI | beberapa tab:`kePapi({bagian: "k/n"})` (lihat langkah 1) | `--bagi N` per PML (di bawah) |
+| 2. Approve      | beberapa bot:`--paralel K`                               | `--bagi N` per PML            |
+| 3. PAPI → CAPI | beberapa tab:`keCapi({bagian: "k/n"})`                   | `--bagi N` per PML            |
+
+Keduanya bisa digabung. Di PC yang memegang bagian `--bagi` K, berkas `.siap.js` bagian itu boleh
+dijalankan di beberapa tab dengan `{bagian: "k/n"}`. Catatannya tetap terpisah per berkas.
 
 ## Paralel: beberapa PC / beberapa bot
 
@@ -84,6 +137,7 @@ sampai 3.
    ```bash
    python approve_capi/approve_capi.py --daftar-pml bahan/daftar_pml.txt --bagi 5 --jumlah bahan/jumlah_capi_per_pml.csv
    ```
+
    Hasilnya ada di `approve_capi/hasil/bagian/`: `daftar_pml.bagian-K-dari-5.txt` dan
    `approve_capi_console.bagian-K-dari-5.siap.js`.
 3. Kirim ke tiap PC kodenya (`antar_pc/bungkus_pc.py --kode-saja`) **dan** dua berkas bagiannya.
@@ -93,6 +147,7 @@ sampai 3.
    ```bash
    python approve_capi/approve_capi.py --daftar-pml approve_capi/hasil/bagian/daftar_pml.bagian-K-dari-5.txt --eksekusi
    ```
+
    Catatan Console tiap bagian tersimpan terpisah (localStorage dan nama CSV berlabel bagian).
 
 **Beberapa bot approve sekaligus dalam satu PC:** tambahkan `--paralel K`.
@@ -118,20 +173,21 @@ Approve bisa dijalankan **sambil** `kePapi` masih berjalan: panggil `approveCapi
 Dokumen yang sudah APPROVED dilewati cukup dengan satu pembacaan status.
 
 **Perkiraan waktu:**
+
 - Approve: ±5 detik per dokumen per bot (median 5.743 approve di audit).
-- `kePapi`: ±6–7 detik per dokumen per tab. Jedanya bisa diperkecil, misalnya
-  `kePapi({jedaTulisMin: 500, jedaTulisMaks: 1000})`, dengan risiko HTTP 429 (skrip menunggu sendiri).
+- `kePapi`: ±3–4 detik per dokumen per tab selama server lancar (dulu ±6–7 detik). Saat 429/5xx, jedanya
+  melambat sendiri. Dengan 4 tab `{bagian: "k/4"}` kira-kira 4× lebih cepat, selama server tidak membalas 429.
 - Beberapa tab Console dengan akun admin yang **sama** kemungkinan berbagi kuota rate limit (belum
   terbukti). Akun admin yang berbeda per PC lebih aman.
 
 ## Kode yang berpengaruh
 
-| Berkas | Isi |
-| --- | --- |
-| `approve_capi_console.js` | baca CAPI SUBMITTED (per jendela tanggal, batas 1.000 server), ganti mode `POST …/assignment/{id}/change-mode`, verifikasi detail, CSV |
-| `approve_capi.py` | daftar PML → suntik Console; CSV → `hasil/id_approve_capi.csv` → `approve_pml.py --akun-pml … --hanya-id …` |
-| `../approve_pml/approve_pml.py` | `--hanya-id` (mode server dibatasi ke ID berkas), klik Approve + verifikasi status |
-| Uji | `tests/test_approve_capi_console.js` (server palsu), `tests/test_approve_capi.py` |
+| Berkas                            | Isi                                                                                                                                                                                                                                    |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `approve_capi_console.js`       | baca CAPI SUBMITTED (per jendela tanggal, batas 1.000 server), ganti mode`POST …/assignment/{id}/change-mode`, verifikasi detail, bagian paralel per tab (`bagian`, tanda jalan/membaca di localStorage), lanjut sesudah 401, CSV |
+| `approve_capi.py`               | daftar PML → suntik Console; CSV →`hasil/id_approve_capi.csv` → `approve_pml.py --akun-pml … --hanya-id …`                                                                                                                    |
+| `../approve_pml/approve_pml.py` | `--hanya-id` (mode server dibatasi ke ID berkas), klik Approve + verifikasi status                                                                                                                                                   |
+| Uji                               | `tests/test_approve_capi_console.js` (server palsu), `tests/test_approve_capi.py`                                                                                                                                                  |
 
 ⚠️ Status live: ganti mode CAPI → PAPI untuk dokumen SUBMITTED lewat endpoint ini **belum pernah
 dicoba skrip** (arah PAPI → CAPI terbukti 27 Sep). Tidak ada tahap percobaan `limit: 1` (ketetapan
