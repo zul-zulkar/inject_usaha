@@ -40,14 +40,24 @@ semuaKeCapi.unduh()                      // CSV bukti
 ```
 
 - Tidak ada tahap periksa/percobaan terpisah: selain `YA` di prompt = batal. `{limit: N}` opsional.
-- Paralel beberapa tab/PC: `{bagian: "1/3"}`, `{bagian: "2/3"}`, … di `jalankan`/`unduh` (dibagi lewat hash id,
-  saling lepas). Perkiraan ±5 dtk/dokumen per tab.
+- Paralel 4 bagian: tempel berkas yang sama di 4 tab/jendela halaman Data, lalu tab 1
+  `await semuaKeCapi.jalankan({bagian: "1/4"})`, tab 2 `{bagian: "2/4"}`, tab 3 `"3/4"`, tab 4 `"4/4"` (dibagi lewat
+  hash id, saling lepas; `unduh()` di tiap tab = CSV bagiannya). Di browser yang sama, bagian yang sudah jalan di tab
+  lain, jumlah bagian berbeda, atau `jalankan()` tanpa bagian ditolak. Lebih baik 4 **jendela** berdampingan daripada
+  4 tab di satu jendela: Chrome memperlambat timer di tab latar belakang. Perkiraan ±5 dtk/dokumen per bagian.
 - Per dokumen: detail segar harus APPROVED → `change-mode` CAPI → status harus tetap & mode terbaca CAPI.
   Belum terbaca CAPI → dicek ulang di sela dokumen lain s.d. 15 mnt, lewat itu **berhenti**
   (`DIGANTI_CAPI_BELUM_TERVERIFIKASI`). Run berikutnya mengecek dokumen itu dulu, tidak mengirim ulang
   (`{ulangi: true}` memaksa, sesudah dicek di fasih-sm).
 - Berhenti juga di `STATUS_BERUBAH`, `GANTI_DITOLAK`, `SERVER_SIBUK`, 5 detail gagal beruntun, sesi habis.
 - Aman diulang kapan saja (mis. tiap hari) untuk dokumen yang baru APPROVED.
+- **Terputus (HTTP 401 / sesi habis / tab ditutup):** login ulang, muat ulang halaman Data, tempel berkasnya lagi,
+  lalu `jalankan()` dengan bagian yang **sama**. Sisanya dilanjutkan dari daftar tersimpan; daftar PAPI tidak
+  dibaca ulang. Dokumen yang sudah dikirim sebelum putus dicek, tidak dikirim ulang. Daftar yang sudah tuntas
+  membuat run berikutnya membaca daftar baru. `{telusurUlang: true}` memaksa baca ulang.
+- Jumlah bagian bebas: 10 bagian = `{bagian: "1/10"}` … `{bagian: "10/10"}`, langsung di Console, tanpa berkas
+  `.siap.js`. Semua tab wajib memakai jumlah bagian yang sama. Makin banyak bagian, makin berat beban server
+  (±1,25 request/detik per tab).
 - Pengaman di `input_usaha/sinkron_list.py`: dokumen terkirim yang hilang dari list PENDATAAN (bisa jadi karena
   sudah CAPI) tidak digugurkan, hanya dilaporkan `+TERKIRIM_HILANG_DARI_LIST` (tanpa itu dokumen dibuat ulang = ganda).
 

@@ -231,6 +231,140 @@ def saring_sisa(target: list[dict], tuntas: set[tuple[str, str]]) -> tuple[list[
     return sisa, len(target) - len(sisa)
 
 
+def tambah_sisa_wadah(sisa: list[dict], sheet: list[tuple[str, list, list[dict]]], audits: dict[Path, list[dict]],
+                      target: list[dict], target_semua: list[dict], tuntas: set[tuple[str, str]], sumber: list[str],
+                      label: str = "sisa_wadah") -> tuple[list[dict], Counter, list[tuple]]:
+    """Fungsi murni. `sisa` = unduhan pindahWilayah.sisaWadah() (id, kode, status_server, nama): dokumen yang masih di
+    wadah tapi tidak dimiliki target. Tiap dokumen dicarikan barisnya: kunci audit yang menunjuk dokumen itu -> baris
+    sheet; tidak ada -> nama server = nama dokumen baris. Keputusan (ketetapan user 2026-09-30):
+      - SUDAH_DI_TEMPAT: tujuan baris = subsls dokumen sekarang -> tidak dipindah;
+      - KEMBAR: kunci baris itu sudah punya dokumen LAIN yang tuntas di tujuan -> TIDAK dipindah (dibiarkan di wadah);
+      - PENGGANTI: baris itu tanpa dokumen hidup (ID sheet terhapus / tanpa ID) -> id ditambahkan ke target baris
+        (target baru kalau belum ada);
+      - AUDIT_SAJA: tidak ada di sheet mana pun (mis. dokumen sheet Agenda lama) tapi semua baris audit dokumen itu
+        sepakat SATU idsubsls tujuan yang valid -> target baru (tujuan = idsubsls audit);
+      - TUJUAN_AMBIGU / TAK_DIKENAL -> dilaporkan saja.
+    -> (target baru [salinan target + tambahan], Counter kategori, rincian [(kategori, id, nama, tujuan, keterangan)])."""
+    dimiliki = {i for t in target_semua for i in t["ids"]} | {i for t in target for i in t["ids"]}
+    per_kunci, per_nama = defaultdict(list), defaultdict(list)
+    for s_idx, (_nama, rows, _audit) in enumerate(sheet):
+        for r in rows:
+            per_kunci[r.kunci].append((s_idx, r))
+            per_nama[norm(r.nama_dokumen)].append((s_idx, r))
+    aud_id: dict[str, list[dict]] = defaultdict(list)
+    for rows in audits.values():
+        for b in rows:
+            i = id_dari_url(b.get("dokumen_url") or "")
+            if i:
+                aud_id[i].append(b)
+    ids_kunci = defaultdict(set)
+    for t in target_semua:
+        ids_kunci[t["k"]].update((i, t["t"]) for i in t["ids"])
+    baru = [dict(t, ids=list(t["ids"])) for t in target]
+    per_k_baru = {t["k"]: t for t in baru}
+    hitung, rincian = Counter(), []
+    for d in sisa:
+        i, kode = (d.get("id") or "").strip().lower(), (d.get("kode") or "").strip()
+        nama = [n for n in (x.strip() for x in (d.get("nama") or "").split(" / ")) if n]
+        if not POLA_ID.match(i) or i in dimiliki:
+            hitung["SUDAH_TARGET"] += 1
+            continue
+        kunci = {b.get("kunci") for b in aud_id.get(i, []) if b.get("kunci")}
+        baris = [x for k in kunci for x in per_kunci.get(k, [])]
+        if not baris:
+            baris = [x for n in nama for x in per_nama.get(norm(n), [])]
+        if not baris:
+            tuj = {(b.get("idsubsls") or "").strip() for b in aud_id.get(i, [])}
+            k_audit = sorted(kunci)
+            if len(tuj) == 1 and POLA_KODE.fullmatch(next(iter(tuj))) and len(k_audit) == 1:
+                t = next(iter(tuj))
+                if t == kode:
+                    kat = "SUDAH_DI_TEMPAT"
+                else:
+                    kat = "AUDIT_SAJA"
+                    if label not in sumber:
+                        sumber.append(label)
+                    na = {norm(b.get("nama_usaha") or "") for b in aud_id[i]} - {""}
+                    tb = per_k_baru.get(k_audit[0])
+                    if tb is None:     # dua dokumen hidup ber-kunci sama -> satu target 2 ID = DOKUMEN_GANDA di Console
+                        tb = {"k": k_audit[0], "s": sumber.index(label), "b": 0, "n": norm(nama[0]) if nama else "",
+                              "t": t, "ids": []}
+                        baru.append(tb)
+                        per_k_baru[k_audit[0]] = tb
+                    tb["ids"] = sorted(set(tb["ids"]) | {i})
+                    tb["na"] = sorted((set(tb.get("na", [])) | na) - {tb["n"]})
+                rincian.append((kat, i, " / ".join(nama), t, "tujuan dari audit", kode, ""))
+            else:
+                kat = "TAK_DIKENAL"
+                rincian.append((kat, i, " / ".join(nama), "", f"{len(aud_id.get(i, []))} baris audit, tujuan {sorted(tuj)}",
+                                kode, ""))
+            hitung[kat] += 1
+            continue
+        tujuan = {r.idsubsls for _s, r in baris}
+        if len(tujuan) != 1:
+            hitung["TUJUAN_AMBIGU"] += 1
+            rincian.append(("TUJUAN_AMBIGU", i, " / ".join(nama), "|".join(sorted(tujuan)), "", kode, ""))
+            continue
+        t = tujuan.pop()
+        kembaran = ""
+        if t == kode:
+            kat, ket = "SUDAH_DI_TEMPAT", ""
+        else:
+            kembar = sorted({j for _s, r in baris for (j, tj) in ids_kunci.get(r.kunci, ())
+                             if j != i and (j, tj) in tuntas})
+            if kembar:
+                kat, ket, kembaran = "KEMBAR", "kembaran sudah di tujuan (dipertahankan)", kembar[0]
+            else:
+                kat = "PENGGANTI"
+                s_idx, r = baris[0]
+                tb = per_k_baru.get(r.kunci)
+                if tb is None:
+                    tb = {"k": r.kunci, "s": s_idx, "b": r.baris, "n": norm(r.nama_dokumen), "t": t, "ids": []}
+                    baru.append(tb)
+                    per_k_baru[r.kunci] = tb
+                tb["ids"] = sorted(set(tb["ids"]) | {i})
+                tb["na"] = sorted(set(tb.get("na", [])) | {norm(n) for n in nama} - {tb["n"]})
+                ket = f"baris {r.baris}"
+        hitung[kat] += 1
+        rincian.append((kat, i, " / ".join(nama), t, ket, kode, kembaran))
+    return baru, hitung, rincian
+
+
+def tulis_rincian_sisa(rincian: list[tuple], path: Path = HASIL / "sisa_wadah_rincian.csv") -> Path:
+    """Rincian keputusan --sisa-wadah (KEMBAR = bahan hapus manual admin, lengkap dgn kembarannya)."""
+    with lokasi.siapkan(path).open("w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["kategori", "id", "nama", "tujuan", "keterangan", "subsls_sekarang", "kembaran"])
+        w.writerows(sorted(rincian))
+    return path
+
+
+KONSOL_HAPUS = Path(__file__).resolve().parents[1] / "hapus_ganda" / "hapus_daftar_console.js"
+HAPUS_SIAP = lokasi.hasil("fasih_sm", "hapus_ganda") / "hapus_daftar_console.siap.js"
+
+
+def daftar_hapus(rincian: list[tuple], tak_dikenal: bool = False) -> list[dict]:
+    """Rincian --sisa-wadah -> daftar Console hapus: KEMBAR (wajib kembarannya sudah di tujuan) + TAK_DIKENAL
+    kalau diminta (tanpa kembaran; ketetapan user 2026-09-30 utk dokumen yang tidak ada di sumber data)."""
+    hasil = []
+    for kat, i, nama, tujuan, _ket, kode, kembar in sorted(rincian):
+        if kat == "KEMBAR" or (kat == "TAK_DIKENAL" and tak_dikenal):
+            hasil.append({"id": i, "nama": nama, "wadah": kode, "kembar": kembar, "tujuan": tujuan if kembar else ""})
+    return hasil
+
+
+def tulis_console_hapus(daftar: list[dict], path: Path = HAPUS_SIAP) -> Path:
+    teks = KONSOL_HAPUS.read_text(encoding="utf-8")
+    for p in ("/*__DAFTAR__*/[]", "/*__KONFIG__*/{}"):
+        if teks.count(p) != 1:
+            raise ValueError(f"Penanda {p} harus tepat 1x di {KONSOL_HAPUS.name}")
+    ringkas = {"separators": (",", ":"), "ensure_ascii": False}
+    teks = (teks.replace("/*__DAFTAR__*/[]", json.dumps(daftar, **ringkas))
+            .replace("/*__KONFIG__*/{}", json.dumps({"dibuat": time.strftime("%Y-%m-%d %H:%M")})))
+    lokasi.siapkan(path).write_text(teks, encoding="utf-8")
+    return path
+
+
 def konfig_console(args, bagian: str = "", alokasi: dict | None = None) -> dict:
     """Bawaan opsi Console dari argumen CLI (yang tidak diisi = bawaan Console)."""
     opsi = {}
@@ -459,6 +593,11 @@ def main(argv=None) -> int:
     ap.add_argument("--console", action="store_true", help="tulis hasil/pindah_wilayah_console*.siap.js")
     ap.add_argument("--alokasi", default="", metavar="CSV/XLSX",
                     help="alokasi petugas (idsubsls, Email PML, Email PPL): pemilih kalau server punya >1 PML/PPL di tujuan")
+    ap.add_argument("--sisa-wadah", action="append", default=[], metavar="CSV",
+                    help="unduhan pindahWilayah.sisaWadah(): dokumen wadah bukan target -> dicarikan barisnya (PENGGANTI / "
+                         "AUDIT_SAJA jadi target; KEMBAR & SUDAH_DI_TEMPAT dilewati; rincian hasil/sisa_wadah_rincian.csv)")
+    ap.add_argument("--hapus-tak-dikenal", action="store_true",
+                    help="dgn --sisa-wadah: dokumen TAK_DIKENAL (tidak ada di sheet & audit) ikut Console hapus")
     ap.add_argument("--hanya-sisa", action="store_true",
                     help="buang target yang sudah tuntas ke tujuan yang sama menurut unduhan Console (--unduhan / audit/**)")
     ap.add_argument("--catat", action="store_true",
@@ -510,11 +649,24 @@ def main(argv=None) -> int:
         sheet.append((s, rows, audits.get(path_audit, [])))
 
     target, sumber, asal, masalah, ringkasan = bangun_target(sheet, args.dari, args.sampai, awalan, args.subsls_asal)
-    if args.hanya_sisa:
+    target_semua = target
+    if args.hanya_sisa or args.sisa_wadah:
         berkas = [Path(u) for u in args.unduhan] or lokasi.cari(POLA_HASIL_CONSOLE)
-        unduhan = [b for f in berkas for b in baca_csv(Path(f))]
-        target, dibuang = saring_sisa(target, id_tuntas(unduhan))
+        tuntas = id_tuntas([b for f in berkas for b in baca_csv(Path(f))])
+    if args.hanya_sisa:
+        target, dibuang = saring_sisa(target, tuntas)
         print(f"--hanya-sisa: {dibuang} target sudah tuntas menurut {len(berkas)} unduhan Console -> sisa {len(target)}")
+    if args.sisa_wadah:
+        sisa = [b for f in args.sisa_wadah for b in baca_csv(Path(f))]
+        n_lama = len(target)
+        target, hitung, rincian = tambah_sisa_wadah(sisa, sheet, audits, target, target_semua, tuntas, sumber)
+        laporan = tulis_rincian_sisa(rincian)
+        print(f"--sisa-wadah: {len(sisa)} dokumen -> {dict(hitung)}; target {n_lama} -> {len(target)} "
+              f"(dokumen PENGGANTI menempel ke target barisnya). Rincian: {laporan}")
+        hapus = daftar_hapus(rincian, args.hapus_tak_dikenal)
+        if hapus and args.console:
+            print(f"--sisa-wadah: {len(hapus)} dokumen utk dihapus (KEMBAR{' + TAK_DIKENAL' if args.hapus_tak_dikenal else ''})"
+                  f" -> {tulis_console_hapus(hapus)}  (await hapusDaftar.jalankan())")
     alokasi = baca_alokasi(Path(args.alokasi)) if args.alokasi else {}
     if args.alokasi:
         kena = {t["t"] for t in target}

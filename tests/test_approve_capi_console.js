@@ -41,11 +41,21 @@ check("sebelum CAPI: approved", m.cegahSebelum(det({ mode: "PAPI", alias: "APPRO
 const csv = m.keCsv([{ id: "a", nama: 'X "Y", Z', status: m.ST.PAPI_OK, pml: "p@x" }]);
 check("CSV bolak-balik", m.dariCsv(csv).a, { kode: "", nama: 'X "Y", Z', pml: "p@x", status: m.ST.PAPI_OK, statusDok: "",
   mode: "", diganti: "", dikembalikan: "", pesan: "" });
+const siapContoh = [k({ id: "x1" }), k({ id: "x2", pml: "pml.dua@x.id" }), k({ id: "x3" }), k({ id: "x4" }), k({ id: "x5" })];
+const tersimpan = m.uraiDaftar(JSON.parse(JSON.stringify(m.padatDaftar(siapContoh, "2026-09-30T01:00:00.000Z"))));
+check("daftar tersimpan: bolak-balik id + PML", tersimpan.kandidat.map((x) => `${x.id}:${x.pml}`),
+  ["x1:pml.satu@x.id", "x2:pml.dua@x.id", "x3:pml.satu@x.id", "x4:pml.satu@x.id", "x5:pml.satu@x.id"]);
+check("daftar tersimpan: rusak -> null", m.uraiDaftar({ waktu: "x" }), null);
+check("sisa tersimpan: diproses/gugur/PML luar dibuang, DIKIRIM & gagal sementara tetap",
+  m.sisaTersimpan(tersimpan.kandidat, ["pml.satu@x.id"], { x1: { status: m.ST.PAPI_OK }, x3: { status: m.ST.PAPI_KIRIM },
+    x4: { pesan: "BUKAN_SUBMITTED: status APPROVED BY Pengawas" }, x5: { status: "", pesan: "SERVER_SIBUK: ..." } }).map((x) => x.id),
+  ["x3", "x5"]);
 
 // ---------------- simulasi browser
 const jam = { now: Date.parse("2026-09-29T02:00:00.000Z") };
 const PML = ["pml.satu@x.id", "pml.dua@x.id"];
-const server = { docs: new Map(), gantiDitolak: new Set(), gantiLog: [], gangguan: [429] };
+const server = { docs: new Map(), gantiDitolak: new Set(), gantiLog: [], gangguan: [429],
+  sesiHabis: false, habisSesudahGanti: "", bacaDaftarCapi: 0 };
 const tambah = (id, o) => server.docs.set(id, { id, kode: `5108060006000224 - USAHA ${id}`, alias: SUB, mode: "CAPI",
   pml: PML[0], peran: "Pengawas", dibuat: Date.parse("2026-09-20T00:00:00.000Z") + server.docs.size * 60000, ...o });
 for (let i = 0; i < 5; i++) tambah(`c${i}`, {});
@@ -61,11 +71,13 @@ async function fetchPalsu(url, init) {
   const u = new URL(url, "https://fasih-sm.bps.go.id");
   const p = u.pathname.replace(/^\/app\/api/, "");
   if (!init.headers["X-XSRF-TOKEN"]) return json(403, "Invalid CSRF Token");
+  if (server.sesiHabis) return json(401, "");
   if (p === "/analytic/api/v2/assignment/datatable-all-user-survey-periode") {
     const g = server.gangguan.shift();
     if (g) return json(g, { error: "RATE_LIMIT_EXCEEDED" });
     const b = JSON.parse(init.body);
     const x = b.assignmentExtraParam;
+    if (x.mode && x.mode.includes("CAPI") && !b.search.value) server.bacaDaftarCapi++;
     const semua = [...server.docs.values()].filter((d) => (!x.mode || x.mode.includes(d.mode)) && (!x.assignmentStatusAlias || d.alias === x.assignmentStatusAlias)
       && (!x.dateCreatedFrom || d.dibuat >= Date.parse(x.dateCreatedFrom)) && (!x.dateCreatedTo || d.dibuat <= Date.parse(x.dateCreatedTo))
       && (!b.search.value || d.kode.includes(b.search.value)));
@@ -88,6 +100,7 @@ async function fetchPalsu(url, init) {
     server.gantiLog.push(`${mg[1]}>${ke}`);
     if (server.gantiDitolak.has(mg[1])) return json(200, { success: false, message: "Tidak bisa ganti mode" });
     d.mode = ke;
+    if (server.habisSesudahGanti === mg[1]) server.sesiHabis = true; // sesi habis tepat sesudah change-mode diterapkan
     return json(200, { success: true, message: "Berhasil. " });
   }
   return json(404, {});
@@ -101,23 +114,27 @@ const unduhan = [];
 const blobs = new Map();
 const penyimpanan = new Map();
 const jawabPrompt = [];
-const sandbox = {
-  console: { log: (...a) => log.push(a.filter((x) => !String(x).startsWith("color:")).join(" ")), table: () => {}, error: (...a) => log.push(`ERR ${a.join(" ")}`) },
-  Date: JamDate,
-  setTimeout: (fn, ms) => { jam.now += Math.max(0, ms || 0); setImmediate(fn); },
-  fetch: fetchPalsu,
-  prompt: () => jawabPrompt.shift() || "",
-  localStorage: { getItem: (k) => (penyimpanan.has(k) ? penyimpanan.get(k) : null), setItem: (k, v) => penyimpanan.set(k, String(v)) },
-  location: { host: "fasih-sm.bps.go.id", pathname: `/app/surveys/${SURVEI}/${PERIODE}/data` },
-  document: { cookie: "XSRF-TOKEN=abc%3D", body: { appendChild: () => {} },
-    createElement: () => ({ click() { unduhan.push({ nama: this.download, isi: blobs.get(this.href) }); }, remove() {} }) },
-  Blob: class { constructor(bagian) { this.isi = bagian.join(""); } },
-  URL: { createObjectURL: (b) => { const k2 = `blob:${blobs.size}`; blobs.set(k2, b.isi); return k2; } },
-};
-sandbox.window = sandbox;
-vm.createContext(sandbox);
-const teks = fs.readFileSync(BERKAS, "utf8").replace("/*__DAFTAR_PML__*/[]", JSON.stringify(PML));
-vm.runInContext(teks, sandbox);
+function buatTab() {
+  const sandbox = {
+    console: { log: (...a) => log.push(a.filter((x) => !String(x).startsWith("color:")).join(" ")), table: () => {}, error: (...a) => log.push(`ERR ${a.join(" ")}`) },
+    Date: JamDate,
+    setTimeout: (fn, ms) => { jam.now += Math.max(0, ms || 0); setImmediate(fn); },
+    fetch: fetchPalsu,
+    prompt: () => jawabPrompt.shift() || "",
+    localStorage: { getItem: (k) => (penyimpanan.has(k) ? penyimpanan.get(k) : null), setItem: (k, v) => penyimpanan.set(k, String(v)) },
+    location: { host: "fasih-sm.bps.go.id", pathname: `/app/surveys/${SURVEI}/${PERIODE}/data` },
+    document: { cookie: "XSRF-TOKEN=abc%3D", body: { appendChild: () => {} },
+      createElement: () => ({ click() { unduhan.push({ nama: this.download, isi: blobs.get(this.href) }); }, remove() {} }) },
+    Blob: class { constructor(bagian) { this.isi = bagian.join(""); } },
+    URL: { createObjectURL: (b) => { const k2 = `blob:${blobs.size}`; blobs.set(k2, b.isi); return k2; } },
+  };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  const teks = fs.readFileSync(BERKAS, "utf8").replace("/*__DAFTAR_PML__*/[]", JSON.stringify(PML));
+  vm.runInContext(teks, sandbox);
+  return sandbox;
+}
+const sandbox = buatTab();
 
 (async () => {
   const a = sandbox.approveCapi;
@@ -160,6 +177,33 @@ vm.runInContext(teks, sandbox);
 
   sandbox.location.host = "contoh.lain";
   check("halaman salah ditolak", await a.periksa(), null);
+
+  // sesi habis (401) di tengah kePapi -> tab dimuat ulang -> kePapi lagi: lanjut dari daftar tersimpan, tanpa baca ulang
+  ["n0", "n1", "n2", "n3"].forEach((i) => tambah(i, {}));
+  server.habisSesudahGanti = "n1";
+  const tab1 = buatTab().approveCapi;
+  const nKirim = server.gantiLog.length;
+  jawabPrompt.push("YA");
+  const rt1 = await tab1.kePapi();
+  const hasilSkrg = () => JSON.parse(penyimpanan.get("approveCapi.hasil.v1"));
+  check("401: n0 selesai, n1 terkirim lalu sesi habis", [rt1, server.gantiLog.slice(nKirim)], [{ [m.ST.PAPI_OK]: 1 }, ["n0>PAPI", "n1>PAPI"]]);
+  check("401: n1 tercatat DIKIRIM sebelum verifikasi", hasilSkrg().n1.status, m.ST.PAPI_KIRIM);
+  check("401: pesan menyuruh lanjut tanpa menelusuri ulang", log.some((l) => l.includes("SESI_DITOLAK") && l.includes("tanpa menelusuri ulang")), true);
+  server.sesiHabis = false;
+  server.habisSesudahGanti = "";
+  const tab2 = buatTab().approveCapi; // halaman dimuat ulang: kandidat di memori hilang
+  const nBaca = server.bacaDaftarCapi;
+  const nKirim2 = server.gantiLog.length;
+  jawabPrompt.push("YA");
+  const rt2 = await tab2.kePapi();
+  check("lanjut: daftar CAPI TIDAK dibaca ulang", server.bacaDaftarCapi - nBaca, 0);
+  check("lanjut: log melanjutkan", log.some((l) => l.includes("Melanjutkan daftar tersimpan") && l.includes("3 dari 4")), true);
+  check("lanjut: n1 diakui PAPI_OK tanpa kirim ulang, n2/n3 diganti", [rt2, server.gantiLog.slice(nKirim2)],
+    [{ [m.ST.PAPI_OK]: 3 }, ["n2>PAPI", "n3>PAPI"]]);
+  check("lanjut: n1 ikut target approve (DIGANTI_PAPI_TERVERIFIKASI)", hasilSkrg().n1.status, m.ST.PAPI_OK);
+  jawabPrompt.push("tidak");
+  await tab2.kePapi({ telusurUlang: true });
+  check("{telusurUlang: true} membaca ulang daftar CAPI", server.bacaDaftarCapi - nBaca > 0, true);
 
   console.log(okAll ? "\nSEMUA LULUS" : "\nADA YANG GAGAL");
   process.exit(okAll ? 0 : 1);

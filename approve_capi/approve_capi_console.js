@@ -16,6 +16,9 @@
  * bagian hanya menyentuh PML-nya sendiri, catatan localStorage & CSV unduhan berlabel bagian.
  * Lain: approveCapi.unduhPerPml() (jumlah per PML, bahan --bagi --jumlah), approveCapi.ringkasan(), approveCapi.berhenti(), approveCapi.muatHasil(teksCsv) (pulihkan hasil
  * dari CSV unduhan kalau localStorage hilang / pindah browser).
+ * LANJUT SESUDAH TERPUTUS (401, tab dimuat ulang): kandidat periksa() disimpan per bagian; kePapi() lagi (berkas .siap.js
+ * yang sama) melanjutkan sisanya TANPA membaca ulang daftar CAPI ({telusurUlang: true} memaksa baca ulang). Dokumen yang
+ * change-mode-nya sudah terkirim sebelum putus (DIGANTI_PAPI_DIKIRIM) diakui PAPI_OK tanpa dikirim ulang.
  *
  * PENGAMAN
  * --------
@@ -48,9 +51,15 @@
   const ST = {
     PAPI_OK: "DIGANTI_PAPI_TERVERIFIKASI",
     PAPI_BELUM: "DIGANTI_PAPI_BELUM_TERVERIFIKASI",
+    // change-mode ke PAPI sudah dikirim, verifikasi belum selesai (run terputus: 401/tab ditutup). Run berikut yang
+    // mendapati dokumen ini sudah PAPI mencatatnya PAPI_OK (tanpa kirim ulang) — tanpa tanda ini dokumen itu
+    // dianggap "PAPI sejak awal" -> tidak di-approve approve_capi.py & tidak dikembalikan keCapi.
+    PAPI_KIRIM: "DIGANTI_PAPI_DIKIRIM",
     CAPI_OK: "DIKEMBALIKAN_CAPI_TERVERIFIKASI",
     CAPI_BELUM: "DIKEMBALIKAN_CAPI_BELUM_TERVERIFIKASI",
   };
+  // Hasil pemeriksaan awal yang membuat dokumen bukan kandidat lagi (dilewati saat MELANJUTKAN daftar tersimpan).
+  const CEGAH_TUNTAS = ["BUKAN_SUBMITTED", "MODE_LAIN"];
   const KOLOM_CSV = ["id", "kode_identitas", "nama", "pml", "status", "status_dokumen", "mode", "diganti", "dikembalikan", "pesan"];
   // Status yang menghentikan batch (anomali: jangan diteruskan ke dokumen lain).
   const BERHENTI = new Set([ST.PAPI_BELUM, ST.CAPI_BELUM, "STATUS_BERUBAH", "GANTI_DITOLAK", "RESPONS_TIDAK_DIKENAL",
@@ -185,9 +194,32 @@
     return hasil;
   }
 
+  /** Kandidat SIAP hasil periksa() -> bentuk ringkas utk localStorage {waktu, pml: [..], d: [[id, indeks pml], ..]}. */
+  function padatDaftar(siap, waktu) {
+    const pml = [...new Set(siap.map((k) => k.pml))];
+    const indeks = new Map(pml.map((p, i) => [p, i]));
+    return { waktu, pml, d: siap.map((k) => [k.id, indeks.get(k.pml)]) };
+  }
+
+  /** Daftar tersimpan -> {waktu, kandidat} (kandidat berbentuk seperti kandidatDari), null kalau rusak/tidak ada. */
+  function uraiDaftar(isi) {
+    if (!isi || !Array.isArray(isi.d) || !Array.isArray(isi.pml)) return null;
+    return { waktu: isi.waktu || "", kandidat: isi.d.filter((x) => Array.isArray(x) && x[0]).map(([id, i]) => ({
+      id: String(id), kode: "", nama: "", pml: isi.pml[i] || "", peran: "", alias: SUBMITTED, mode: "CAPI" })) };
+  }
+
+  /** Kandidat daftar tersimpan yang masih perlu dikerjakan kePapi (belum diproses & tidak gugur di pemeriksaan awal). */
+  function sisaTersimpan(kandidat, daftarPml, hasil) {
+    return kandidat.filter((k) => {
+      const lama = hasil && hasil[k.id];
+      if (lama && !lama.status && CEGAH_TUNTAS.some((c) => String(lama.pesan || "").startsWith(`${c}:`))) return false;
+      return putuskanKandidat(k, daftarPml, hasil).status === "SIAP";
+    });
+  }
+
   if (typeof module !== "undefined" && module.exports) {
     module.exports = { ST, SUBMITTED, KOLOM_CSV, BERHENTI, halamanData, modeDari, bodyDaftar, bagiJendela, jedaUlang,
-      kandidatDari, putuskanKandidat, nilaiDetail, cegahSebelum, keCsv, dariCsv };
+      kandidatDari, putuskanKandidat, nilaiDetail, cegahSebelum, keCsv, dariCsv, padatDaftar, uraiDaftar, sisaTersimpan };
     return;
   }
 
@@ -196,6 +228,7 @@
   // -------------------------------------------------------------------------
   const API = "/app/api";
   const KUNCI_HASIL = `approveCapi.hasil.v1${LABEL}`; // per bagian: beberapa tab tidak saling menimpa
+  const KUNCI_DAFTAR = `approveCapi.daftar.v1${LABEL}`; // kandidat periksa() terakhir -> kePapi melanjutkan tanpa baca ulang
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const acak = (a, b) => a + Math.floor(Math.random() * (Math.max(a, b) - a + 1));
   const log = (...a) => console.log("%c[approveCapi]", "color:#b8541d;font-weight:bold", ...a);
@@ -272,7 +305,10 @@
         await tidur(ms);
         continue;
       }
-      if (r.status === 401) throw new Berhenti("SESI_DITOLAK", "HTTP 401 — login ulang fasih-sm, lalu jalankan lagi");
+      if (r.status === 401) {
+        throw new Berhenti("SESI_DITOLAK", "HTTP 401 — sesi habis: login ulang fasih-sm, muat ulang halaman Data, tempel "
+          + "berkas .siap.js yang SAMA, lalu kePapi()/keCapi() lagi — dilanjutkan dari daftar tersimpan, tanpa menelusuri ulang");
+      }
       return r;
     }
   }
@@ -375,6 +411,11 @@
       }
       siap.sort((a, b) => (a.pml + a.kode).localeCompare(b.pml + b.kode));
       kandidatTerakhir = { siap, semua: r.dok, waktu: Date.now(), perPml };
+      try {
+        localStorage.setItem(KUNCI_DAFTAR, JSON.stringify(padatDaftar(siap, new Date().toISOString())));
+      } catch (e) {
+        log("⚠️ Daftar kandidat tidak bisa disimpan (localStorage penuh?) — kalau kePapi terputus, run berikut membaca ulang dari server.");
+      }
       log(`Terbaca ${r.dok.size}/${r.total} dokumen CAPI SUBMITTED. Keputusan:`, per);
       if (r.tidakUtuh.length) log(`⚠️ ${r.tidakUtuh.length} jendela tidak utuh: ${r.tidakUtuh.join("; ")} — jalankan periksa() lagi nanti`);
       console.table(perPml);
@@ -414,6 +455,12 @@
     const det = await detailLengkap(o, ctx, k.id, k.kode);
     const cegah = cegahSebelum(det, ke, o);
     const dasar = { kode: det.kode || k.kode, nama: det.nama || k.nama, pml: det.pml || k.pml, statusDok: det.alias, mode: det.mode };
+    k.kode = dasar.kode;
+    if (cegah && ke === "PAPI" && cegah.status === "SUDAH_PAPI" && (bacaHasil()[k.id] || {}).status === ST.PAPI_KIRIM) {
+      // change-mode alat ini sudah terkirim di run yang terputus -> sekarang terbukti PAPI (tanpa kirim ulang).
+      catat(k.id, { ...dasar, status: ST.PAPI_OK, pesan: `PAPI terbukti saat melanjutkan run yang terputus (status ${det.alias || "-"})` });
+      return ST.PAPI_OK;
+    }
     if (cegah) {
       // Dokumen yang sudah PAPI sebelum alat ini menyentuhnya TIDAK dicatat sbg "diganti" (keCapi tak boleh menyentuhnya).
       if (ke === "CAPI" || cegah.status !== "SUDAH_PAPI") catat(k.id, { ...dasar, ...(ke === "CAPI" && cegah.status === "SUDAH_CAPI" ? { status: ST.CAPI_OK } : {}), pesan: `${cegah.status}: ${cegah.pesan}` });
@@ -436,6 +483,9 @@
       if (r.status === 401 || r.status === 403) throw new Berhenti("SESI_DITOLAK", pesan);
       return "GANTI_DITOLAK";
     }
+    // Dicatat SEBELUM verifikasi: run yang terputus di sini (401, tab ditutup) tetap mengenali dokumen ini sbg
+    // diganti alat ini (ST.PAPI_KIRIM) — lihat penanganan SUDAH_PAPI di atas.
+    if (ke === "PAPI") catat(k.id, { ...dasar, status: ST.PAPI_KIRIM, diganti: new Date().toISOString(), pesan: "change-mode dikirim — belum diverifikasi" });
     if (sementara) log(`⏳ change-mode HTTP ${r.status || "gagal jaringan"} — TIDAK dikirim ulang; status dibaca dulu.`);
     // Verifikasi: detail segar sampai mode = tujuan (maks ±3x).
     let akhir = null;
@@ -457,7 +507,7 @@
       return stOk;
     }
     if (sementara && akhir && akhir.ada && akhir.mode !== ke) {
-      catat(k.id, { ...dasar, pesan: `SERVER_SIBUK: change-mode HTTP ${r.status}, mode tetap ${akhir.mode || "-"} — jalankan lagi nanti` });
+      catat(k.id, { ...dasar, status: "", pesan: `SERVER_SIBUK: change-mode HTTP ${r.status}, mode tetap ${akhir.mode || "-"} — jalankan lagi nanti` });
       return "SERVER_SIBUK";
     }
     catat(k.id, { ...dasar, ...cap, status: stBelum, pesan: `server menjawab sukses, tapi mode terbaca '${akhir ? akhir.mode || "-" : "?"}' (${akhir ? akhir.pesan : ""})` });
@@ -471,14 +521,24 @@
     let daftar;
     if (ke === "PAPI") {
       if (!kandidatTerakhir || Date.now() - kandidatTerakhir.waktu > 30 * 60 * 1000) {
-        log("Daftar CAPI belum dibaca / sudah > 30 mnt — membaca ulang...");
-        const p = await periksa(opsi);
-        if (!p) return null;
+        // Run sebelumnya terputus (401, tab dimuat ulang): lanjutkan daftar tersimpan TANPA membaca ulang daftar CAPI.
+        let simpanan = null;
+        try { simpanan = o.telusurUlang ? null : uraiDaftar(JSON.parse(localStorage.getItem(KUNCI_DAFTAR) || "null")); } catch (e) { /* rusak */ }
+        const sisa = simpanan ? sisaTersimpan(simpanan.kandidat, daftarPmlAktif(o), bacaHasil()) : [];
+        if (sisa.length) {
+          log(`▶️ Melanjutkan daftar tersimpan (${simpanan.waktu}): ${sisa.length} dari ${simpanan.kandidat.length} belum diproses — `
+            + "daftar CAPI TIDAK dibaca ulang. {telusurUlang: true} = baca ulang dari server.");
+          daftar = sisa;
+        } else {
+          log(simpanan ? "Daftar tersimpan sudah tuntas — membaca daftar CAPI SUBMITTED baru..." : "Daftar CAPI belum dibaca — membaca...");
+          const p = await periksa(opsi);
+          if (!p) return null;
+        }
       }
-      daftar = kandidatTerakhir.siap.filter((k) => putuskanKandidat(k, daftarPmlAktif(o), bacaHasil()).status === "SIAP");
+      if (!daftar) daftar = kandidatTerakhir.siap.filter((k) => putuskanKandidat(k, daftarPmlAktif(o), bacaHasil()).status === "SIAP");
     } else {
       const h = bacaHasil();
-      daftar = Object.entries(h).filter(([, v]) => [ST.PAPI_OK, ST.PAPI_BELUM].includes(v.status))
+      daftar = Object.entries(h).filter(([, v]) => [ST.PAPI_OK, ST.PAPI_BELUM, ST.PAPI_KIRIM].includes(v.status))
         .map(([id, v]) => ({ id, kode: v.kode || "", nama: v.nama || "", pml: v.pml || "" }));
       if (o.pml) {
         const p = o.pml.map(norm);

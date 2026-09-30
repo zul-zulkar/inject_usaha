@@ -11,8 +11,12 @@
  *   await semuaKeCapi.jalankan()              // baca daftar PAPI segar -> jumlah per status -> ketik YA -> ganti
  *   semuaKeCapi.unduh()                       // CSV semua_ke_capi_<waktu>.csv (bukti)
  * Selain YA di prompt = batal (tidak ada yang diubah). {limit: N} opsional.
- * PARALEL (beberapa tab/PC): {bagian: "1/3"} di jalankan/unduh — dokumen dibagi lewat hash id, tiap bagian
- * lepas satu sama lain; catatan localStorage & nama CSV per bagian.
+ * LANJUT SESUDAH TERPUTUS (401, tab ditutup): daftar kandidat disimpan per bagian; jalankan() lagi dgn bagian yang
+ * sama melanjutkan sisanya TANPA membaca ulang daftar PAPI ({telusurUlang: true} memaksa baca ulang). Daftar yang
+ * sudah tuntas -> run berikut otomatis membaca daftar baru (dokumen yang baru APPROVED).
+ * PARALEL (beberapa tab/PC): tab 1 jalankan({bagian: "1/4"}), tab 2 {bagian: "2/4"}, … — dokumen dibagi lewat hash id,
+ * tiap bagian lepas satu sama lain; catatan localStorage & nama CSV per bagian; unduh() di tiap tab = bagian tab itu.
+ * Di browser yang sama, bagian yang sudah jalan di tab lain / pembagian berbeda / tanpa bagian ditolak.
  * Lain: semuaKeCapi.ringkasan(), semuaKeCapi.berhenti().
  *
  * PENGAMAN
@@ -153,9 +157,62 @@
     return "﻿" + [KOLOM_CSV.join(","), ...baris.map((b) => KOLOM_CSV.map((k) => kutip(b[k])).join(","))].join("\n");
   }
 
+  // Catatan hasil per dokumen disimpan RINGKAS (localStorage ±5 juta karakter per situs, dipakai bersama alat lain;
+  // format panjang ±290 karakter x 14 rb dokumen tidak muat): {s, k, a, m, g, p}. Format lama (sebelum 2026-09-30,
+  // field `status`) tetap terbaca.
+  const ALIAS_APPROVED = "APPROVED BY Pengawas";
+  const SINGKAT = { [ST.OK]: "OK", [ST.MENUNGGU]: "M", [ST.BELUM]: "B" };
+  const PANJANG = Object.fromEntries(Object.entries(SINGKAT).map(([a, s]) => [s, a]));
+  // Sudah selesai utk daftar ini: tidak dikerjakan lagi saat MELANJUTKAN daftar tersimpan.
+  const TUNTAS = new Set([ST.OK, "SUDAH_CAPI", "BUKAN_APPROVED", "MODE_LAIN"]);
+  const namaDariKode = (kode) => String(kode || "").replace(/^\d{16}\s*-\s*/, "");
+
+  /** Catatan lengkap {status, kode, nama, statusDok, mode, diganti, pesan} -> bentuk ringkas utk localStorage. */
+  function padat(r) {
+    const v = { s: SINGKAT[r.status] || r.status || "" };
+    if (r.kode) v.k = r.kode;
+    if (r.statusDok) v.a = r.statusDok === ALIAS_APPROVED ? "A" : r.statusDok;
+    if (r.mode) v.m = r.mode;
+    if (r.diganti && Number.isFinite(Date.parse(r.diganti))) v.g = Math.round(Date.parse(r.diganti) / 1000);
+    if (r.pesan) v.p = r.pesan;
+    return v;
+  }
+
+  /** Bentuk ringkas (atau format lama) -> catatan lengkap; null kalau tidak ada. */
+  function urai(v) {
+    if (!v || typeof v !== "object") return null;
+    if (!("s" in v)) {
+      return { status: v.status || "", kode: v.kode || "", nama: v.nama || namaDariKode(v.kode), statusDok: v.statusDok || "",
+        mode: v.mode || "", diganti: v.diganti || "", pesan: v.pesan || "" };
+    }
+    return { status: PANJANG[v.s] || v.s, kode: v.k || "", nama: namaDariKode(v.k), statusDok: v.a === "A" ? ALIAS_APPROVED : (v.a || ""),
+      mode: v.m || "", diganti: v.g ? new Date(v.g * 1000).toISOString() : "", pesan: v.p || "" };
+  }
+
+  /** ID daftar tersimpan yang belum tuntas menurut catatan hasil (urutan daftar dipertahankan). */
+  function sisaDaftar(ids, hasil) {
+    return (ids || []).filter((id) => {
+      const r = urai(hasil && hasil[id]);
+      return !r || !TUNTAS.has(r.status);
+    });
+  }
+
+  /** Bagian yang sedang jalan di tab lain (["k/n" | "" = semua]) vs bagian ini (null = semua) -> alasan bentrok / "". */
+  function bentrokBagian(lain, b) {
+    for (const x of lain) {
+      if (!x) return "tab lain sedang menjalankan SEMUA dokumen (tanpa bagian)";
+      if (!b) return `bagian ${x} sedang berjalan di tab lain — tab ini juga wajib memakai {bagian: "k/${x.split("/")[1]}"}`;
+      const y = uraiBagian(x);
+      if (y.n !== b.n) return `tab lain memakai pembagian ${x} — semua tab wajib memakai jumlah bagian yang sama (/${y.n})`;
+      if (y.k === b.k) return `bagian ${x} sudah berjalan di tab lain`;
+    }
+    return "";
+  }
+
   if (typeof module !== "undefined" && module.exports) {
     module.exports = { ST, KOLOM_CSV, BERHENTI, halamanData, modeDari, bodyDaftar, bagiJendela, jedaUlang, uraiBagian,
-      bagianDari, kandidatDari, nilaiDetail, cegahSebelum, nilaiSesudah, jedaCek, keCsv, approved };
+      bagianDari, bentrokBagian, kandidatDari, nilaiDetail, cegahSebelum, nilaiSesudah, jedaCek, keCsv, approved,
+      padat, urai, sisaDaftar, TUNTAS };
     return;
   }
 
@@ -174,6 +231,12 @@
   let berjalan = false;
   let hentikan = false;
   let requestTerakhir = 0;
+  const KUNCI_JALAN = "semuaKeCapi.jalan.v1";
+  const HIDUP_MS = 3 * 60 * 1000; // tanpa tanda hidup selama ini = tab itu dianggap sudah berhenti/ditutup
+  const ID_TAB = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  let labelJalan = null; // "k/n" | "" (semua) selama jalankan() aktif di tab ini
+  let detakTerakhir = 0;
+  let bagianTab = null;  // bagian terakhir yang dijalankan tab ini -> bawaan unduh()/ringkasan()
 
   const OPSI_BAWAAN = { dari: "2026-01-01T00:00:00.000Z", maksJendela: 900, jarakRequestMs: 800,
     jedaBacaMin: 1000, jedaBacaMaks: 2000, jedaTulisMin: 500, jedaTulisMaks: 1500,
@@ -181,17 +244,22 @@
 
   const labelBagian = (b) => (b ? `.bagian-${b.k}-dari-${b.n}` : "");
   const kunciHasil = (b) => `semuaKeCapi.hasil.v1${labelBagian(b)}`; // per bagian: tab paralel tidak saling menimpa
+  const kunciDaftar = (b) => `semuaKeCapi.daftar.v1${labelBagian(b)}`; // ID kandidat terakhir -> dilanjutkan tanpa baca ulang
 
   function bacaJson(kunci, bawaan) {
     try { return JSON.parse(localStorage.getItem(kunci) || "null") || bawaan; } catch (e) { return bawaan; }
   }
+  /** -> true kalau tersimpan (false: localStorage penuh / diblokir). */
   function tulisJson(kunci, isi) {
-    try { localStorage.setItem(kunci, JSON.stringify(isi)); } catch (e) { log("⚠️ localStorage gagal ditulis — unduh() sering-sering", e); }
+    try { localStorage.setItem(kunci, JSON.stringify(isi)); return true; } catch (e) { return false; }
   }
   function catat(b, id, isi) {
     const h = bacaJson(kunciHasil(b), {});
-    h[id] = { ...(h[id] || {}), ...isi, waktu: new Date().toISOString() };
-    tulisJson(kunciHasil(b), h);
+    h[id] = padat({ ...(urai(h[id]) || {}), ...isi });
+    if (!tulisJson(kunciHasil(b), h)) {
+      throw new Berhenti("PENYIMPANAN_PENUH", `catatan dokumen ${id} tidak bisa disimpan di localStorage (penuh?) — `
+        + "unduh() dulu; dokumen tanpa catatan diperiksa ulang lewat detail di run berikut");
+    }
   }
 
   function cekHenti() {
@@ -200,8 +268,34 @@
   async function tidur(ms) {
     for (const akhir = Date.now() + ms; Date.now() < akhir;) {
       cekHenti();
+      detak();
       await sleep(Math.min(1000, akhir - Date.now()));
     }
+  }
+
+  // Tab paralel di browser yang sama: tiap tab yang sedang jalan mencatat bagiannya + tanda hidup di localStorage,
+  // supaya bagian yang sama / pembagian yang tumpang tindih tidak jalan dua kali.
+  function tabLainJalan() {
+    return Object.entries(bacaJson(KUNCI_JALAN, {}))
+      .filter(([id, v]) => id !== ID_TAB && v && Date.now() - v.t < HIDUP_MS).map(([, v]) => v.bagian || "");
+  }
+  function detak(paksa) {
+    if (labelJalan === null || (!paksa && Date.now() - detakTerakhir < 10000)) return;
+    detakTerakhir = Date.now();
+    const j = bacaJson(KUNCI_JALAN, {});
+    for (const [id, v] of Object.entries(j)) if (!v || Date.now() - v.t >= HIDUP_MS) delete j[id];
+    j[ID_TAB] = { bagian: labelJalan, t: Date.now() };
+    tulisJson(KUNCI_JALAN, j);
+  }
+  function lepasJalan() {
+    const j = bacaJson(KUNCI_JALAN, {});
+    delete j[ID_TAB];
+    tulisJson(KUNCI_JALAN, j);
+  }
+  // Tab dimuat ulang/ditutup di tengah jalan (mis. sesudah 401): tanda jalannya dilepas supaya bagian itu bisa
+  // langsung dijalankan lagi, tanpa menunggu tanda hidupnya basi.
+  if (typeof global.addEventListener === "function") {
+    global.addEventListener("pagehide", () => { if (labelJalan !== null) lepasJalan(); });
   }
   function xsrf() {
     const c = document.cookie.split("; ").find((x) => x.startsWith("XSRF-TOKEN="));
@@ -213,6 +307,7 @@
     const tunggu = requestTerakhir + o.jarakRequestMs - Date.now();
     if (tunggu > 0) await sleep(tunggu);
     requestTerakhir = Date.now();
+    detak();
     let status = 0, teks = "", retryAfter = null;
     try {
       const res = await fetch(`${API}${path}`, {
@@ -242,7 +337,10 @@
         await tidur(ms);
         continue;
       }
-      if (r.status === 401) throw new Berhenti("SESI_DITOLAK", "HTTP 401 — login ulang fasih-sm, lalu jalankan lagi");
+      if (r.status === 401) {
+        throw new Berhenti("SESI_DITOLAK", "HTTP 401 — sesi habis: login ulang fasih-sm, muat ulang halaman Data, tempel skrip "
+          + "lagi, lalu jalankan() dgn bagian yang SAMA — dilanjutkan dari daftar tersimpan, tanpa menelusuri ulang");
+      }
       return r;
     }
   }
@@ -353,18 +451,53 @@
     const o = { ...OPSI_BAWAAN, ...opsi };
     let b;
     try { b = uraiBagian(o.bagian); } catch (e) { log(`⛔ ${e.message}`); return null; }
-    const labelB = b ? `${b.k}/${b.n}` : "";
     const ctx = cekHalaman();
     if (!ctx) return null;
+    const alasan = bentrokBagian(tabLainJalan(), b);
+    if (alasan) {
+      log(`⛔ ${alasan} — tidak dijalankan. (Tab yang sudah ditutup dianggap berhenti ${HIDUP_MS / 60000} mnt sesudah tanda hidup terakhirnya.)`);
+      return null;
+    }
+    bagianTab = b;
+    labelJalan = b ? `${b.k}/${b.n}` : "";
+    detak(true);
+    try {
+      return await jalankanBagian(o, ctx, b);
+    } finally {
+      labelJalan = null;
+      lepasJalan();
+    }
+  }
+
+  async function jalankanBagian(o, ctx, b) {
+    const labelB = b ? `${b.k}/${b.n}` : "";
     berjalan = true;
     hentikan = false;
-    let daftar;
-    try {
-      daftar = await bacaKandidat(o, ctx, b);
-    } catch (e) {
-      laporGalat(e);
-      berjalan = false;
-      return null;
+    let daftar = null;
+    // Lanjutkan daftar tersimpan (run sebelumnya terputus, mis. 401) — daftar PAPI TIDAK dibaca ulang dari server.
+    const simpanan = bacaJson(kunciDaftar(b), null);
+    if (!o.telusurUlang && simpanan && Array.isArray(simpanan.ids)) {
+      const hasilLama = bacaJson(kunciHasil(b), {});
+      const sisa = sisaDaftar(simpanan.ids, hasilLama);
+      if (sisa.length) {
+        daftar = sisa.map((id) => ({ id, kode: (urai(hasilLama[id]) || {}).kode || "", nama: "", alias: "" }));
+        log(`▶️ Melanjutkan daftar tersimpan (${simpanan.waktu}${labelB ? `, bagian ${labelB}` : ""}): ${sisa.length} dari `
+          + `${simpanan.ids.length} belum tuntas — daftar PAPI TIDAK dibaca ulang. {telusurUlang: true} = baca ulang dari server.`);
+      } else {
+        log(`Daftar tersimpan (${simpanan.waktu}) sudah tuntas — membaca daftar PAPI baru dari server...`);
+      }
+    }
+    if (!daftar) {
+      try {
+        daftar = await bacaKandidat(o, ctx, b);
+      } catch (e) {
+        laporGalat(e);
+        berjalan = false;
+        return null;
+      }
+      if (!tulisJson(kunciDaftar(b), { waktu: new Date().toISOString(), bagian: labelB, ids: daftar.map((k) => k.id) })) {
+        log("⚠️ Daftar kandidat tidak bisa disimpan (localStorage penuh?) — kalau run ini terputus, run berikut membaca ulang dari server.");
+      }
     }
     berjalan = false;
     const limit = o.limit || daftar.length;
@@ -421,6 +554,7 @@
     async function gantiSatu(k) {
       const det = await detailLengkap(o, ctx, k.id, k.kode);
       const dasar = { kode: det.kode || k.kode, nama: det.nama || k.nama, statusDok: det.alias, mode: det.mode };
+      k.kode = dasar.kode;
       const cegah = cegahSebelum(det);
       if (cegah) {
         catat(b, k.id, { ...dasar, status: cegah.status, pesan: cegah.pesan });
@@ -435,6 +569,9 @@
         return "GANTI_DITOLAK";
       }
       const diganti = new Date().toISOString();
+      // Dicatat SEBELUM verifikasi: kalau run terputus di sini (401, tab ditutup), run berikut mengecek dokumen ini
+      // lewat antrean — tidak mengirim change-mode lagi.
+      catat(b, k.id, { ...dasar, status: ST.MENUNGGU, diganti, pesan: "change-mode dikirim — belum diverifikasi" });
       if (sementara) log(`⏳ change-mode HTTP ${r.status || "gagal jaringan"} — TIDAK dikirim ulang; status dibaca dulu.`);
       let akhir = null;
       for (const ms of sementara ? [20000, 20000] : [1000, 3000]) {
@@ -472,9 +609,10 @@
         await layaniAntrean();
         await tungguAntrean(o.maksMenunggu - 1);
         // Sudah pernah diganti tapi belum terbukti (run sebelumnya berhenti): cek ulang dulu, jangan kirim lagi.
-        if (lama[k.id] && [ST.MENUNGGU, ST.BELUM].includes(lama[k.id].status) && !o.ulangi) {
-          antre.push({ k, alias: lama[k.id].statusDok || k.alias, waktu: Date.now(), ke: 0, berikut: Date.now() });
-          log(`[cek ulang] ${k.id.slice(0, 8)} tercatat ${lama[k.id].status} di run sebelumnya — dicek, tidak dikirim ulang ({ulangi: true} utk memaksa)`);
+        const rLama = urai(lama[k.id]);
+        if (rLama && [ST.MENUNGGU, ST.BELUM].includes(rLama.status) && !o.ulangi) {
+          antre.push({ k, alias: rLama.statusDok || k.alias, waktu: Date.now(), ke: 0, berikut: Date.now() });
+          log(`[cek ulang] ${k.id.slice(0, 8)} tercatat ${rLama.status} di run sebelumnya — dicek, tidak dikirim ulang ({ulangi: true} utk memaksa)`);
           continue;
         }
         const st = await gantiSatu(k);
@@ -502,19 +640,23 @@
     return hitung;
   }
 
+  const bagianOpsi = (opsi) => (opsi.bagian != null ? uraiBagian(opsi.bagian) : bagianTab);
+
   function ringkasan(opsi = {}) {
     const per = {};
-    for (const v of Object.values(bacaJson(kunciHasil(uraiBagian(opsi.bagian)), {}))) {
-      per[v.status || "(belum)"] = (per[v.status || "(belum)"] || 0) + 1;
+    for (const v of Object.values(bacaJson(kunciHasil(bagianOpsi(opsi)), {}))) {
+      const st = (urai(v) || {}).status || "(belum)";
+      per[st] = (per[st] || 0) + 1;
     }
     console.table(per);
     return per;
   }
 
   function unduh(opsi = {}) {
-    const b = uraiBagian(opsi.bagian);
-    const baris = Object.entries(bacaJson(kunciHasil(b), {})).map(([id, v]) => ({ id, kode_identitas: v.kode, nama: v.nama,
-      status: v.status || "", status_dokumen: v.statusDok, mode: v.mode, diganti: v.diganti, pesan: v.pesan }));
+    const b = bagianOpsi(opsi);
+    const baris = Object.entries(bacaJson(kunciHasil(b), {})).map(([id, v]) => ({ id, ...urai(v) }))
+      .map((r) => ({ id: r.id, kode_identitas: r.kode, nama: r.nama, status: r.status, status_dokumen: r.statusDok,
+        mode: r.mode, diganti: r.diganti, pesan: r.pesan }));
     if (!baris.length) return log("Belum ada hasil.");
     const blob = new Blob([keCsv(baris)], { type: "text/csv" });
     const a = document.createElement("a");
@@ -530,5 +672,5 @@
     jalankan, ringkasan, unduh,
     berhenti() { hentikan = true; log("Akan berhenti di langkah berikutnya."); },
   };
-  log("Siap. Mulai: await semuaKeCapi.jalankan()  (paralel: {bagian: \"1/3\"})");
+  log("Siap. Mulai: await semuaKeCapi.jalankan()  (paralel 4 tab: {bagian: \"1/4\"} … {bagian: \"4/4\"})");
 })(typeof window !== "undefined" ? window : globalThis);

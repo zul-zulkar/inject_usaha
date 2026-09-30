@@ -32,6 +32,13 @@ const ids = Array.from({ length: 300 }, (_, i) => `id-${i}-${(i * 7919).toString
 const per3 = [1, 2, 3].map((k) => ids.filter((i) => m.bagianDari(i, 3) === k).length);
 check("bagian: tiap id tepat satu bagian, pembagian tidak timpang", [per3.reduce((a, b) => a + b, 0), per3.every((x) => x > 70)], [300, true]);
 check("bagian: stabil", m.bagianDari("abc", 5), m.bagianDari("abc", 5));
+const b4 = (k) => ({ k, n: 4 });
+check("bentrok: tidak ada tab lain", m.bentrokBagian([], b4(1)), "");
+check("bentrok: bagian lain boleh", m.bentrokBagian(["2/4", "3/4"], b4(1)), "");
+check("bentrok: bagian sama", /sudah berjalan/.test(m.bentrokBagian(["2/4", "1/4"], b4(1))), true);
+check("bentrok: jumlah bagian beda", /jumlah bagian yang sama/.test(m.bentrokBagian(["1/3"], b4(2))), true);
+check("bentrok: tab lain tanpa bagian", /SEMUA/.test(m.bentrokBagian([""], b4(1))), true);
+check("bentrok: tab ini tanpa bagian", /k\/4/.test(m.bentrokBagian(["2/4"], null)), true);
 const det = (o) => ({ ada: true, alias: APP, mode: "PAPI", kode: "", nama: "", pesan: "", ...o });
 check("sebelum: APPROVED + PAPI = boleh", m.cegahSebelum(det()), null);
 check("sebelum: mode tak terbaca tetap boleh (list sudah menyaring PAPI)", m.cegahSebelum(det({ mode: "" })), null);
@@ -43,10 +50,21 @@ check("sesudah: OK", m.nilaiSesudah(det({ mode: "CAPI" }), APP), "OK");
 check("sesudah: masih PAPI", m.nilaiSesudah(det(), APP), "BELUM");
 check("sesudah: status berubah", m.nilaiSesudah(det({ mode: "CAPI", alias: SUB }), APP), "STATUS_BERUBAH");
 check("jeda cek ulang", [0, 1, 2, 3, 4, 9].map(m.jedaCek), [20000, 40000, 60000, 120000, 180000, 180000]);
+const rek = { status: m.ST.OK, kode: "5108060006000224 - WARUNG X (I MADE)", statusDok: APP, mode: "CAPI",
+  diganti: "2026-09-30T02:00:00.000Z", pesan: "" };
+check("catatan ringkas: bolak-balik", m.urai(m.padat(rek)), { status: rek.status, kode: rek.kode, nama: "WARUNG X (I MADE)",
+  statusDok: rek.statusDok, mode: rek.mode, diganti: rek.diganti, pesan: "" });
+check("catatan ringkas: jauh lebih pendek", JSON.stringify(m.padat(rek)).length < 0.6 * JSON.stringify(rek).length, true);
+check("catatan format lama tetap terbaca", m.urai({ status: m.ST.MENUNGGU, kode: "K", nama: "N", statusDok: SUB }).status, m.ST.MENUNGGU);
+check("sisa daftar: tuntas dibuang, menunggu/gagal/tanpa catatan tetap",
+  m.sisaDaftar(["a", "b", "c", "d", "e", "f"], { a: m.padat({ status: m.ST.OK }), b: { status: "SUDAH_CAPI" },
+    c: m.padat({ status: m.ST.MENUNGGU }), d: m.padat({ status: "GANTI_DITOLAK" }), f: m.padat({ status: "BUKAN_APPROVED" }) }),
+  ["c", "d", "e"]);
 
 // ---------------- simulasi browser
 const jam = { now: Date.parse("2026-09-29T12:00:00.000Z") };
-const server = { docs: new Map(), gantiDitolak: new Set(), tidakDiterapkan: new Set(), gantiLog: [], gangguan: [429] };
+const server = { docs: new Map(), gantiDitolak: new Set(), tidakDiterapkan: new Set(), gantiLog: [], gangguan: [429],
+  sesiHabis: false, habisSesudahGanti: "", bacaDaftarPapi: 0 };
 let urut = 0;
 const tambah = (id, o) => server.docs.set(id, { id, kode: `5108060006000224 - USAHA ${id}`, alias: APP, mode: "PAPI",
   dibuat: Date.parse("2026-09-20T00:00:00.000Z") + (urut++) * 60000, ...o });
@@ -65,11 +83,13 @@ async function fetchPalsu(url, init) {
   const u = new URL(url, "https://fasih-sm.bps.go.id");
   const p = u.pathname.replace(/^\/app\/api/, "");
   if (!init.headers["X-XSRF-TOKEN"]) return json(403, "Invalid CSRF Token");
+  if (server.sesiHabis) return json(401, "");
   if (p === "/analytic/api/v2/assignment/datatable-all-user-survey-periode") {
     const g = server.gangguan.shift();
     if (g) return json(g, { error: "RATE_LIMIT_EXCEEDED" });
     const b = JSON.parse(init.body);
     const x = b.assignmentExtraParam;
+    if (x.mode && x.mode.includes("PAPI") && !b.search.value) server.bacaDaftarPapi++;
     const semua = [...server.docs.values()].filter((d) => (!x.mode || x.mode.includes(modeTabel(d)))
       && (!x.assignmentStatusAlias || d.alias === x.assignmentStatusAlias)
       && (!x.dateCreatedFrom || d.dibuat >= Date.parse(x.dateCreatedFrom)) && (!x.dateCreatedTo || d.dibuat <= Date.parse(x.dateCreatedTo))
@@ -92,6 +112,7 @@ async function fetchPalsu(url, init) {
     server.gantiLog.push({ id: mg[1], ke, t: jam.now });
     if (server.gantiDitolak.has(mg[1])) return json(200, { success: false, message: "Tidak bisa ganti mode" });
     if (!server.tidakDiterapkan.has(mg[1])) { d.modeLama = d.mode; d.mode = ke; d.berubahPada = jam.now; }
+    if (server.habisSesudahGanti === mg[1]) server.sesiHabis = true; // sesi habis tepat sesudah change-mode diterapkan
     return json(200, { success: true, message: "Berhasil. " });
   }
   return json(404, {});
@@ -105,23 +126,29 @@ const unduhan = [];
 const blobs = new Map();
 const penyimpanan = new Map();
 const jawabPrompt = [];
-const sandbox = {
-  console: { log: (...a) => log.push(a.filter((x) => !String(x).startsWith("color:")).join(" ")), table: () => {}, error: (...a) => log.push(`ERR ${a.join(" ")}`) },
-  Date: JamDate,
-  setTimeout: (fn, ms) => { jam.now += Math.max(0, ms || 0); setImmediate(fn); },
-  fetch: fetchPalsu,
-  prompt: () => jawabPrompt.shift() || "",
-  localStorage: { getItem: (k) => (penyimpanan.has(k) ? penyimpanan.get(k) : null), setItem: (k, v) => penyimpanan.set(k, String(v)) },
-  location: { host: "fasih-sm.bps.go.id", pathname: `/app/surveys/${SURVEI}/${PERIODE}/data` },
-  document: { cookie: "XSRF-TOKEN=abc%3D", body: { appendChild: () => {} },
-    createElement: () => ({ click() { unduhan.push({ nama: this.download, isi: blobs.get(this.href) }); }, remove() {} }) },
-  Blob: class { constructor(bagian) { this.isi = bagian.join(""); } },
-  URL: { createObjectURL: (b) => { const k2 = `blob:${blobs.size}`; blobs.set(k2, b.isi); return k2; } },
-};
-sandbox.window = sandbox;
-vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(BERKAS, "utf8"), sandbox);
-const hasil = (label = "") => JSON.parse(penyimpanan.get(`semuaKeCapi.hasil.v1${label}`) || "{}");
+/** Satu tab browser: konteks sendiri, localStorage/server/jam/prompt BERSAMA (seperti tab di browser yang sama). */
+function buatTab() {
+  const sb = {
+    console: { log: (...a) => log.push(a.filter((x) => !String(x).startsWith("color:")).join(" ")), table: () => {}, error: (...a) => log.push(`ERR ${a.join(" ")}`) },
+    Date: JamDate,
+    setTimeout: (fn, ms) => { jam.now += Math.max(0, ms || 0); setImmediate(fn); },
+    fetch: fetchPalsu,
+    prompt: () => jawabPrompt.shift() || "",
+    localStorage: { getItem: (k) => (penyimpanan.has(k) ? penyimpanan.get(k) : null), setItem: (k, v) => penyimpanan.set(k, String(v)) },
+    location: { host: "fasih-sm.bps.go.id", pathname: `/app/surveys/${SURVEI}/${PERIODE}/data` },
+    document: { cookie: "XSRF-TOKEN=abc%3D", body: { appendChild: () => {} },
+      createElement: () => ({ click() { unduhan.push({ nama: this.download, isi: blobs.get(this.href) }); }, remove() {} }) },
+    Blob: class { constructor(bagian) { this.isi = bagian.join(""); } },
+    URL: { createObjectURL: (b) => { const k2 = `blob:${blobs.size}`; blobs.set(k2, b.isi); return k2; } },
+  };
+  sb.window = sb;
+  vm.createContext(sb);
+  vm.runInContext(fs.readFileSync(BERKAS, "utf8"), sb);
+  return sb;
+}
+const sandbox = buatTab();
+const hasil = (label = "") => Object.fromEntries(Object.entries(JSON.parse(penyimpanan.get(`semuaKeCapi.hasil.v1${label}`) || "{}"))
+  .map(([id, v]) => [id, m.urai(v)]));
 const mode = (...i) => i.map((x) => `${server.docs.get(x).mode}/${server.docs.get(x).alias.split(" ")[0]}`);
 
 (async () => {
@@ -173,18 +200,72 @@ const mode = (...i) => i.map((x) => `${server.docs.get(x).mode}/${server.docs.ge
   const r4 = await s.jalankan({ ulangi: true });
   check("run 4: ulangi -> b0 dikirim ulang & terverifikasi", [r4, hasil().b0.status, server.docs.get("b0").mode], [{ [m.ST.OK]: 1 }, m.ST.OK, "CAPI"]);
 
-  // bagian paralel: hanya dokumen bagiannya, catatan per bagian
-  const e = Array.from({ length: 12 }, (_, i) => `e${i}`);
+  // sesi habis (401) di tengah run -> dijalankan ulang: lanjut dari daftar tersimpan, TANPA menelusuri ulang
+  ["h0", "h1", "h2", "h3"].forEach((i) => tambah(i, {}));
+  server.habisSesudahGanti = "h1";
+  const nKirimH = server.gantiLog.length;
+  jawabPrompt.push("YA");
+  const rh1 = await s.jalankan();
+  check("401: berhenti sesudah h1 dikirim (h1 belum terverifikasi)", [rh1, server.gantiLog.slice(nKirimH).map((g) => g.id)],
+    [{ [m.ST.OK]: 1 }, ["h0", "h1"]]);
+  check("401: h1 sudah tercatat MENUNGGU sebelum verifikasi", hasil().h1.status, m.ST.MENUNGGU);
+  check("401: pesan menyuruh jalankan ulang dgn bagian yang sama", log.some((l) => l.includes("SESI_DITOLAK") && l.includes("tanpa menelusuri ulang")), true);
+  check("401: tanda jalan dilepas", JSON.parse(penyimpanan.get("semuaKeCapi.jalan.v1")), {});
+  server.sesiHabis = false;
+  server.habisSesudahGanti = "";
+  const nBaca = server.bacaDaftarPapi;
+  const nKirimH2 = server.gantiLog.length;
+  jawabPrompt.push("YA");
+  const rh2 = await s.jalankan();
+  check("lanjut: daftar PAPI TIDAK dibaca ulang", server.bacaDaftarPapi - nBaca, 0);
+  check("lanjut: log melanjutkan", log.some((l) => l.includes("Melanjutkan daftar tersimpan") && l.includes("3 dari 4")), true);
+  check("lanjut: h1 dicek (tidak dikirim ulang), h2/h3 diganti", [rh2, server.gantiLog.slice(nKirimH2).map((g) => g.id)],
+    [{ [m.ST.OK]: 3 }, ["h2", "h3"]]);
+  check("lanjut: semua h CAPI & tercatat OK", ["h0", "h1", "h2", "h3"].map((i) => `${server.docs.get(i).mode}/${hasil()[i].status}`),
+    Array(4).fill(`CAPI/${m.ST.OK}`));
+  check("daftar tersimpan tuntas -> run berikut membaca ulang dari server (tidak ada PAPI APPROVED lagi)",
+    [await s.jalankan(), server.bacaDaftarPapi - nBaca > 0], [{ diproses: 0 }, true]);
+  tambah("h4", {});
+  penyimpanan.set("semuaKeCapi.daftar.v1", JSON.stringify({ waktu: "x", bagian: "", ids: ["h3", "h9-tak-ada"] }));
+  const nBaca2 = server.bacaDaftarPapi;
+  jawabPrompt.push("tidak");
+  await s.jalankan({ telusurUlang: true });
+  check("{telusurUlang: true} membaca ulang walau daftar tersimpan belum tuntas", server.bacaDaftarPapi - nBaca2 > 0, true);
+  jawabPrompt.push("YA");
+  check("... daftar baru tersimpan & dipakai", [await s.jalankan(), server.docs.get("h4").mode], [{ [m.ST.OK]: 1 }, "CAPI"]);
+
+  // 4 tab paralel di browser yang sama: bagian saling lepas, bentrok ditolak, unduh() per tab = bagiannya
+  const e = Array.from({ length: 24 }, (_, i) => `e${i}`);
   e.forEach((i) => tambah(i, {}));
-  const e2 = e.filter((i) => m.bagianDari(i, 2) === 2);
-  jawabPrompt.push("YA");
-  const rb = await s.jalankan({ bagian: "2/2" });
-  check("bagian 2/2: hanya dokumen bagiannya", [rb[m.ST.OK], Object.keys(hasil(".bagian-2-dari-2")).sort()], [e2.length, [...e2].sort()]);
-  check("bagian 2/2: catatan bagian utama tidak bertambah", Object.keys(hasil()).length, 7);
-  check("bagian 1/2 belum disentuh", e.filter((i) => server.docs.get(i).mode === "PAPI").length, e.length - e2.length);
-  jawabPrompt.push("YA");
-  const rb1 = await s.jalankan({ bagian: "1/2" });
-  check("bagian 1/2: sisanya", [rb1[m.ST.OK], e.every((i) => server.docs.get(i).mode === "CAPI")], [e.length - e2.length, true]);
+  const perBagian = [1, 2, 3, 4].map((k) => e.filter((i) => m.bagianDari(i, 4) === k).sort());
+  check("prasyarat: tiap bagian punya dokumen", perBagian.every((x) => x.length > 0), true);
+  const nKirim4 = server.gantiLog.length;
+  const tab = [s, buatTab().semuaKeCapi, buatTab().semuaKeCapi, buatTab().semuaKeCapi];
+  jawabPrompt.push("YA", "YA", "YA", "YA");
+  const jalan = tab.map((t, i) => t.jalankan({ bagian: `${i + 1}/4` }));
+  check("4 bagian tercatat berjalan bersamaan",
+    Object.values(JSON.parse(penyimpanan.get("semuaKeCapi.jalan.v1"))).map((v) => v.bagian).sort(), ["1/4", "2/4", "3/4", "4/4"]);
+  const tabLain = buatTab().semuaKeCapi;
+  check("bagian yang sudah jalan di tab lain ditolak", await tabLain.jalankan({ bagian: "2/4" }), null);
+  check("pembagian beda ditolak", await tabLain.jalankan({ bagian: "1/3" }), null);
+  check("tanpa bagian ditolak selama bagian lain jalan", await tabLain.jalankan(), null);
+  check("alasan penolakan dicetak", log.some((l) => l.includes("bagian 2/4 sudah berjalan di tab lain")), true);
+  const r4tab = await Promise.all(jalan);
+  const dikirim4 = server.gantiLog.slice(nKirim4).map((g) => g.id).sort();
+  check("4 bagian: tiap dokumen diganti tepat sekali, semuanya CAPI",
+    [dikirim4, e.every((i) => server.docs.get(i).mode === "CAPI")], [[...e].sort(), true]);
+  check("4 bagian: tiap tab hanya dokumen bagiannya",
+    [1, 2, 3, 4].map((k) => Object.keys(hasil(`.bagian-${k}-dari-4`)).sort()), perBagian);
+  check("4 bagian: jumlah per tab", r4tab.map((r) => r[m.ST.OK]), perBagian.map((x) => x.length));
+  check("catatan tanpa bagian tidak bertambah", Object.keys(hasil()).length, 12);
+  check("tanda jalan dilepas sesudah selesai", JSON.parse(penyimpanan.get("semuaKeCapi.jalan.v1")), {});
+  tab[2].unduh();
+  check("unduh() tanpa opsi = bagian tab itu", [unduhan[unduhan.length - 1].nama.includes(".bagian-3-dari-4"),
+    unduhan[unduhan.length - 1].isi.split(m.ST.OK).length - 1], [true, perBagian[2].length]);
+  // tab yang ditutup di tengah jalan: tanda hidupnya basi sesudah 3 mnt -> bagiannya boleh dijalankan lagi
+  penyimpanan.set("semuaKeCapi.jalan.v1", JSON.stringify({ tabMati: { bagian: "1/4", t: jam.now - 4 * 60 * 1000 } }));
+  check("tanda hidup > 3 mnt = tab dianggap berhenti", await tabLain.jalankan({ bagian: "1/4" }), { diproses: 0 });
+  check("... tanda basi dibersihkan", JSON.parse(penyimpanan.get("semuaKeCapi.jalan.v1")), {});
 
   sandbox.location.host = "contoh.lain";
   check("halaman salah ditolak", await s.jalankan(), null);

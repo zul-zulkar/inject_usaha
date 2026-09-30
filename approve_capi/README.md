@@ -32,6 +32,11 @@ approveCapi.unduh()                      // approve_capi_<waktu>.csv → simpan 
   tidak punya petugas, atau dipegang PML di luar daftar hanya dilaporkan.
 - Tepat sebelum diganti, detail dokumen dibaca ulang dan harus SUBMITTED + CAPI. Sesudah diganti,
   detail dibaca lagi dan mode harus PAPI dengan status tetap. Kejanggalan menghentikan batch.
+- **Terputus di tengah jalan (HTTP 401 / sesi habis):** login ulang fasih-sm, muat ulang halaman Data, tempel
+  berkas `.siap.js` yang **sama**, lalu `await approveCapi.kePapi()` lagi. Sisanya dilanjutkan dari daftar yang
+  disimpan `periksa()`; daftar CAPI tidak dibaca ulang. Dokumen yang sudah sempat dikirim sebelum putus
+  (`DIGANTI_PAPI_DIKIRIM`) diakui tanpa dikirim ulang. Untuk sengaja membaca ulang dari server:
+  `kePapi({telusurUlang: true})`.
 
 ## 2. Approve (fasih-web, semua PML bergiliran)
 

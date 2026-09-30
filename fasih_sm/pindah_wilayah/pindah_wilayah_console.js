@@ -648,6 +648,8 @@
       if (await sesiHidup(ctx, o)) return { id, hilang: true };
       throw new Berhenti("SESI_DITOLAK", "detail HTTP 403 & sesi tidak hidup — login ulang");
     }
+    // Dokumen yang sudah dihapus juga dijawab {success:true, data:null} (terbukti 2026-09-30, hapus_daftar).
+    if (status === 200 && j && j.success === true && j.data == null) return { id, hilang: true };
     return ringkasDetail(j, id);
   }
 

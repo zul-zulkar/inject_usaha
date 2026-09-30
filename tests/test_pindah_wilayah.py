@@ -244,5 +244,41 @@ with tempfile.TemporaryDirectory() as tmp:
     pw.main(["--catat", "--unduhan", str(berkas_unduh), "--audit", str(berkas_audit), "--tulis"])
     check("--catat --tulis kedua kali: tidak ada baris baru", len(pw.baca_csv(berkas_audit)), len(audit1) + 2)
 
+# ------------------------------------------------------------------ --sisa-wadah (ketetapan user 2026-09-30)
+from types import SimpleNamespace  # noqa: E402
+W, TA, TB, TAG = "5108060006000224", "5108010001000101", "5108010001000102", "5108020001000101"
+uid = lambda n: f"{n:08x}-0000-4000-8000-{n:012x}"  # noqa: E731
+IA, IB, X1, X2, X3, X4, X5, X6 = (uid(n) for n in range(101, 109))
+R = lambda k, n, t, b: SimpleNamespace(kunci=k, nama_dokumen=n, idsubsls=t, baris=b)  # noqa: E731
+rows_s = [R("kA", "USAHA A (X)", TA, 2), R("kB", "USAHA B (Y)", TB, 3), R("kC", "USAHA C (Z)", TA, 4), R("kD", "USAHA D (W)", W, 5)]
+aud_s = {Path("a.csv"): [{"kunci": "kB", "dokumen_url": url_entry(X2, ASG), "idsubsls": TB, "nama_usaha": "USAHA B (Y)"},
+                         {"kunci": "kAG", "dokumen_url": url_entry(X5, ASG), "idsubsls": TAG, "nama_usaha": "PANGKALAN GAS (Q)"}]}
+semua = [{"k": "kA", "s": 0, "b": 2, "n": "USAHA A (X)", "t": TA, "ids": [IA]},
+         {"k": "kB", "s": 0, "b": 3, "n": "USAHA B (Y)", "t": TB, "ids": [IB]}]
+tuntas_s = {(IA, TA)}
+sisa_t = [t for t in semua if (t["ids"][0], t["t"]) not in tuntas_s]
+sw = [{"id": X1, "kode": W, "nama": "USAHA A (X)"}, {"id": X2, "kode": W, "nama": "USAHA B LAMA (Y)"},
+      {"id": X3, "kode": W, "nama": "USAHA C (Z)"}, {"id": X4, "kode": W, "nama": "USAHA D (W)"},
+      {"id": X5, "kode": W, "nama": "PANGKALAN GAS (Q)"}, {"id": X6, "kode": "5108060006000106", "nama": "ENTAH (R)"}]
+sumber_s = ["compiled.xlsx"]
+baru, hit, rinc = pw.tambah_sisa_wadah(sw, [("compiled.xlsx", rows_s, [])], aud_s, sisa_t, semua, tuntas_s, sumber_s)
+kat = {r[1]: r[0] for r in rinc}
+check("sisa-wadah: kategori", [kat[x] for x in (X1, X2, X3, X4, X5, X6)],
+      ["KEMBAR", "PENGGANTI", "PENGGANTI", "SUDAH_DI_TEMPAT", "AUDIT_SAJA", "TAK_DIKENAL"])
+tb = {t["k"]: t for t in baru}
+check("sisa-wadah: pengganti menempel ke target baris (ID terhapus + ID baru)", sorted(tb["kB"]["ids"]), sorted([IB, X2]))
+check("sisa-wadah: nama server jadi nama sah (na)", tb["kB"]["na"], ["USAHA B LAMA (Y)"])
+check("sisa-wadah: baris tanpa ID -> target baru ke tujuan baris", (tb["kC"]["t"], tb["kC"]["ids"]), (TA, [X3]))
+check("sisa-wadah: tujuan dari audit (Agenda lama)", (tb["kAG"]["t"], tb["kAG"]["ids"], sumber_s[tb["kAG"]["s"]]),
+      (TAG, [X5], "sisa_wadah"))
+check("sisa-wadah: kembar & yang sudah di tempat tidak jadi target", [x in {i for t in baru for i in t["ids"]} for x in (X1, X4, X6)],
+      [False, False, False])
+check("sisa-wadah: target asli tidak diubah", semua[1]["ids"], [IB])
+check("daftar hapus: KEMBAR saja (+ kembarannya)", [(d["id"], d["kembar"], d["tujuan"]) for d in pw.daftar_hapus(rinc)], [(X1, IA, TA)])
+check("daftar hapus: + TAK_DIKENAL kalau diminta", [d["id"] for d in pw.daftar_hapus(rinc, True)], [X1, X6])
+with tempfile.TemporaryDirectory() as tmp:
+    js = pw.tulis_console_hapus(pw.daftar_hapus(rinc), Path(tmp) / "h.siap.js").read_text(encoding="utf-8")
+    check("console hapus: daftar tersuntik, penanda habis", [X1 in js, "/*__DAFTAR__*/" in js], [True, False])
+
 print("\nSEMUA LULUS" if ok_all else "\nADA YANG GAGAL")
 sys.exit(0 if ok_all else 1)
